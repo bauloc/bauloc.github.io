@@ -1,0 +1,35 @@
+
+<div id='adsplay-container'>
+    <script type="text/javascript" src="https://ads-cdn.fptplay.net/static/sdk/website/sdk/crfn.js?v=0702"></script>
+    <script type='text/javascript'>
+    function noData() {
+      htmlLogTracking('nodata');
+      setTimeout(function() {
+        emit('closeBanner');
+      }, 1000);
+    }
+    
+    function deliveryReplaceTracking() {
+      api_request = "https://log7.adsplay.xyz/track/videoads_v2?evt=request&uri=/delivery/v2?rurl=&cb=1562295269&caid=phim-bo&scw=414.0&ver=1.0.0&sch=736.0&purl=https://fptplay.vn/danh-muc/phim-bo/55701c1517dc1321ee85857a&plw=&mdata=0&ip=100.119.160.116&pid=108&ua=Mozilla/5.0%20%28iPhone;%20CPU%20iPhone%20OS%2012_1%20like%20Mac%20OS%20X%29%20AppleWebKit/605.1.15%20%28KHTML,%20like%20Gecko%29%20Mobile/16B91%5BFBAN/FBIOS;FBDV/x86_64;FBMD/iPhone;FBSN/iOS;FBSV/12.1;FBSS/3;FBCR/;FBID/phone;FBLC/en;FBOP/5%5D&uid=631D059B-1672-497D-9E48-3FAAFBDBE0E3&plh=&ext=%7B%22deviceModel%22:%20%22Simulator%20iPhone%207%20Plus%22,%20%22userType%22:%20%22vip%22%7D&mac=&out=html&placement=108&serverTime=1562295317"; 
+      api_nodata = "https://log7.adsplay.xyz/track/videoads_v2?evt=nodata&uri=/delivery/v2?rurl=&cb=1562295269&caid=phim-bo&scw=414.0&ver=1.0.0&sch=736.0&purl=https://fptplay.vn/danh-muc/phim-bo/55701c1517dc1321ee85857a&plw=&mdata=0&ip=100.119.160.116&pid=108&ua=Mozilla/5.0%20%28iPhone;%20CPU%20iPhone%20OS%2012_1%20like%20Mac%20OS%20X%29%20AppleWebKit/605.1.15%20%28KHTML,%20like%20Gecko%29%20Mobile/16B91%5BFBAN/FBIOS;FBDV/x86_64;FBMD/iPhone;FBSN/iOS;FBSV/12.1;FBSS/3;FBCR/;FBID/phone;FBLC/en;FBOP/5%5D&uid=631D059B-1672-497D-9E48-3FAAFBDBE0E3&plh=&ext=%7B%22deviceModel%22:%20%22Simulator%20iPhone%207%20Plus%22,%20%22userType%22:%20%22vip%22%7D&mac=&out=html&placement=108&serverTime=1562295317"; 
+      setupFollowTracking();
+    }
+
+    function init(width, height) {
+      deliveryReplaceTracking();
+
+      //setTimeout(noData, 1);
+    }
+
+    function loading() {
+      if (typeof crfnLoaded !== 'undefined') {
+        init();
+      } else {
+        setTimeout(loading, 500);
+      }
+    }
+
+    loading();
+
+  </script>
+</div>
