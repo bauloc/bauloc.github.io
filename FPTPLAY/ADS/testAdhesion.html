@@ -1,0 +1,247 @@
+<div id='adsplay-container' style='height: 100%; padding: 0;'>
+    <div id='background'></div>
+    <script type="text/javascript" src="https://ads-cdn.fptplay.net/static/sdk/website/sdk/adsplay-logo.js"></script>
+    <script type="text/javascript" src="https://ads-cdn.fptplay.net/static/sdk/website/sdk/crfn.js"></script>
+    <style>
+    #adsplay-container {
+      height: 100%;
+      padding: 0;
+    }
+    #background {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: black;
+      opacity: 0.6;
+    }
+    #creativeHolder{
+      display: flex;
+      position: relative;
+      transition: opacity 0.5s;
+      height: 100%;
+      width: 100%;
+    }
+    #imgContainer {
+      width: 95%;
+      height: auto;
+      display: inline-block;
+      position: relative;
+      margin: auto;
+      cursor: pointer;
+    }
+    #imgHolder {
+      width: 100%;
+    }
+    #vidHolder {
+      position: absolute;
+      left:5.7%;
+      bottom: 0.4%;
+      width: 34.6%;
+      cursor: pointer;
+    }
+    #mute {
+      cursor: pointer;
+      width: 6vw;
+      height: 6vw;
+      border-radius: 50%;
+      bottom: 5%;
+      left: 45%;
+      position: absolute;
+    }
+    .inner-img {
+      width: 80%;
+      height: 80%;
+      background-image: url("https://ads-cdn.fptplay.net/static/banner/2019/04/ccf8fd62db3d34cdd90f6be00121b7f5_7184.png");
+      background-size: contain;
+      background-repeat: no-repeat;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .muted {
+      background-image: url("https://ads-cdn.fptplay.net/static/banner/2019/04/def9cbe59ce34853e7081f62b095e348_9468.png")!important;
+    }
+    .fade {
+      animation-name: fade;
+      animation-duration: 0.5s;
+    }
+    @keyframes fade {
+      0% {background: rgba(65, 28, 5, 0)}
+      50% {background: rgba(65, 28, 5, 0.5)}
+      100% {background: rgba(65, 28, 5, 0)}
+    }
+  </style>
+    <script type='text/javascript'>
+    var container = document.querySelector('#adsplay-container');
+    var iframeId = document.body.getAttribute('id');
+    var deviceWidth, deviceHeight;
+    var bannerWidthRatio = 1;
+    var interval;
+    var timeoutId;
+    // var test = handleCookie('get', 'adsplay-test') === '1';
+    var reloadTimeout = -1;
+
+    function initFrame1() {
+      var creativeHolder = document.createElement('div');
+      creativeHolder.setAttribute('id', 'creativeHolder');
+      creativeHolder.style.opacity = '0';
+
+      container.appendChild(creativeHolder);
+
+      var imgContainer = document.createElement('div');
+      imgContainer.setAttribute('id', 'imgContainer');
+
+      creativeHolder.appendChild(imgContainer);
+
+      var imgHolder = new Image();
+      imgHolder.setAttribute('id', 'imgHolder');
+      imgHolder.src = 'https://ads-cdn.fptplay.net/static/banner/2019/04/a27b96c2e5f2d11afe67c56a6996550e_7224.jpg';
+      imgHolder.onload = function() {
+        var width = deviceWidth * bannerWidthRatio;
+        var height = width / (this.width / this.height);
+        emit('resizeBanner_' + width / height);
+        showContainer(1);
+
+        tryAddLogo('downBtn', imgContainer, { height: height * 0.2, blackLogo: true }, function() {
+          showContainer(0);
+          cleanContainer(initFrame2);
+        })
+      }
+      imgContainer.appendChild(imgHolder);
+
+      var vidHolder = document.createElement('video');
+      vidHolder.src = 'https://ads-cdn.fptplay.net/static/banner/2019/04/7fec3083c191ae4c2ab69cc7ecfd9bef_516.mp4';
+      vidHolder.setAttribute('id', 'vidHolder');
+      vidHolder.setAttribute('type', 'video/mp4');
+      vidHolder.setAttribute('playsinline', true);
+      vidHolder.autoplay = true;
+      vidHolder.muted = true;
+      vidHolder.onplay = function() {
+        htmlLogTracking("start_played");
+      };
+      vidHolder.onended = function() {
+        htmlLogTracking("complete_view");
+        clearInterval(interval);
+      }
+      vidHolder.onpause = function() {
+        vidHolder.muted = true;
+        vidHolder.play();
+      };
+
+      interval = setInterval(function() {
+        if (vidHolder.currentTime/vidHolder.duration > 0.75) {
+          htmlLogTracking("played_75");
+        } else if (vidHolder.currentTime/vidHolder.duration > 0.50) {
+          htmlLogTracking("played_50");
+        } else if (vidHolder.currentTime/vidHolder.duration > 0.25) {
+          htmlLogTracking("played_25");
+        }
+      }, 500);
+
+      imgContainer.appendChild(vidHolder);
+
+      var muteBtn = document.createElement('div');
+      muteBtn.setAttribute('id', 'mute');
+      imgContainer.appendChild(muteBtn);
+
+      var innerImg = document.createElement('div');
+      innerImg.setAttribute('class', 'inner-img muted');
+      muteBtn.appendChild(innerImg);
+
+      muteBtn.addEventListener('click', function(event) {
+        event.stopPropagation();
+        event.preventDefault();
+        vidHolder.muted = !vidHolder.muted;
+        muteBtn.querySelector(".inner-img").classList.toggle("muted");
+        muteBtn.classList.remove("fade");
+        void muteBtn.offsetWidth;
+        muteBtn.classList.add("fade");
+      });
+
+      imgContainer.addEventListener('click', function() {
+        redirect();
+      });
+
+      htmlLogTracking('impression');
+    }
+
+    function initFrame2() {
+      var creativeHolder = document.createElement('div');
+      creativeHolder.setAttribute('id', 'creativeHolder');
+      creativeHolder.style.opacity = '0';
+
+      container.appendChild(creativeHolder);
+
+      var imgContainer = document.createElement('div');
+      imgContainer.setAttribute('id', 'imgContainer');
+
+      creativeHolder.appendChild(imgContainer);
+
+      var imgHolder = new Image();
+      imgHolder.setAttribute('id', 'imgHolder');
+      imgHolder.src = 'https://ads-cdn.fptplay.net/static/banner/2019/04/0d992ffe3630bc470b72aae3d53716e6_8606.jpg';
+      imgHolder.onload = function() {
+        var width = deviceWidth * bannerWidthRatio;
+        var height = width / (this.width / this.height);
+        emit('resizeBanner_' + width / height);
+        showContainer(1);
+
+        tryAddLogo('logo', imgContainer, { height: height * 0.2 }, function() {
+          showContainer(0);
+          cleanContainer(function() {
+            emit('closeBanner');
+          });
+        })
+      }
+      imgContainer.appendChild(imgHolder);
+
+      imgContainer.addEventListener('click', function() {
+        showContainer(0);
+        cleanContainer(function() {
+          emit('reloadBanner');
+        });
+      });
+    }
+
+    function deliveryReplaceTracking() {
+      api_impression = ["https://log7.adsplay.xyz/tracking/v2?evt=impression&adid=802401&fid=8024&cid=80&pid=110&uid=631D059B-1672-497D-9E48-3FAAFBDBE0E3&ip=100.119.160.116&purl=https://fptplay.vn/danh-muc/xem-truyen-hinh/vtv3-hd&rurl=&js=0&plw=&plh=&scw=414.0&sch=736.0&cb=[timestamp]&weightKey=w_802401&imaCB=[TIMESTAMP]&buyType=cpm&caid=139",""]; 
+      api_click = ["https://log7.adsplay.xyz/tracking/v2?evt=click&adid=802401&fid=8024&cid=80&pid=110&uid=631D059B-1672-497D-9E48-3FAAFBDBE0E3&ip=100.119.160.116&purl=https://fptplay.vn/danh-muc/xem-truyen-hinh/vtv3-hd&rurl=&js=0&plw=&plh=&scw=414.0&sch=736.0&cb=[timestamp]&weightKey=w_802401&imaCB=[TIMESTAMP]&buyType=cpm&caid=139",""]; 
+      api_complete_view = ["https://log7.adsplay.xyz/tracking/v2?evt=played100&adid=802401&fid=8024&cid=80&pid=110&uid=631D059B-1672-497D-9E48-3FAAFBDBE0E3&ip=100.119.160.116&purl=https://fptplay.vn/danh-muc/xem-truyen-hinh/vtv3-hd&rurl=&js=0&plw=&plh=&scw=414.0&sch=736.0&cb=[timestamp]&weightKey=w_802401&imaCB=[TIMESTAMP]&buyType=cpm&caid=139",""]; 
+      api_start_played = ["https://log7.adsplay.xyz/tracking/v2?evt=played0&adid=802401&fid=8024&cid=80&pid=110&uid=631D059B-1672-497D-9E48-3FAAFBDBE0E3&ip=100.119.160.116&purl=https://fptplay.vn/danh-muc/xem-truyen-hinh/vtv3-hd&rurl=&js=0&plw=&plh=&scw=414.0&sch=736.0&cb=[timestamp]&weightKey=w_802401&imaCB=[TIMESTAMP]&buyType=cpm&caid=139",""];
+      api_played_25 = ["https://log7.adsplay.xyz/tracking/v2?evt=played25&adid=802401&fid=8024&cid=80&pid=110&uid=631D059B-1672-497D-9E48-3FAAFBDBE0E3&ip=100.119.160.116&purl=https://fptplay.vn/danh-muc/xem-truyen-hinh/vtv3-hd&rurl=&js=0&plw=&plh=&scw=414.0&sch=736.0&cb=[timestamp]&weightKey=w_802401&imaCB=[TIMESTAMP]&buyType=cpm&caid=139",""];
+      api_played_50 = ["https://log7.adsplay.xyz/tracking/v2?evt=played50&adid=802401&fid=8024&cid=80&pid=110&uid=631D059B-1672-497D-9E48-3FAAFBDBE0E3&ip=100.119.160.116&purl=https://fptplay.vn/danh-muc/xem-truyen-hinh/vtv3-hd&rurl=&js=0&plw=&plh=&scw=414.0&sch=736.0&cb=[timestamp]&weightKey=w_802401&imaCB=[TIMESTAMP]&buyType=cpm&caid=139",""];
+      api_played_75 = ["https://log7.adsplay.xyz/tracking/v2?evt=played75&adid=802401&fid=8024&cid=80&pid=110&uid=631D059B-1672-497D-9E48-3FAAFBDBE0E3&ip=100.119.160.116&purl=https://fptplay.vn/danh-muc/xem-truyen-hinh/vtv3-hd&rurl=&js=0&plw=&plh=&scw=414.0&sch=736.0&cb=[timestamp]&weightKey=w_802401&imaCB=[TIMESTAMP]&buyType=cpm&caid=139",""];
+      landing_page = "https://www.facebook.com/vugiapkhoi2904";
+      setupFollowTracking();
+    }
+
+    function init(width, height) {
+      deviceWidth = width;
+      deviceHeight = height;
+
+      deliveryReplaceTracking();
+
+      setTimeout(initFrame1, 1);
+      if (reloadTimeout > 0) {
+        setTimeout(function(){
+          emit('reloadBanner');
+        }, reloadTimeout * 1000);
+      }
+    }
+
+    function loading() {
+      if (typeof crfnLoaded !== 'undefined') {
+        // init();
+        emit('htmlLoaded');
+      } else {
+        setTimeout(loading, 500);
+      }
+    }
+
+    loading();
+
+  </script>
+</div>

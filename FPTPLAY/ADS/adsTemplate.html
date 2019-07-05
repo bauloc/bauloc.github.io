@@ -1,0 +1,26 @@
+<html>
+
+<head>
+    <meta content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, viewport-fit=cover'
+        name='viewport' />
+</head>
+
+<body style='margin:0; background-color: black;'>
+    <div id='bannerAdsResponse' style='position:relative; width:100%; height:100%;'>
+        <!--    Add response right here!    -->
+        \(responseHTML)
+    </div>
+
+    <!--    Trigger when user press X button-->
+    <script type="text/javascript">
+        function closeBanner() {
+            try {
+                webkit.messageHandlers.MHA_CLOSE_BANNER.postMessage("MHA_CLOSE_BANNER");
+            } catch (err) {
+
+            }
+        }
+    </script>
+</body>
+
+</html>

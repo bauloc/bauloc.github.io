@@ -1,0 +1,134 @@
+<div id='adsplay-container'>
+    <div id='background'></div>
+    <script type="text/javascript" src="https://ads-cdn.fptplay.net/static/sdk/website/sdk/adsplay-logo.js"></script>
+    <script type="text/javascript" src="https://sdk.adsplay.xyz/website/sdk/crfn.js"></script>
+    <style>
+    #adsplay-container {
+      height: 100%;
+      padding: 0;
+      position: relative;
+    }
+    #creativeHolder{
+      position: relative;
+      transition: opacity 0.5s;
+      width: 100%;
+      display: inline-block;
+    }
+    #imgHolder {
+      width: 100%;
+      height: auto;
+      cursor: pointer;
+    }
+    #vidHolder {
+      position: absolute;
+      right: 31.3%;
+      top: 41%;
+      width: 21.5%;
+      cursor: pointer;
+    }
+  </style>
+    <script type='text/javascript'>
+    var container = document.querySelector('#adsplay-container');
+    var iframeId = document.body.getAttribute('id');
+    var imgSrc = 'https://ads-cdn.fptplay.net/static/banner/2019/06/0a53edbabccfdc7aaf981864b444eb44_8211.jpg';
+    var vidSrc = 'https://ads-cdn.fptplay.net/static/banner/2019/04/7fec3083c191ae4c2ab69cc7ecfd9bef_516.mp4';
+    var deviceWidth = 0;
+    var deviceHeight = 0;
+    var bannerWidthRatio = 1;
+    var interval;
+    var timeoutId;
+    var reloadTimeout = -1;
+
+    function initFrame1() {
+      var creativeHolder = document.createElement('div');
+      creativeHolder.setAttribute('id', 'creativeHolder');
+      creativeHolder.style.opacity = '0';
+
+      container.appendChild(creativeHolder);
+
+      var imgHolder = new Image();
+      imgHolder.setAttribute('id', 'imgHolder');
+      imgHolder.src = imgSrc;
+      imgHolder.onload = function() {
+        showContainer(1);
+        var width = deviceWidth * bannerWidthRatio;
+        var height = width / (this.width / this.height);
+        console.log('width ' + width)
+        console.log('height ' + height)
+        emit('resizeBanner_' + width / height);
+
+        tryAddLogo('logo', creativeHolder, { height: height * 0.15 }, function() {
+          emit('closeBanner');
+        });
+      }
+      creativeHolder.appendChild(imgHolder);
+
+      var vidHolder = document.createElement('video');
+      vidHolder.src = vidSrc;
+      vidHolder.setAttribute('id', 'vidHolder');
+      vidHolder.setAttribute('type', 'video/mp4');
+      vidHolder.setAttribute('playsinline', true);
+      vidHolder.autoplay = true;
+      vidHolder.muted = true;
+      vidHolder.onplay = function() {
+        htmlLogTracking("start_played");
+      };
+      vidHolder.onended = function() {
+        htmlLogTracking("complete_view");
+        clearInterval(interval);
+      }
+
+      interval = setInterval(function() {
+        if (vidHolder.currentTime/vidHolder.duration > 0.75) {
+          htmlLogTracking("played_75");
+        } else if (vidHolder.currentTime/vidHolder.duration > 0.50) {
+          htmlLogTracking("played_50");
+        } else if (vidHolder.currentTime/vidHolder.duration > 0.25) {
+          htmlLogTracking("played_25");
+        }
+      }, 500);
+
+      creativeHolder.appendChild(vidHolder);
+
+      creativeHolder.addEventListener('click', function() {
+        redirect();
+      });
+
+      htmlLogTracking('impression');
+    }
+
+    function init(width, height) {
+      deviceWidth = width;
+      deviceHeight = height;
+
+      api_impression = ["https://log7.adsplay.xyz/tracking/v2?evt=impression&adid=802301&fid=8023&cid=80&pid=108&uid=CDF6FC0D-3D9C-40B6-B9A8-EE5425CAB29D&ip=100.119.160.116&purl=https://fptplay.vn/danh-muc/trang-chu&rurl=&js=0&plw=&plh=&scw=375.0&sch=667.0&cb=[timestamp]&weightKey=w_802301&imaCB=[TIMESTAMP]&buyType=cpm&caid=132",""]; 
+      api_click = ["https://log7.adsplay.xyz/tracking/v2?evt=click&adid=802301&fid=8023&cid=80&pid=108&uid=CDF6FC0D-3D9C-40B6-B9A8-EE5425CAB29D&ip=100.119.160.116&purl=https://fptplay.vn/danh-muc/trang-chu&rurl=&js=0&plw=&plh=&scw=375.0&sch=667.0&cb=[timestamp]&weightKey=w_802301&imaCB=[TIMESTAMP]&buyType=cpm&caid=132",""]; 
+      api_complete_view = ["https://log7.adsplay.xyz/tracking/v2?evt=played100&adid=802301&fid=8023&cid=80&pid=108&uid=CDF6FC0D-3D9C-40B6-B9A8-EE5425CAB29D&ip=100.119.160.116&purl=https://fptplay.vn/danh-muc/trang-chu&rurl=&js=0&plw=&plh=&scw=375.0&sch=667.0&cb=[timestamp]&weightKey=w_802301&imaCB=[TIMESTAMP]&buyType=cpm&caid=132",""]; 
+      api_start_played = ["https://log7.adsplay.xyz/tracking/v2?evt=played0&adid=802301&fid=8023&cid=80&pid=108&uid=CDF6FC0D-3D9C-40B6-B9A8-EE5425CAB29D&ip=100.119.160.116&purl=https://fptplay.vn/danh-muc/trang-chu&rurl=&js=0&plw=&plh=&scw=375.0&sch=667.0&cb=[timestamp]&weightKey=w_802301&imaCB=[TIMESTAMP]&buyType=cpm&caid=132",""];
+      api_played_25 = ["https://log7.adsplay.xyz/tracking/v2?evt=played25&adid=802301&fid=8023&cid=80&pid=108&uid=CDF6FC0D-3D9C-40B6-B9A8-EE5425CAB29D&ip=100.119.160.116&purl=https://fptplay.vn/danh-muc/trang-chu&rurl=&js=0&plw=&plh=&scw=375.0&sch=667.0&cb=[timestamp]&weightKey=w_802301&imaCB=[TIMESTAMP]&buyType=cpm&caid=132",""];
+      api_played_50 = ["https://log7.adsplay.xyz/tracking/v2?evt=played50&adid=802301&fid=8023&cid=80&pid=108&uid=CDF6FC0D-3D9C-40B6-B9A8-EE5425CAB29D&ip=100.119.160.116&purl=https://fptplay.vn/danh-muc/trang-chu&rurl=&js=0&plw=&plh=&scw=375.0&sch=667.0&cb=[timestamp]&weightKey=w_802301&imaCB=[TIMESTAMP]&buyType=cpm&caid=132",""];
+      api_played_75 = ["https://log7.adsplay.xyz/tracking/v2?evt=played75&adid=802301&fid=8023&cid=80&pid=108&uid=CDF6FC0D-3D9C-40B6-B9A8-EE5425CAB29D&ip=100.119.160.116&purl=https://fptplay.vn/danh-muc/trang-chu&rurl=&js=0&plw=&plh=&scw=375.0&sch=667.0&cb=[timestamp]&weightKey=w_802301&imaCB=[TIMESTAMP]&buyType=cpm&caid=132",""];
+      landing_page = "https://www.facebook.com/vugiapkhoi2904";
+      setupFollowTracking();
+
+      setTimeout(initFrame1, 1);
+      if (reloadTimeout > 0) {
+        setTimeout(function(){
+          emit('reloadBanner');
+        }, reloadTimeout * 1000);
+      }
+    }
+
+    function loading() {
+      if (crfnLoaded) {
+        //init();
+        emit('htmlLoaded');
+      } else {
+        setTimeout(loading, 500);
+      }
+    }
+
+    loading();
+
+  </script>
+</div>
