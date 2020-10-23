@@ -14,7 +14,8 @@
 	<descriptionlist>
 		<description>This is an package will full depictions.</description>
 		<description>It has more description lines.</description>
-		<description><![CDATA[
+		<description>
+			<![CDATA[
 		You can also have<br/> 
 		a multi-line item.
 		]]>
@@ -22,8 +23,23 @@
 	</descriptionlist>
 	<screenshots>
 		<screenshot>
-			<image>IMG_3913.jpg</image>
-		</screenshot>		
+			<image>IMG_3913.jpeg</image>
+		</screenshot>
+		<screenshot>
+			<image>IMG_3914.jpeg</image>
+		</screenshot>
+		<screenshot>
+			<image>IMG_3915.jpeg</image>
+		</screenshot>
+		<screenshot>
+			<image>IMG_3916.jpeg</image>
+		</screenshot>
+		<screenshot>
+			<image>IMG_3917.jpeg</image>
+		</screenshot>
+		<screenshot>
+			<image>IMG_3918.jpeg</image>
+		</screenshot>				
 	</screenshots>
 	<changelog>
 		<change>Second release</change>
