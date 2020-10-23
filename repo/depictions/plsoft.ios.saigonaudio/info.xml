@@ -1,0 +1,38 @@
+<package>
+	<id>plsoft.ios.saigonaudio</id>
+	<name>Full Package</name>
+	<version>2.0.0-1</version>
+	<compatibility>
+		<firmware>
+			<miniOS>10.0</miniOS>
+		</firmware>
+	</compatibility>
+	<dependencies>
+		<package>mobilesubstrate</package>
+	</dependencies>
+	<shortDescription>This is a sample new package. Firmware should be greater than 7.0</shortDescription>
+	<descriptionlist>
+		<description>This is an package will full depictions.</description>
+		<description>It has more description lines.</description>
+		<description><![CDATA[
+		You can also have<br/> 
+		a multi-line item.
+		]]>
+		</description>
+	</descriptionlist>
+	<screenshots>
+		<screenshot>
+			<image>IMG_3913.PNG</image>
+			<image>IMG_3914.PNG</image>
+			<image>IMG_3915.PNG</image>
+			<image>IMG_3916.PNG</image>
+			<image>IMG_3917.PNG</image>
+			<image>IMG_3918.PNG</image>
+		</screenshot>		
+	</screenshots>
+	<changelog>
+		<change>Second release</change>
+		<change>It has feature 1</change>
+		<change>It has feature 2</change>
+	</changelog>
+</package>

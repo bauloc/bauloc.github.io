@@ -1,0 +1,14 @@
+<repo>
+	<footerlinks>
+		<link>
+			<name>Contact me: loc.plsoft@gmail.com</name>
+			<url>loc.plsoft@gmail.com</url>
+			<iconclass>fa fa-twitter</iconclass>
+		</link>
+		<link>
+			<name>I want this depiction template</name>
+			<url>https://github.com/supermamon/Reposi3/</url>
+			<iconclass>fa fa-thumbs-up</iconclass>
+		</link>
+	</footerlinks>
+</repo>

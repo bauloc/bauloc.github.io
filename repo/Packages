@@ -1,0 +1,15 @@
+Package: plsoft.ios.saigonaudio
+Version: 2.0.0
+Architecture: iphoneos-arm
+Maintainer: bauloc
+Filename: ./debs/plsoft.ios.saigonaudio.deb
+Size: 29400288
+MD5sum: a5f7a908875d1790dbbd0bf212309880
+SHA1: 40b73ed8cfed91acc68c43fb3752b320d521234e
+SHA256: 806b9fad66f561ccd9122f67dabf9ea2aaaf60aba4a699585e4914d69855e885
+Section: Apps
+Description: This is a demo for building applications in Xcode and deploying through Cydia
+Author: bauloc
+Depiction: https://bauloc.github.io/repo/depictions/?p=plsoft.ios.saigonaudio
+Name: SaigonAudio
+
