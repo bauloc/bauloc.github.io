@@ -1,1 +1,18 @@
-{"version":1,"updated_at":"2026-03-19T00:00:00Z","entries":[]}
+{
+  "version": 1,
+  "updated_at": "2026-03-19T14:40:35.133Z",
+  "entries": [
+    {
+      "slug": "app-loi-vong-co",
+      "app_name": "Lời Vọng Cổ",
+      "created_at": "2026-03-19T14:40:35.133Z",
+      "updated_at": "2026-03-19T14:40:35.133Z",
+      "terms_url": "https://bauloc.github.io/terms/app-loi-vong-co/",
+      "privacy_url": "https://bauloc.github.io/privacy/app-loi-vong-co/",
+      "platform": [
+        "ios",
+        "android"
+      ]
+    }
+  ]
+}
