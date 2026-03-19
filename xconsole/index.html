@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XConsole</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- PAT Setup Modal -->
+  <div id="pat-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <h2>GitHub Token Setup</h2>
+      <p>A Personal Access Token is required to publish pages to GitHub.</p>
+      <p class="modal-note">Needs <code>repo</code> scope (classic) or <code>Contents: Read &amp; Write</code> (fine-grained). Stored locally in your browser only.</p>
+      <div class="form-group">
+        <label for="pat-input">Personal Access Token</label>
+        <input type="password" id="pat-input" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="pat-save-btn">Save &amp; Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <h2>Settings</h2>
+      <div class="form-group">
+        <label for="settings-pat-input">GitHub Personal Access Token</label>
+        <input type="password" id="settings-pat-input" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label>Repository</label>
+        <p class="settings-info"><code>bauloc/bauloc.github.io</code></p>
+      </div>
+      <div class="modal-actions" style="justify-content:space-between">
+        <button class="btn btn-danger" id="settings-logout-btn">Logout</button>
+        <div style="display:flex;gap:10px">
+          <button class="btn btn-secondary" id="settings-cancel-btn">Cancel</button>
+          <button class="btn btn-primary" id="settings-save-btn">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast-container"></div>
+
+  <!-- App Shell -->
+  <div class="app-shell">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-logo">X</span>
+        <span class="sidebar-title">Console</span>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a href="#term-privacy" class="nav-item active" data-module="term-privacy">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+          <span class="nav-label">Term &amp; Privacy</span>
+        </a>
+        <!-- Future modules go here -->
+      </nav>
+
+      <div class="sidebar-footer">
+        <button class="nav-item settings-btn" id="open-settings-btn">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+          </svg>
+          <span class="nav-label">Settings</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Content Area -->
+    <main class="content-area">
+      <div id="module-content">
+        <div class="loading-spinner">
+          <div class="spinner"></div>
+        </div>
+      </div>
+    </main>
+
+  </div>
+
+  <script src="app.js"></script>
+  <script src="modules/term-privacy/index.js"></script>
+</body>
+</html>

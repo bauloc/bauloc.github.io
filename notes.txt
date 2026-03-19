@@ -1,0 +1,19 @@
+
+
+đây là dự án để build 1 web tool, mục đích để tạo trang web Terms, Privacy Policy để xuất bản app lên appstore hoặc google play.
+Ý tưởng của tôi là thế này:
+
+Build 1 web app up lên domain này 
+
+đây là dự án để build 1 web tool, mục đích để tạo trang web Terms, Privacy Policy để xuất bản app lên appstore hoặc google play.
+Ý tưởng của tôi là thế này:
+
+Build 1 web app up lên domain này https://bauloc.github.io/
+
+Tôi mở tool bằng địa chỉ này https://bauloc.github.io/term_console, sẽ hiển thị ra danh sách các trang web term đang có, và có thể tạo thêm 1 trang web term mới bằng cách ấn vào button để tạo.
+Trang web Term có nội dung đơn giản, phù hợp với yêu cầu của apple/google để upload 1 ứng dụng (đơn giản) lên store. Tôi nghĩ database nên lưu dạng json lưu trực tiếp vào thư mục chung trang web luôn. Vì nó cũng k cần bảo mật gì. Database có thể lưu dạng json. Web term cần tạo ra thực chất là wrap chuỗi json đó vào 1 trang template html để nhìn cho đẹp mắt thôi.
+
+Hãy lên plan giúp tôi.
+
+
+https://bauloc.github.io/xconsole
