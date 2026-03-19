@@ -947,20 +947,19 @@ async function handleFormSubmit() {
     db.updated_at = now;
     await githubWriteFile(TP_DB_PATH, JSON.stringify(db, null, 2), `Update term index`);
 
-    // 4 & 5. Generate and write HTML pages in parallel
-    showSaving('Publishing pages...');
-    await Promise.all([
-      githubWriteFile(
-        `terms/${slug}/index.html`,
-        TERMS_TEMPLATE(data),
-        `Publish Terms of Service: ${slug}`
-      ),
-      githubWriteFile(
-        `privacy/${slug}/index.html`,
-        PRIVACY_TEMPLATE(data),
-        `Publish Privacy Policy: ${slug}`
-      )
-    ]);
+    // 4 & 5. Generate and write HTML pages sequentially (parallel causes 409 conflict)
+    showSaving('Publishing Terms page...');
+    await githubWriteFile(
+      `terms/${slug}/index.html`,
+      TERMS_TEMPLATE(data),
+      `Publish Terms of Service: ${slug}`
+    );
+    showSaving('Publishing Privacy page...');
+    await githubWriteFile(
+      `privacy/${slug}/index.html`,
+      PRIVACY_TEMPLATE(data),
+      `Publish Privacy Policy: ${slug}`
+    );
 
     hideSaving();
     closeForm();
@@ -1009,12 +1008,10 @@ async function handleDelete(slug, appName) {
     db.updated_at = new Date().toISOString();
     await githubWriteFile(TP_DB_PATH, JSON.stringify(db, null, 2), `Remove ${slug} from index`);
 
-    // 2. Delete all 3 files in parallel
-    await Promise.all([
-      githubDeleteFile(TP_PAGES_PATH + slug + '.json',        `Delete page data: ${slug}`),
-      githubDeleteFile(`terms/${slug}/index.html`,             `Delete Terms page: ${slug}`),
-      githubDeleteFile(`privacy/${slug}/index.html`,           `Delete Privacy page: ${slug}`),
-    ]);
+    // 2. Delete all 3 files sequentially (parallel causes 409 conflict)
+    await githubDeleteFile(TP_PAGES_PATH + slug + '.json',  `Delete page data: ${slug}`);
+    await githubDeleteFile(`terms/${slug}/index.html`,       `Delete Terms page: ${slug}`);
+    await githubDeleteFile(`privacy/${slug}/index.html`,     `Delete Privacy page: ${slug}`);
 
     hideSaving();
     showToast('Deleted', `"${appName}" has been removed.`, 'success');
