@@ -1,18 +1,7 @@
 {
   "version": 1,
-  "updated_at": "2026-03-19T15:09:08.182Z",
+  "updated_at": "2026-03-19T15:11:01.956Z",
   "entries": [
-    {
-      "slug": "newapp",
-      "app_name": "newapp",
-      "created_at": "2026-03-19T15:09:08.182Z",
-      "updated_at": "2026-03-19T15:09:08.182Z",
-      "terms_url": "https://bauloc.github.io/terms/newapp/",
-      "privacy_url": "https://bauloc.github.io/privacy/newapp/",
-      "platform": [
-        "android"
-      ]
-    },
     {
       "slug": "testapp",
       "app_name": "testapp",
