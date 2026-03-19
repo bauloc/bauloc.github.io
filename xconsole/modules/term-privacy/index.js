@@ -564,9 +564,9 @@ function setDefaultDate() {
 async function loadFormData(slug) {
   const path = TP_PAGES_PATH + slug + '.json';
   try {
-    const raw = await rawReadFile(path);
-    if (!raw) return;
-    const data = JSON.parse(raw);
+    const result = await githubReadFile(path);
+    if (!result) return;
+    const data = JSON.parse(result.content);
     fillForm(data);
   } catch {
     showToast('Load error', 'Could not load page data', 'error');
@@ -918,8 +918,8 @@ async function handleFormSubmit() {
 
     // 2. Build db.json update
     showSaving('Preparing data...');
-    const dbRaw = await rawReadFile(TP_DB_PATH);
-    const db    = dbRaw ? JSON.parse(dbRaw) : { version: 1, entries: [] };
+    const dbResult = await githubReadFile(TP_DB_PATH);
+    const db = dbResult ? JSON.parse(dbResult.content) : { version: 1, entries: [] };
     const entry = {
       slug,
       app_name:    appName,
@@ -992,8 +992,8 @@ async function handleDelete(slug, appName) {
     showSaving('Deleting...');
 
     // 1. Build updated db.json
-    const dbRaw = await rawReadFile(TP_DB_PATH);
-    const db = dbRaw ? JSON.parse(dbRaw) : { entries: [] };
+    const dbResult = await githubReadFile(TP_DB_PATH);
+    const db = dbResult ? JSON.parse(dbResult.content) : { entries: [] };
     db.entries = db.entries.filter(e => e.slug !== slug);
     db.updated_at = new Date().toISOString();
 
@@ -1036,8 +1036,9 @@ async function initTermPrivacy(container) {
   `;
 
   try {
-    const raw = await rawReadFile(TP_DB_PATH);
-    const db  = raw ? JSON.parse(raw) : { entries: [] };
+    // Use githubReadFile (API) instead of rawReadFile (CDN) to avoid stale cache
+    const result = await githubReadFile(TP_DB_PATH);
+    const db = result ? JSON.parse(result.content) : { entries: [] };
     renderList(container, db.entries || []);
   } catch {
     renderList(container, []);
