@@ -965,8 +965,8 @@ async function handleFormSubmit() {
       8000
     );
 
-    // Reload list
-    initTermPrivacy(document.getElementById('module-content'));
+    // Re-render list directly from memory (no re-fetch needed)
+    renderList(document.getElementById('module-content'), db.entries);
 
   } catch (err) {
     hideSaving();
@@ -1010,7 +1010,8 @@ async function handleDelete(slug, appName) {
 
     hideSaving();
     showToast('Deleted', `"${appName}" has been removed.`, 'success');
-    initTermPrivacy(document.getElementById('module-content'));
+    // Re-render list directly from memory (no re-fetch needed)
+    renderList(document.getElementById('module-content'), db.entries);
 
   } catch (err) {
     hideSaving();
