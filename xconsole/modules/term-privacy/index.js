@@ -916,16 +916,8 @@ async function handleFormSubmit() {
       data.created_at = now;
     }
 
-    // 2. Write page JSON
-    showSaving('Saving page data...');
-    await githubWriteFile(
-      TP_PAGES_PATH + slug + '.json',
-      JSON.stringify(data, null, 2),
-      (_currentSlug ? 'Update' : 'Add') + ` term page data: ${slug}`
-    );
-
-    // 3. Update db.json index
-    showSaving('Updating index...');
+    // 2. Build db.json update
+    showSaving('Preparing data...');
     const dbRaw = await rawReadFile(TP_DB_PATH);
     const db    = dbRaw ? JSON.parse(dbRaw) : { version: 1, entries: [] };
     const entry = {
@@ -945,21 +937,19 @@ async function handleFormSubmit() {
       db.entries.unshift(entry);
     }
     db.updated_at = now;
-    await githubWriteFile(TP_DB_PATH, JSON.stringify(db, null, 2), `Update term index`);
 
-    // 4 & 5. Generate and write HTML pages sequentially (parallel causes 409 conflict)
-    showSaving('Publishing Terms page...');
-    await githubWriteFile(
-      `terms/${slug}/index.html`,
-      TERMS_TEMPLATE(data),
-      `Publish Terms of Service: ${slug}`
-    );
-    showSaving('Publishing Privacy page...');
-    await githubWriteFile(
-      `privacy/${slug}/index.html`,
-      PRIVACY_TEMPLATE(data),
-      `Publish Privacy Policy: ${slug}`
-    );
+    // 3. Commit all 4 files in a single commit via Git Data API
+    showSaving('Publishing...');
+    const action = _currentSlug ? 'Update' : 'Add';
+    await githubCommitMultiple({
+      writes: [
+        { path: TP_PAGES_PATH + slug + '.json', content: JSON.stringify(data, null, 2) },
+        { path: TP_DB_PATH,                     content: JSON.stringify(db, null, 2) },
+        { path: `terms/${slug}/index.html`,     content: TERMS_TEMPLATE(data) },
+        { path: `privacy/${slug}/index.html`,   content: PRIVACY_TEMPLATE(data) },
+      ],
+      message: `${action} term & privacy: ${slug}`
+    });
 
     hideSaving();
     closeForm();
@@ -1001,17 +991,22 @@ async function handleDelete(slug, appName) {
   try {
     showSaving('Deleting...');
 
-    // 1. Remove from db.json
+    // 1. Build updated db.json
     const dbRaw = await rawReadFile(TP_DB_PATH);
     const db = dbRaw ? JSON.parse(dbRaw) : { entries: [] };
     db.entries = db.entries.filter(e => e.slug !== slug);
     db.updated_at = new Date().toISOString();
-    await githubWriteFile(TP_DB_PATH, JSON.stringify(db, null, 2), `Remove ${slug} from index`);
 
-    // 2. Delete all 3 files sequentially (parallel causes 409 conflict)
-    await githubDeleteFile(TP_PAGES_PATH + slug + '.json',  `Delete page data: ${slug}`);
-    await githubDeleteFile(`terms/${slug}/index.html`,       `Delete Terms page: ${slug}`);
-    await githubDeleteFile(`privacy/${slug}/index.html`,     `Delete Privacy page: ${slug}`);
+    // 2. Update db.json + delete 3 files in a single commit
+    await githubCommitMultiple({
+      writes:  [{ path: TP_DB_PATH, content: JSON.stringify(db, null, 2) }],
+      deletes: [
+        TP_PAGES_PATH + slug + '.json',
+        `terms/${slug}/index.html`,
+        `privacy/${slug}/index.html`,
+      ],
+      message: `Delete term & privacy: ${slug}`
+    });
 
     hideSaving();
     showToast('Deleted', `"${appName}" has been removed.`, 'success');

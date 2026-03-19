@@ -4,6 +4,7 @@
 
 const GITHUB_REPO = 'bauloc/bauloc.github.io';
 const GITHUB_API  = 'https://api.github.com/repos/' + GITHUB_REPO + '/contents/';
+const GITHUB_GIT  = 'https://api.github.com/repos/' + GITHUB_REPO + '/git/';
 const RAW_BASE    = 'https://raw.githubusercontent.com/' + GITHUB_REPO + '/master/';
 
 /* ---- PAT Management ---------------------------------------- */
@@ -37,12 +38,11 @@ async function githubReadFile(path) {
 }
 
 /**
- * Write (create or update) a file in the repo.
- * content is a plain string (UTF-8 safe).
+ * Write (create or update) a single file via Contents API.
+ * Use githubCommitMultiple() when writing multiple files to avoid 409 conflicts.
  */
 async function githubWriteFile(path, content, message) {
   const token = getToken();
-  // Get current SHA if the file exists (needed for updates)
   let sha;
   const existing = await githubReadFile(path);
   if (existing) sha = existing.sha;
@@ -67,12 +67,12 @@ async function githubWriteFile(path, content, message) {
 }
 
 /**
- * Delete a file from the repo.
+ * Delete a single file via Contents API.
  */
 async function githubDeleteFile(path, message) {
   const token = getToken();
   const existing = await githubReadFile(path);
-  if (!existing) return; // already gone
+  if (!existing) return;
   const res = await fetch(GITHUB_API + path, {
     method: 'DELETE',
     headers: {
@@ -83,6 +83,88 @@ async function githubDeleteFile(path, message) {
   });
   if (res.status === 401) throw new Error('AUTH_ERROR');
   if (!res.ok && res.status !== 404) throw new Error('GitHub delete error: ' + res.status);
+}
+
+/**
+ * Commit multiple file changes (create/update/delete) in a SINGLE commit
+ * using the Git Data API. Avoids 409 conflicts from sequential Contents API calls.
+ *
+ * @param {Object} opts
+ * @param {Array<{path:string, content:string}>} [opts.writes]  - files to create/update
+ * @param {Array<string>}                        [opts.deletes] - file paths to delete
+ * @param {string} opts.message - commit message
+ */
+async function githubCommitMultiple({ writes = [], deletes = [], message }) {
+  const token = getToken();
+  const headers = { Authorization: 'token ' + token, 'Content-Type': 'application/json' };
+  const gitApi = GITHUB_GIT;
+
+  // 1. Get latest commit SHA on master
+  const refRes = await fetch(gitApi + 'ref/heads/master', { headers });
+  if (refRes.status === 401) throw new Error('AUTH_ERROR');
+  if (!refRes.ok) throw new Error('Failed to get branch ref: ' + refRes.status);
+  const refData = await refRes.json();
+  const latestCommitSha = refData.object.sha;
+
+  // 2. Get the tree SHA of that commit
+  const commitRes = await fetch(gitApi + 'commits/' + latestCommitSha, { headers });
+  if (!commitRes.ok) throw new Error('Failed to get commit: ' + commitRes.status);
+  const commitData = await commitRes.json();
+  const baseTreeSha = commitData.tree.sha;
+
+  // 3. Build tree entries
+  const tree = [];
+
+  // Files to create/update: include content inline as base64
+  for (const file of writes) {
+    tree.push({
+      path: file.path,
+      mode: '100644',
+      type: 'blob',
+      content: file.content
+    });
+  }
+
+  // Files to delete: set sha to null
+  for (const path of deletes) {
+    tree.push({
+      path: path,
+      mode: '100644',
+      type: 'blob',
+      sha: null
+    });
+  }
+
+  // 4. Create new tree
+  const treeRes = await fetch(gitApi + 'trees', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ base_tree: baseTreeSha, tree })
+  });
+  if (!treeRes.ok) throw new Error('Failed to create tree: ' + treeRes.status);
+  const treeData = await treeRes.json();
+
+  // 5. Create commit
+  const newCommitRes = await fetch(gitApi + 'commits', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      message,
+      tree: treeData.sha,
+      parents: [latestCommitSha]
+    })
+  });
+  if (!newCommitRes.ok) throw new Error('Failed to create commit: ' + newCommitRes.status);
+  const newCommit = await newCommitRes.json();
+
+  // 6. Update branch ref to point to new commit
+  const updateRes = await fetch(gitApi + 'refs/heads/master', {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ sha: newCommit.sha })
+  });
+  if (!updateRes.ok) throw new Error('Failed to update ref: ' + updateRes.status);
+  return newCommit;
 }
 
 /**
