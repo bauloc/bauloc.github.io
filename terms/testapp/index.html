@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terms of Service — testapp</title>
+  <style>
+:root{--accent:#4f6ef7;--accent-dark:#3a57e8;--accent-dim:#eef2ff;--accent-mid:#a5b4fc;--hdr-a:#0f172a;--hdr-b:#1e1b4b}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;font-size:16px;line-height:1.75;color:#334155;background:#f1f5f9}
+.page-wrap{max-width:860px;margin:0 auto;background:#fff;min-height:100vh;box-shadow:0 0 0 1px #e2e8f0}
+/* Header */
+.page-header{background:linear-gradient(135deg,var(--hdr-a) 0%,var(--hdr-b) 100%);padding:52px 52px 44px}
+.page-type-label{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-mid);margin-bottom:12px}
+.page-header h1{font-size:2.4rem;font-weight:800;color:#fff;line-height:1.15;letter-spacing:-.02em;margin-bottom:18px}
+.header-meta{display:flex;flex-wrap:wrap;gap:4px 20px;font-size:13px;color:#94a3b8;margin-bottom:24px}
+.sibling-btn{display:inline-flex;align-items:center;gap:7px;padding:8px 18px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:8px;color:#e2e8f0;font-size:13px;font-weight:600;text-decoration:none;transition:background .15s}
+.sibling-btn:hover{background:rgba(255,255,255,.18);text-decoration:none}
+.sibling-btn svg{opacity:.7}
+/* Layout */
+.layout-wrap{display:flex;align-items:flex-start}
+.toc-col{width:210px;flex-shrink:0;position:sticky;top:0;max-height:100vh;overflow-y:auto;padding:36px 0 36px 28px;border-right:1px solid #e2e8f0}
+.toc-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8;margin-bottom:14px;padding-left:10px}
+.toc-list{list-style:none;display:flex;flex-direction:column;gap:1px}
+.toc-list li a{display:block;font-size:12.5px;color:#64748b;text-decoration:none;padding:5px 10px;border-left:2px solid transparent;line-height:1.4;transition:color .12s,border-color .12s,background .12s;border-radius:0 4px 4px 0}
+.toc-list li a:hover{color:var(--accent);border-left-color:var(--accent);background:var(--accent-dim)}
+/* Content */
+.content-col{flex:1;min-width:0;padding:48px 52px}
+.intro-text{font-size:15.5px;color:#475569;margin-bottom:44px;padding-bottom:32px;border-bottom:1px solid #e2e8f0;line-height:1.8}
+/* Sections */
+.section-block{margin-bottom:52px;scroll-margin-top:24px}
+.section-heading{display:flex;align-items:center;gap:14px;margin-bottom:16px}
+.section-num{display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;background:var(--accent);color:#fff;font-size:12px;font-weight:800;flex-shrink:0;letter-spacing:.02em}
+.section-heading h2{font-size:1.05rem;font-weight:700;color:#1e293b;line-height:1.3}
+.section-block p{font-size:15px;color:#475569;margin-bottom:12px;line-height:1.8}
+.section-block p:last-child{margin-bottom:0}
+.section-block strong{color:#1e293b;font-weight:600}
+.section-block a{color:var(--accent);text-decoration:none}
+.section-block a:hover{text-decoration:underline}
+/* Pills */
+.pill-list{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 16px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 13px;background:var(--accent-dim);border:1px solid var(--accent-mid);border-radius:99px;font-size:12.5px;font-weight:600;color:var(--accent-dark);white-space:nowrap}
+.pill::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--accent);flex-shrink:0}
+/* Contact box */
+.contact-box{background:var(--accent-dim);border:1px solid var(--accent-mid);border-left:4px solid var(--accent);border-radius:10px;padding:20px 24px;margin-top:14px}
+.contact-box p{margin-bottom:6px !important;font-size:14.5px !important}
+.contact-box p:last-child{margin-bottom:0 !important}
+/* Callout */
+.callout{background:#fffbeb;border:1px solid #fcd34d;border-left:4px solid #f59e0b;border-radius:8px;padding:16px 20px;margin-top:12px;font-size:14.5px;color:#78350f;line-height:1.7}
+/* No data */
+.no-data{font-size:15px;color:#64748b;font-style:italic;margin-top:4px}
+/* Footer */
+.page-footer{background:#f8fafc;border-top:1px solid #e2e8f0;padding:32px 52px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px}
+.footer-left{font-size:13px;color:#64748b;line-height:1.7}
+.footer-left a{color:var(--accent);text-decoration:none}
+.footer-left a:hover{text-decoration:underline}
+.footer-sibling{display:inline-flex;align-items:center;gap:7px;padding:8px 18px;background:var(--accent-dim);border:1px solid var(--accent-mid);border-radius:8px;color:var(--accent-dark);font-size:13px;font-weight:600;text-decoration:none}
+.footer-sibling:hover{opacity:.85;text-decoration:none}
+/* Responsive */
+@media(max-width:768px){
+  .page-header{padding:36px 24px 32px}
+  .page-header h1{font-size:1.8rem}
+  .toc-col{display:none}
+  .content-col{padding:36px 24px}
+  .page-footer{padding:24px}
+}
+@media(max-width:480px){
+  .page-header{padding:28px 18px 24px}
+  .page-header h1{font-size:1.5rem}
+  .content-col{padding:24px 18px}
+  .page-footer{padding:20px 18px;flex-direction:column;align-items:flex-start}
+}
+</style>
+</head>
+<body>
+<div class="page-wrap">
+
+  <header class="page-header">
+    <div class="page-type-label">Terms of Service</div>
+    <h1>testapp</h1>
+    <div class="header-meta">
+      <span>Effective: 19-Mar-2026</span>
+      <span>Last Updated: 19-Mar-2026</span>
+    </div>
+    <a class="sibling-btn" href="https://bauloc.github.io/privacy/testapp/"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg> View Privacy Policy</a>
+  </header>
+
+  <div class="layout-wrap">
+    <nav class="toc-col">
+      <div class="toc-label">On this page</div>
+      <ol class="toc-list">
+        <li><a href="#s1">Acceptance of Terms</a></li>
+        <li><a href="#s2">Description of App</a></li>
+        <li><a href="#s3">Use of App</a></li>
+        <li><a href="#s4">Intellectual Property</a></li>
+        <li><a href="#s5">User Accounts</a></li>
+        <li><a href="#s6">Limitation of Liability</a></li>
+        <li><a href="#s7">Disclaimer of Warranties</a></li>
+        <li><a href="#s8">Changes to Terms</a></li>
+        <li><a href="#s9">Governing Law</a></li>
+        <li><a href="#s10">Contact</a></li>
+      </ol>
+    </nav>
+
+    <main class="content-col">
+      <p class="intro-text">These Terms of Service govern your use of <strong>testapp</strong>, operated by <strong>PLSOFT</strong>. By downloading, installing, or using the App you agree to these terms.</p>
+
+      <div class="section-block" id="s1">
+        <div class="section-heading"><span class="section-num">01</span><h2>Acceptance of Terms</h2></div>
+        <p>By downloading, installing, or using <strong>testapp</strong> ("the App"), you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the App.</p>
+      </div>
+
+      <div class="section-block" id="s2">
+        <div class="section-heading"><span class="section-num">02</span><h2>Description of the App</h2></div>
+        <p>test kaka</p>
+      </div>
+
+      <div class="section-block" id="s3">
+        <div class="section-heading"><span class="section-num">03</span><h2>Use of the App</h2></div>
+        <p>You agree to use the App only for lawful purposes and in a way that does not infringe the rights of others or restrict their use and enjoyment of the App. You must not misuse the App by knowingly introducing viruses or other malicious material.</p>
+      </div>
+
+      <div class="section-block" id="s4">
+        <div class="section-heading"><span class="section-num">04</span><h2>Intellectual Property</h2></div>
+        <p>The App and its original content, features, and functionality are owned by <strong>PLSOFT</strong> and are protected by applicable intellectual property laws. You may not copy, modify, distribute, sell, or lease any part of the App without prior written permission.</p>
+      </div>
+
+      <div class="section-block" id="s5">
+        <div class="section-heading"><span class="section-num">05</span><h2>User Accounts</h2></div>
+        <p>The App does not require you to create an account. You can use all features without registering.</p>
+      </div>
+
+      <div class="section-block" id="s6">
+        <div class="section-heading"><span class="section-num">06</span><h2>Limitation of Liability</h2></div>
+        <p>To the maximum extent permitted by applicable law, <strong>PLSOFT</strong> shall not be liable for any indirect, incidental, special, consequential, or punitive damages resulting from your use of, or inability to use, the App.</p>
+      </div>
+
+      <div class="section-block" id="s7">
+        <div class="section-heading"><span class="section-num">07</span><h2>Disclaimer of Warranties</h2></div>
+        <p>The App is provided "as is" and "as available" without any warranties of any kind, either express or implied. We do not warrant that the App will be uninterrupted, error-free, or free of viruses or other harmful components.</p>
+      </div>
+
+      <div class="section-block" id="s8">
+        <div class="section-heading"><span class="section-num">08</span><h2>Changes to Terms</h2></div>
+        <p>We reserve the right to modify these Terms of Service at any time. We will notify you of significant changes by updating the "Last Updated" date. Your continued use of the App after changes are posted constitutes your acceptance of the updated terms.</p>
+      </div>
+
+      <div class="section-block" id="s9">
+        <div class="section-heading"><span class="section-num">09</span><h2>Governing Law</h2></div>
+        <p>These Terms shall be governed by and construed in accordance with the laws of Vietnam, without regard to its conflict of law provisions.</p>
+      </div>
+
+      <div class="section-block" id="s10">
+        <div class="section-heading"><span class="section-num">10</span><h2>Contact</h2></div>
+        <p>If you have any questions about these Terms of Service, please contact us:</p>
+        <div class="contact-box">
+          <p><strong>PLSOFT</strong></p>
+          <p>Email: <a href="mailto:loc.plsoft@gmail.com">loc.plsoft@gmail.com</a></p>
+          
+          <p>Vietnam</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <footer class="page-footer">
+    <div class="footer-left">
+      <strong>PLSOFT</strong> &bull; Vietnam
+      
+    </div>
+    <a class="footer-sibling" href="https://bauloc.github.io/privacy/testapp/"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg> Privacy Policy</a>
+  </footer>
+
+</div>
+</body>
+</html>
