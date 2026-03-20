@@ -4,17 +4,21 @@
   <meta charset="utf-8">
   <title>BAULOC's Profile</title>
   <script>
-    // GitHub Pages SPA redirect hack
-    // Keeps 1 path segment (/profile) as the base, encodes the rest as query string
     var pathSegmentsToKeep = 1;
     var l = window.location;
-    l.replace(
-      l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
-      l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?/' +
-      l.pathname.slice(1).split('/').slice(pathSegmentsToKeep).join('/').replace(/&/g, '~and~') +
-      (l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '') +
-      l.hash
-    );
+    var base = l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '');
+    // If already redirected but still got 404, go to homepage to avoid infinite loop
+    if (l.search[1] === '/') {
+      l.replace(base + '/profile/');
+    } else {
+      l.replace(
+        base +
+        l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?/' +
+        l.pathname.slice(1).split('/').slice(pathSegmentsToKeep).join('/').replace(/&/g, '~and~') +
+        (l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '') +
+        l.hash
+      );
+    }
   </script>
 </head>
 <body></body>
