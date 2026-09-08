@@ -1,2 +1,22 @@
-
 .DS_Store
+
+# Vite project (source lives in _app/, build output is committed at the repo root).
+_app/node_modules/
+_app/dist/
+_app/.vite/
+
+# Secrets. The xconsole's whole security model is that the GitHub PAT lives in the
+# browser's localStorage and never in this repo — these patterns keep it that way.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local Claude Code state: a per-machine permission allowlist, not shared config.
+.claude/settings.local.json
+
+# Archive of the pre-2026 site. Removed from HEAD (see the commit that names the
+# recovery sha) because a ~148 MB checkout is the dominant cost in CI, but kept on
+# disk here. Recover with: git checkout <sha> -- _deprecated/
+_deprecated/
