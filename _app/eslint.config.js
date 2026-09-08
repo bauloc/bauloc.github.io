@@ -14,9 +14,17 @@ export default tseslint.config(
     ignores: ['dist', 'node_modules', 'coverage', 'src/routeTree.gen.ts'],
   },
   js.configs.recommended,
-  ...tseslint.configs.recommendedTypeChecked,
   {
+    /*
+      Type-checked rules are scoped to TS, not spread at top level.
+
+      Spreading `recommendedTypeChecked` globally applies rules like `await-thenable` to
+      this config file and to scripts/*.mjs, which have no type information and are not in
+      tsconfig's `include` — ESLint then dies with "you have used a rule which requires type
+      information". Scoping via `extends` inside a `files` block is the fix.
+    */
     files: ['**/*.{ts,tsx}'],
+    extends: [...tseslint.configs.recommendedTypeChecked],
     languageOptions: {
       ecmaVersion: 2022,
       globals: globals.browser,
@@ -113,8 +121,24 @@ export default tseslint.config(
     },
   },
   {
-    files: ['vite.config.ts', 'eslint.config.js'],
+    // vite.config.ts IS type-checked (it is in tsconfig's include), it just runs in Node.
+    files: ['vite.config.ts'],
     languageOptions: { globals: globals.node },
+    rules: { 'no-restricted-syntax': 'off' },
+  },
+  {
+    /*
+      Plain JS with no type information: this config file, and the build scripts that sync
+      output to the repo root. They are deliberately .mjs — they run before/outside the TS
+      toolchain, and scripts/publish.mjs must work from a clean checkout with nothing built.
+    */
+    files: ['**/*.{js,mjs}'],
+    extends: [tseslint.configs.disableTypeChecked],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: globals.node,
+    },
     rules: { 'no-restricted-syntax': 'off' },
   },
 )

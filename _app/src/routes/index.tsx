@@ -5,5 +5,5 @@ export const Route = createFileRoute('/')({
 })
 
 function Home() {
-  return <div className="p-8 font-mono text-ink">skeleton ok — v{__APP_VERSION__}</div>
+  return <div className="text-foreground p-8 font-mono">skeleton ok — v{__APP_VERSION__}</div>
 }

@@ -1,86 +1,218 @@
 /*
   Design tokens — the single palette for the whole site.
 
-  Before the migration the same colours existed in FOUR hand-synced copies:
-  `/index.html`'s inline `:root` (dark terminal), `xconsole/style.css` (24 vars, light
-  console + dark navy chrome), `device/app.css` (annotated "copied verbatim from
-  xconsole/style.css" at eight section headers), and the generator's `SHARED_CSS`.
-  Three of those four are unified here. The fourth is deliberately NOT — see the note at
-  the bottom.
+  Before the migration the same colours lived in FOUR hand-synced copies: `/index.html`'s
+  inline `:root` (8 vars, dark terminal), `xconsole/style.css` (21 vars, light console with
+  dark navy chrome), `device/app.css` (39 vars, annotated "copied verbatim from
+  xconsole/style.css"), and the terms/privacy generator's `SHARED_CSS`. Three are unified
+  here; the fourth is deliberately left alone — see the note at the bottom.
 
-  This is NOT a light/dark theme. The landing page is always dark; the console is always
-  light content with dark chrome. Modelling it as a mode toggle would misrepresent the
-  design and force every component to handle a state that never occurs. So the surfaces are
-  named for what they are instead.
+  Two things were measured rather than assumed, and they shape the file:
+
+  1. The landing page's dark palette is BYTE-IDENTICAL to the Device Lab's console palette.
+     All seven pairs match (`--bg`/`--console-bg` #0d1117, `--surface`/`--console-surface`
+     #161b22, `--border`/`--console-border` #30363d, `--text`/`--console-fg` #e6edf3,
+     `--muted`/`--console-muted` #8b949e, and `--border-hover` is just `--accent` #4f6ef7
+     under another name). There is ONE dark palette used in two places.
+
+  2. xconsole and device/app.css agree on all 12 shared colours exactly. The "copied
+     verbatim" claim was wrong only about TYPE SIZES (12 of them were quietly increased);
+     the colours never drifted. So unifying the palette carries no visual risk, while
+     unifying the component CSS would.
+
+  `src/styles/theme.test.ts` asserts every value below against `legacy-palette.json`, which
+  was extracted from those real files — so a "cleanup" cannot silently reshade the site.
+
+  Names follow shadcn/ui, not our own scheme. `--background`, `--foreground`, `--card`,
+  `--border`, `--muted-foreground`, `--destructive`, `--primary`, `--ring` are the contract
+  every vendored primitive reads; inventing prettier names breaks the next `shadcn add`.
 */
 
-@theme {
-  /* ---- Shared accent and status. The one colour all three areas already agreed on. ---- */
-  --color-accent: #4f6ef7;
-  --color-accent-hover: #3a57e8;
-  --color-accent-tint: #eef2ff;
+/* ---- (a) Mode-aware roles. Light is the default: it is what the console ships today. ---- */
+:root {
+  --radius: 8px;
 
-  --color-danger: #e53e3e;
-  --color-danger-hover: #c53030;
-  --color-success: #38a169;
-  --color-warn: #d97706;
+  --background: #f7f8fc;
+  --foreground: #2d3748;
+  --card: #ffffff;
+  --card-foreground: #2d3748;
+  --popover: #ffffff;
+  --popover-foreground: #2d3748;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --muted: #f7f8fc;
+  --muted-foreground: #718096;
 
-  /* ---- Light console surfaces (xconsole, Device Lab content) ---- */
-  --color-content: #f7f8fc;
-  --color-card: #ffffff;
-  --color-line: #e2e8f0;
-  --color-ink: #2d3748;
-  --color-ink-muted: #718096;
+  --accent: #4f6ef7;
+  --accent-hover: #3a57e8;
+  --accent-foreground: #ffffff;
+  --accent-tint: #eef2ff;
 
-  /* ---- Dark chrome: the xconsole sidebar, reused as the Device Lab top bar ---- */
-  --color-chrome: #1a1a2e;
-  --color-chrome-deep: #16213e;
-  --color-chrome-ink: #a0aec0;
-  --color-chrome-ink-active: #ffffff;
+  --destructive: #e53e3e;
+  --destructive-hover: #c53030;
+  --destructive-foreground: #ffffff;
+  --success: #38a169;
+  --warning: #d97706;
 
-  /* ---- Terminal palette: the landing page, and the Device Lab log console.
-          Straight from GitHub's dark surface set, which is what the old
-          `/index.html` was already using. ---- */
-  --color-term-bg: #0d1117;
-  --color-term-surface: #161b22;
-  --color-term-line: #30363d;
-  --color-term-ink: #e6edf3;
-  --color-term-muted: #8b949e;
+  /* Was rgba(79,110,247,0.12) — the focus ring and the selected-card glow. Derived rather
+     than duplicated so it cannot fall out of step with --accent. */
+  --ring: color-mix(in srgb, var(--accent) 12%, transparent);
+  --overlay: rgb(0 0 0 / 0.5);
+  --overlay-soft: rgb(0 0 0 / 0.4);
+  --code-tint: rgb(0 0 0 / 0.06);
+}
 
-  /* ---- Platform identity. Same values as the old .badge-ios / .badge-android. ---- */
-  --color-ios: #1d4ed8;
-  --color-ios-tint: #dbeafe;
-  --color-android: #15803d;
-  --color-android-tint: #dcfce7;
+/*
+  ---- (b) FIXED chrome. These do NOT sit under `.dark`, on purpose. ----
 
-  /* ---- Device status dots. Note the deliberate split that the Device Lab depends on:
-          `unauthorized` is RED because the tester can fix it right now, while `offline` is
-          GREY because it is inert and usually a cable. Colour is always paired with a text
-          label — never colour alone. ---- */
-  --color-st-ok: #38a169;
-  --color-st-busy: #4f6ef7;
-  --color-st-warn: #d97706;
-  --color-st-bad: #e53e3e;
-  --color-st-off: #a0aec0;
+  The top bar is dark in light mode by design — it is the xconsole sidebar navy reused as a
+  TOP bar — and so are the copyable command blocks. Same role split shadcn uses for its
+  `--sidebar-*` tokens. A naive light/dark strategy gets this wrong and washes the chrome out.
 
-  /* ---- Type ---- */
+  `--console-*` is simultaneously the landing page's entire palette (measured above), so
+  these five values serve two surfaces from one definition.
+*/
+:root {
+  --primary: #1a1a2e;
+  --primary-foreground: #ffffff;
+
+  --chrome: #1a1a2e;
+  --chrome-foreground: #a0aec0;
+  --chrome-foreground-strong: #ffffff;
+  --chrome-hover: rgb(255 255 255 / 0.07);
+  /* Lane-chip tones, legible on the dark chrome rather than on the light content. */
+  --chrome-ok: #86efac;
+  --chrome-warn: #fcd34d;
+  --chrome-bad: #fca5a5;
+
+  --console: #0d1117;
+  --console-surface: #161b22;
+  --console-border: #30363d;
+  --console-foreground: #e6edf3;
+  --console-muted: #8b949e;
+}
+
+/*
+  ---- (c) Status and platform identity. ----
+
+  The split here is load-bearing and must not be "harmonised": `unauthorized` is RED because
+  the tester can fix it right now, while `offline` is GREY because it is inert and usually a
+  cable. Colour is never used alone — every dot is paired with its state label.
+*/
+:root {
+  --st-ok: #38a169;
+  --st-busy: #4f6ef7;
+  --st-warn: #d97706;
+  --st-bad: #e53e3e;
+  --st-off: #a0aec0;
+
+  --ios: #1d4ed8;
+  --ios-surface: #dbeafe;
+  --android: #15803d;
+  --android-surface: #dcfce7;
+}
+
+/*
+  ---- DARK ----
+
+  Used TODAY by the landing page, which sets `.dark` on <html> and offers no toggle: being a
+  dark terminal page is its identity, not a preference. Defined as a full set so that a
+  Device Lab dark mode later is a flip rather than a rewrite.
+
+  Every value is the landing page's own, so this is a rename, not a redesign.
+*/
+.dark {
+  --background: #0d1117;
+  --foreground: #e6edf3;
+  --card: #161b22;
+  --card-foreground: #e6edf3;
+  --popover: #161b22;
+  --popover-foreground: #e6edf3;
+  --border: #30363d;
+  --input: #30363d;
+  --muted: #161b22;
+  --muted-foreground: #8b949e;
+  /* --accent is identical in both modes: #4f6ef7 is also the landing's --border-hover. */
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-ring: var(--ring);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-tint: var(--accent-tint);
+  --color-destructive: var(--destructive);
+  --color-destructive-hover: var(--destructive-hover);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-chrome: var(--chrome);
+  --color-chrome-foreground: var(--chrome-foreground);
+  --color-chrome-foreground-strong: var(--chrome-foreground-strong);
+  --color-chrome-hover: var(--chrome-hover);
+  --color-chrome-ok: var(--chrome-ok);
+  --color-chrome-warn: var(--chrome-warn);
+  --color-chrome-bad: var(--chrome-bad);
+
+  --color-console: var(--console);
+  --color-console-surface: var(--console-surface);
+  --color-console-border: var(--console-border);
+  --color-console-foreground: var(--console-foreground);
+  --color-console-muted: var(--console-muted);
+
+  --color-st-ok: var(--st-ok);
+  --color-st-busy: var(--st-busy);
+  --color-st-warn: var(--st-warn);
+  --color-st-bad: var(--st-bad);
+  --color-st-off: var(--st-off);
+
+  --color-ios: var(--ios);
+  --color-ios-surface: var(--ios-surface);
+  --color-android: var(--android);
+  --color-android-surface: var(--android-surface);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: var(--radius);
+  --radius-xl: 12px;
+
+  /* All three legacy files declare this identical five-font stack. One definition now. */
   --font-sans:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, ui-sans-serif, system-ui,
     sans-serif;
   --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
 
-  /* ---- Layout constants that more than one component needs to agree on ---- */
-  --spacing-topbar: 3.25rem; /* 52px */
-  --spacing-list-pane: 23.75rem; /* 380px */
-  --spacing-drawer: 45rem; /* 720px */
-
-  --radius-card: 0.5rem; /* was --radius: 8px */
+  /*
+    Load-bearing geometry, promoted to tokens so `theme.test.ts` can assert it.
+    --spacing-idlabel is FIXED, not min-content: change it and every identifier row rewraps.
+    --spacing-cards-max is 3 × 280 + 2 × 16, which is what caps the landing grid at 3 up.
+  */
+  --spacing-topbar: 52px;
+  --spacing-list: 380px;
+  --spacing-idlabel: 118px;
+  --spacing-card: 280px;
+  --spacing-cards-max: 872px;
 
   --shadow-card: 0 2px 8px rgb(0 0 0 / 0.08);
   --shadow-lifted: 0 8px 32px rgb(0 0 0 / 0.14);
 
   --animate-blink: blink 1.1s step-end infinite;
   --animate-fade-in: fade-in 0.4s ease;
+  --animate-pulse-dot: pulse-dot 1.4s ease-in-out infinite;
 }
 
 @keyframes blink {
@@ -104,13 +236,26 @@
   }
 }
 
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
 /*
   NOT UNIFIED, on purpose: the terms/privacy generator.
 
-  `src/features/xconsole/term-privacy/templates/` emits standalone HTML documents with their
-  own inlined <style> — a blue theme for Terms (#4f6ef7) and a green one for Privacy
-  (#10b981). Those hex values are the EMITTED BYTES of pages that are live and referenced by
-  App Store and Play Console submissions. Pulling them into these tokens would change those
-  bytes for no benefit, and a store reviewer's crawler does not run JS or load our CSS.
-  They stay independent, and a golden-master test asserts they do not drift.
+  It emits standalone HTML documents with their own inlined <style> — a blue theme for Terms
+  (--accent #4f6ef7 / --hdr-a #0f172a / --hdr-b #1e1b4b) and a green one for Privacy
+  (#10b981 / #0a1f18 / #052e16). Those hex values are the EMITTED BYTES of pages that are
+  live and referenced by App Store and Play Console submissions, and a store reviewer's
+  crawler runs no JS and loads none of our CSS.
+
+  Pulling them in here would change those bytes for nothing. They stay independent, a
+  golden-master test pins them, and they are deliberately absent from
+  legacy-palette.json — a shared test would create pressure to unify them.
 */

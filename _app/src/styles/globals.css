@@ -16,6 +16,8 @@
 
   body {
     font-family: var(--font-sans);
+    background: var(--background);
+    color: var(--foreground);
     /* 15px, not Tailwind's 16px default: the console is information-dense, and the
        hand-written original used a 14px base that proved too small in use. */
     font-size: 0.9375rem;

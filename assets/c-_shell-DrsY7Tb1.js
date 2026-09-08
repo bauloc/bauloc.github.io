@@ -1,1 +1,0 @@
-import{n as e,t}from"./index-BP4188Wk.js";var n=e(),r=()=>(0,n.jsx)(t,{});export{r as component};
