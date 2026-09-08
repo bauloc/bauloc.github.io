@@ -1,13 +1,31 @@
 import type { HomeLink } from '../home-links'
-import { StatusBadge } from './status-badge'
 
 /**
- * One launcher result.
+ * Right-aligned meta. Short, lowercase, same slot for every kind of row.
  *
- * A real <a>, so ⌘-click, middle-click and "copy link" work without any of our code, and so
- * the list is navigable if the keyboard handler ever breaks. `active` is driven by the
- * launcher's keyboard cursor, not by :hover or :focus — the input keeps focus the whole time,
- * which is what makes type-then-Enter feel instant.
+ * `↗` rather than the word "external": it was the longest string in the column and pulled
+ * the eye to the least important row on the page.
+ */
+function metaFor(link: HomeLink): string {
+  if (link.external === true) return '↗'
+  return link.status
+}
+
+/**
+ * One row of the index.
+ *
+ * No card, no border, no background — whitespace separates rows, which is the single
+ * biggest structural change from the card grid this replaces. Chrome around every entry
+ * stops scaling long before the entries do.
+ *
+ * The layout is a three-column grid: a fixed gutter for the keyboard cursor, the title, and
+ * right-aligned meta. The gutter is always present even when empty, so moving the cursor
+ * never shifts the text — the commonest way a list like this feels cheap.
+ *
+ * There is deliberately no description here. A bare icon grid could not express "this needs
+ * a GitHub token" or "this is half-built", which is the one thing you must know before
+ * clicking; a text row gets that for free in the meta slot. The description still exists in
+ * the data, where it feeds search and the accessible name.
  */
 export function LinkRow({
   link,
@@ -25,47 +43,34 @@ export function LinkRow({
       id={id}
       role="option"
       aria-selected={active}
+      aria-label={`${link.title} — ${link.description}`}
+      title={link.description}
       href={link.href}
       target={link.external === true ? '_blank' : undefined}
       rel={link.external === true ? 'noopener noreferrer' : undefined}
       onMouseMove={onHover}
-      className={`
-        flex items-center gap-3.5 rounded-md border-l-2 px-3 py-2.5 text-inherit no-underline
-        transition-colors duration-100
-        ${
-          active
-            ? 'border-l-accent bg-card'
-            : 'hover:bg-card/60 border-l-transparent'
-        }
-      `}
+      className="group grid grid-cols-[1.25rem_1fr_auto] items-baseline gap-x-3 py-[0.4375rem] text-inherit no-underline"
     >
-      <span className="w-6 shrink-0 text-center text-lg leading-none" aria-hidden="true">
-        {link.icon}
-      </span>
-
-      <span className="min-w-0 flex-1">
-        <span className="flex items-baseline gap-2">
-          <span className="text-foreground font-mono text-sm font-semibold">{link.title}</span>
-          <StatusBadge status={link.status} />
-          {link.external === true && (
-            <span className="text-muted-foreground text-[0.6875rem]" aria-label="opens in a new tab">
-              ↗
-            </span>
-          )}
-        </span>
-        {/* Descriptions are ours, but they are still text — rendered as a text node, never markup. */}
-        <span className="text-muted-foreground mt-0.5 block truncate text-[0.8125rem] leading-[1.5]">
-          {link.description}
-        </span>
+      {/* Always rendered, so the cursor appearing cannot move the title. */}
+      <span
+        aria-hidden="true"
+        className={`text-accent font-mono text-xs transition-opacity duration-100 ${
+          active ? 'opacity-100' : 'opacity-0'
+        }`}
+      >
+        →
       </span>
 
       <span
-        aria-hidden="true"
-        className={`shrink-0 font-mono text-xs transition-opacity duration-100 ${
-          active ? 'text-accent opacity-100' : 'opacity-0'
+        className={`truncate font-mono text-sm transition-colors duration-100 ${
+          active ? 'text-accent' : 'text-foreground'
         }`}
       >
-        ↵
+        {link.title}
+      </span>
+
+      <span className="text-muted-foreground/60 font-mono text-[0.6875rem] tracking-[0.02em] tabular-nums">
+        {metaFor(link)}
       </span>
     </a>
   )
