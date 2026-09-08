@@ -88,9 +88,15 @@
     }
 
     /* ── Cards ── */
+    /* body is a centered flex column, so .cards has no definite width —
+       auto-fit needs one, hence the explicit width + max-width.
+       872px = 3 × 280 + 2 × 16, so the grid tops out at 3 across. */
     .cards {
       display: grid;
-      grid-template-columns: repeat(2, 280px);
+      grid-template-columns: repeat(auto-fit, 280px);
+      justify-content: center;
+      width: 100%;
+      max-width: 872px;
       gap: 16px;
     }
 
@@ -224,6 +230,18 @@
       <div class="card-icon">⚙️</div>
       <div class="card-title">XConsole</div>
       <div class="card-desc">GitHub-based admin console for managing app Terms & Privacy pages.</div>
+      <span class="card-link">
+        Open
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M8.22 2.97a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06l2.97-2.97H3.75a.75.75 0 0 1 0-1.5h7.44L8.22 4.03a.75.75 0 0 1 0-1.06z"/>
+        </svg>
+      </span>
+    </a>
+
+    <a class="card" href="/device/">
+      <div class="card-icon">📱</div>
+      <div class="card-title">Device Lab</div>
+      <div class="card-desc">Connected iOS &amp; Android devices — identifiers, screenshots &amp; one-click bug reports.</div>
       <span class="card-link">
         Open
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">

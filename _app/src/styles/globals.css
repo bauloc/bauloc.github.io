@@ -1,0 +1,40 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import './theme.css';
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    /* 15px, not Tailwind's 16px default: the console is information-dense, and the
+       hand-written original used a 14px base that proved too small in use. */
+    font-size: 0.9375rem;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Accessibility basics the hand-written CSS omitted. Do not inherit that omission. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

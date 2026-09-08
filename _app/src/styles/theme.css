@@ -1,0 +1,116 @@
+/*
+  Design tokens — the single palette for the whole site.
+
+  Before the migration the same colours existed in FOUR hand-synced copies:
+  `/index.html`'s inline `:root` (dark terminal), `xconsole/style.css` (24 vars, light
+  console + dark navy chrome), `device/app.css` (annotated "copied verbatim from
+  xconsole/style.css" at eight section headers), and the generator's `SHARED_CSS`.
+  Three of those four are unified here. The fourth is deliberately NOT — see the note at
+  the bottom.
+
+  This is NOT a light/dark theme. The landing page is always dark; the console is always
+  light content with dark chrome. Modelling it as a mode toggle would misrepresent the
+  design and force every component to handle a state that never occurs. So the surfaces are
+  named for what they are instead.
+*/
+
+@theme {
+  /* ---- Shared accent and status. The one colour all three areas already agreed on. ---- */
+  --color-accent: #4f6ef7;
+  --color-accent-hover: #3a57e8;
+  --color-accent-tint: #eef2ff;
+
+  --color-danger: #e53e3e;
+  --color-danger-hover: #c53030;
+  --color-success: #38a169;
+  --color-warn: #d97706;
+
+  /* ---- Light console surfaces (xconsole, Device Lab content) ---- */
+  --color-content: #f7f8fc;
+  --color-card: #ffffff;
+  --color-line: #e2e8f0;
+  --color-ink: #2d3748;
+  --color-ink-muted: #718096;
+
+  /* ---- Dark chrome: the xconsole sidebar, reused as the Device Lab top bar ---- */
+  --color-chrome: #1a1a2e;
+  --color-chrome-deep: #16213e;
+  --color-chrome-ink: #a0aec0;
+  --color-chrome-ink-active: #ffffff;
+
+  /* ---- Terminal palette: the landing page, and the Device Lab log console.
+          Straight from GitHub's dark surface set, which is what the old
+          `/index.html` was already using. ---- */
+  --color-term-bg: #0d1117;
+  --color-term-surface: #161b22;
+  --color-term-line: #30363d;
+  --color-term-ink: #e6edf3;
+  --color-term-muted: #8b949e;
+
+  /* ---- Platform identity. Same values as the old .badge-ios / .badge-android. ---- */
+  --color-ios: #1d4ed8;
+  --color-ios-tint: #dbeafe;
+  --color-android: #15803d;
+  --color-android-tint: #dcfce7;
+
+  /* ---- Device status dots. Note the deliberate split that the Device Lab depends on:
+          `unauthorized` is RED because the tester can fix it right now, while `offline` is
+          GREY because it is inert and usually a cable. Colour is always paired with a text
+          label — never colour alone. ---- */
+  --color-st-ok: #38a169;
+  --color-st-busy: #4f6ef7;
+  --color-st-warn: #d97706;
+  --color-st-bad: #e53e3e;
+  --color-st-off: #a0aec0;
+
+  /* ---- Type ---- */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, ui-sans-serif, system-ui,
+    sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+
+  /* ---- Layout constants that more than one component needs to agree on ---- */
+  --spacing-topbar: 3.25rem; /* 52px */
+  --spacing-list-pane: 23.75rem; /* 380px */
+  --spacing-drawer: 45rem; /* 720px */
+
+  --radius-card: 0.5rem; /* was --radius: 8px */
+
+  --shadow-card: 0 2px 8px rgb(0 0 0 / 0.08);
+  --shadow-lifted: 0 8px 32px rgb(0 0 0 / 0.14);
+
+  --animate-blink: blink 1.1s step-end infinite;
+  --animate-fade-in: fade-in 0.4s ease;
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/*
+  NOT UNIFIED, on purpose: the terms/privacy generator.
+
+  `src/features/xconsole/term-privacy/templates/` emits standalone HTML documents with their
+  own inlined <style> — a blue theme for Terms (#4f6ef7) and a green one for Privacy
+  (#10b981). Those hex values are the EMITTED BYTES of pages that are live and referenced by
+  App Store and Play Console submissions. Pulling them into these tokens would change those
+  bytes for no benefit, and a store reviewer's crawler does not run JS or load our CSS.
+  They stay independent, and a golden-master test asserts they do not drift.
+*/

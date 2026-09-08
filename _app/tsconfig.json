@@ -1,0 +1,37 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    // `w3c-web-usb` is NOT optional. Listing `types` at all disables automatic @types
+    // inclusion, so without it `navigator.usb` — the whole Device Lab transport — does not
+    // typecheck, and the strict `no-unsafe-*` rules turn that into a wall of errors.
+    "types": ["vite/client", "node", "w3c-web-usb"],
+    "skipLibCheck": true,
+
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "noUncheckedIndexedAccess": true,
+    // `exactOptionalPropertyTypes` is deliberately OFF, matching the reference project: it
+    // conflicts with the vendored shadcn/Radix components and with the DOM `RequestInit`
+    // type, and patching src/components/ui/** to satisfy it would be reverted by the next
+    // `shadcn add`.
+
+    // No `baseUrl` — deprecated in TS 6, removed in TS 7. `paths` resolves relative to this
+    // file, which is what we want anyway.
+    "paths": { "@/*": ["./src/*"] }
+  },
+  "include": ["src", "vite.config.ts", "eslint.config.js"]
+}
