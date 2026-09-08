@@ -36,8 +36,18 @@ const repoRoot = fileURLToPath(new URL('..', import.meta.url))
   the same gap, since these files are not in dist/ either.
 */
 function serveRepoRootContract(): Plugin {
-  const OWNED = ['/terms/', '/privacy/', '/profile/', '/data/', '/device/agent/']
-  const EXACT = ['/iptv']
+  /*
+    Each entry is a directory whose subtree may be served, or an exact file. Containment is
+    checked against THE MATCHED ENTRY, not against the repo root.
+
+    That distinction is the whole security of this plugin, and getting it wrong is easy:
+    an earlier version resolved the path and only asserted `startsWith(repoRoot)`, so
+    `/terms/%2e%2e%2f_app%2fpackage.json` escaped the `terms/` prefix, stayed inside the
+    repo, and served _app/package.json. Verified, then fixed. `npm run dev` must expose
+    exactly these six things and nothing else.
+  */
+  const DIRS = ['terms', 'privacy', 'profile', 'data', 'device/agent']
+  const FILES = ['iptv']
 
   const MIME: Record<string, string> = {
     '.html': 'text/html; charset=utf-8',
@@ -52,20 +62,60 @@ function serveRepoRootContract(): Plugin {
     '.pdf': 'application/pdf',
   }
 
+  /** Absolute directory, guaranteed to end in a separator so a sibling like
+   *  `terms-old/` cannot satisfy a `terms/` prefix test. */
+  const dirBase = (rel: string) => path.join(repoRoot, rel) + path.sep
+
+  /** Resolve a URL path to a file this plugin is allowed to serve, or null. */
+  function resolveOwned(urlPath: string): string | null {
+    let decoded: string
+    try {
+      decoded = decodeURIComponent(urlPath)
+    } catch {
+      return null // malformed percent-encoding
+    }
+    if (decoded.includes('\0')) return null
+
+    /*
+      Reject anything that is not already normalised. Browsers collapse `.` and `..` before
+      sending, so this only rejects hand-crafted requests — and it buys dev/prod fidelity:
+      GitHub Pages normalises `/data/../iptv` to `/iptv` and serves it there, so a dev server
+      that answered the un-normalised URL would be modelling a host that does not exist.
+      Combined with the per-entry containment below, a `..` cannot reach anything at all.
+    */
+    if (path.posix.normalize(decoded) !== decoded) return null
+
+    const target = path.resolve(repoRoot, '.' + decoded)
+
+    for (const rel of FILES) {
+      if (target === path.join(repoRoot, rel)) return target
+    }
+    for (const rel of DIRS) {
+      /*
+        Two cases, and the first is easy to forget: `path.resolve` drops the trailing
+        separator, so the directory ITSELF (`/profile/` → `<root>/profile`) does not
+        satisfy a `<root>/profile/` prefix test. Omitting it made `/profile/` fall through
+        to the SPA and stopped serving the Flutter bundle — caught by the size regression,
+        1331 B down to the 765 B shell.
+      */
+      if (target === path.join(repoRoot, rel)) return target
+      // startsWith on the base WITH a trailing separator, so a sibling `terms-old/` cannot
+      // satisfy a `terms/` test.
+      if (target.startsWith(dirBase(rel))) return target
+    }
+    return null
+  }
+
   return {
     name: 'bauloc:serve-repo-root-contract',
     apply: 'serve',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        const url = (req.url ?? '/').split('?')[0] ?? '/'
-        const isOwned = OWNED.some((p) => url.startsWith(p)) || EXACT.includes(url)
-        if (!isOwned) return next()
+        const urlPath = (req.url ?? '/').split('?')[0] ?? '/'
+        const resolved = resolveOwned(urlPath)
+        if (resolved === null) return next()
 
-        // Resolve inside repoRoot only — a `..` in the URL must not escape it.
-        const target = path.resolve(repoRoot, '.' + decodeURIComponent(url))
-        if (!target.startsWith(repoRoot)) return next()
-
-        let file = target
+        let file = resolved
         if (existsSync(file) && statSync(file).isDirectory()) file = path.join(file, 'index.html')
         if (!existsSync(file) || !statSync(file).isFile()) return next()
 
