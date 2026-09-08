@@ -209,6 +209,14 @@
 
   --shadow-card: 0 2px 8px rgb(0 0 0 / 0.08);
   --shadow-lifted: 0 8px 32px rgb(0 0 0 / 0.14);
+  /*
+    The landing card's hover lift and its ::before sheen. The originals were
+    rgba(79,110,247,0.15) and rgba(79,110,247,0.06) — the accent at 15% and 6% alpha.
+    Derived with color-mix rather than restated, so they cannot fall out of step with
+    --accent the way four hand-synced palettes did.
+  */
+  --shadow-card-lift: 0 8px 24px color-mix(in srgb, var(--accent) 15%, transparent);
+  --color-card-sheen: color-mix(in srgb, var(--accent) 6%, transparent);
 
   --animate-blink: blink 1.1s step-end infinite;
   --animate-fade-in: fade-in 0.4s ease;

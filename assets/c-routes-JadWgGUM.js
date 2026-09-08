@@ -1,1 +1,0 @@
-import{n as e}from"./index-BMH9KOtc.js";var t=e();function n(){return(0,t.jsxs)(`div`,{className:`text-foreground p-8 font-mono`,children:[`skeleton ok — v`,`1.0.0`]})}export{n as component};
