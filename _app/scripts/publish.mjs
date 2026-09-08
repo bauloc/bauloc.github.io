@@ -54,12 +54,17 @@ const SECTIONS = []
  * (device/agent) — and a build must not be able to change or delete them.
  */
 const PROTECTED = [
-  'terms',
-  'privacy',
-  'iptv',
-  'profile',
-  'data',
-  path.join('device', 'agent'),
+  // Live and store-facing / machine-consumed. Their absence is a bug, not a stage.
+  { path: 'terms', required: true },
+  { path: 'privacy', required: true },
+  { path: 'iptv', required: true },
+  { path: 'profile', required: true },
+  // Protected from the first commit, but created later in the migration: `data/` arrives
+  // with the xconsole port (the git mv and the path-constant change must land together, or
+  // the console reads a 404, falls back to an empty index and writes that back), and
+  // device/agent/ arrives with the iOS helper. Never writable either way.
+  { path: 'data', required: false },
+  { path: path.join('device', 'agent'), required: false },
 ]
 
 /** A published page slug. Also the name of a directory under terms/ and privacy/. */
@@ -143,7 +148,22 @@ check(
  * 2. Snapshot the protected paths, sync, then prove they did not move
  * ------------------------------------------------------------------ */
 
-const before = new Map(PROTECTED.map((p) => [p, fingerprint(p)]))
+for (const { path: rel, required } of PROTECTED) {
+  if (required) check(fingerprint(rel) !== null, `protected path exists: ${rel}`)
+}
+
+/*
+  Everything above is a PRE-FLIGHT: it must pass before a single byte is written, or a
+  failure leaves the repo root half-updated while the report claims nothing changed.
+*/
+if (failures.length > 0) {
+  console.error(`\npublish: FAILED pre-flight (${failures.length} checks)\n`)
+  for (const f of failures) console.error(`  FAIL  ${f}`)
+  console.error('\nNothing was written. The repo root is untouched.\n')
+  process.exit(1)
+}
+
+const before = new Map(PROTECTED.map(({ path: p }) => [p, fingerprint(p)]))
 
 if (!CHECK_ONLY) {
   // assets/ is exclusively build output, so wiping it is safe and stops stale hashed
@@ -176,9 +196,9 @@ if (!CHECK_ONLY) {
 }
 
 for (const [rel, fp] of before) {
-  const now = fingerprint(rel)
-  check(fp !== null, `protected path exists: ${rel}`)
-  check(now === fp, `protected path untouched by publish: ${rel}`)
+  // A null fingerprint before and after is still equal — a not-yet-created protected path
+  // is verified as still-not-created, which is exactly the guarantee we want.
+  check(fingerprint(rel) === fp, `protected path untouched by publish: ${rel}`)
 }
 
 /* ------------------------------------------------------------------ *
@@ -243,7 +263,11 @@ const verb = CHECK_ONLY ? 'check' : 'publish'
 if (failures.length > 0) {
   console.error(`\n${verb}: FAILED ${failures.length} of ${failures.length + notes.length} checks\n`)
   for (const f of failures) console.error(`  FAIL  ${f}`)
-  console.error('\nNothing was committed. The previous site stays up.\n')
+  console.error(
+    CHECK_ONLY
+      ? '\nNothing was written.\n'
+      : '\nOutput WAS written before these post-checks ran — inspect `git diff` and do not commit.\n',
+  )
   process.exit(1)
 }
 

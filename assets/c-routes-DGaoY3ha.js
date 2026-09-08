@@ -1,0 +1,1 @@
+import{n as e}from"./index-BP4188Wk.js";var t=e();function n(){return(0,t.jsxs)(`div`,{className:`p-8 font-mono text-ink`,children:[`skeleton ok — v`,`1.0.0`]})}export{n as component};
