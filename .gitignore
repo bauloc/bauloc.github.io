@@ -16,6 +16,13 @@ _app/.vite/
 # Local Claude Code state: a per-machine permission allowlist, not shared config.
 .claude/settings.local.json
 
+# Editor: share the task runner and the recommended extensions, keep personal state out.
+.vscode/*
+!.vscode/tasks.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+
 # Archive of the pre-2026 site. Removed from HEAD (see the commit that names the
 # recovery sha) because a ~148 MB checkout is the dominant cost in CI, but kept on
 # disk here. Recover with: git checkout <sha> -- _deprecated/

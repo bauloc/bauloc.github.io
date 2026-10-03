@@ -1,0 +1,38 @@
+{
+  // Use the TypeScript this project pins (6.0.3), not the one VS Code ships. Without this
+  // the editor type-checks with a different compiler than `npm run typecheck`, and reports
+  // problems the CLI does not — or misses ones it would catch.
+  "typescript.tsdk": "_app/node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+
+  // ESLint's flat config lives in _app/, not at the repo root.
+  "eslint.workingDirectories": ["_app"],
+
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": { "source.fixAll.eslint": "explicit" },
+
+  // The repo root is the published site, not source. Keep generated output and the archive
+  // out of search and the file watcher — 148 MB of _deprecated/ makes both crawl.
+  // _deprecated/ stays VISIBLE in the explorer — it is a 148 MB archive the user may still
+  // want to browse, and hiding a directory is more surprising than useful. It is excluded
+  // from search and the file watcher below, which is where the size actually hurts.
+  "files.exclude": {
+    "_app/node_modules": true,
+    "_app/dist": true
+  },
+  "search.exclude": {
+    "assets": true,
+    "profile": true,
+    "_deprecated": true,
+    "_app/node_modules": true,
+    "_app/dist": true,
+    "**/package-lock.json": true
+  },
+  "files.watcherExclude": {
+    "**/_deprecated/**": true,
+    "**/_app/node_modules/**": true,
+    "**/_app/dist/**": true,
+    "**/profile/**": true
+  }
+}

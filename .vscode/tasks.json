@@ -1,0 +1,187 @@
+{
+    // Thin wrappers only. All real logic lives in _app/package.json "scripts", which is the
+    // single source of truth — otherwise this file and those scripts drift apart. Change
+    // behaviour there, not here.
+    //
+    // Every task runs with cwd = _app, because that is where the npm project lives. The repo
+    // root is the *published site*, not a package.
+    "version": "2.0.0",
+    "tasks": [
+        {
+            /*
+              Dev server on http://localhost:7360.
+
+              A custom middleware also serves the repo-root static contract — /terms/{slug}/,
+              /privacy/{slug}/, /iptv, /profile/, /data/, /device/agent/ — so dev shows what
+              GitHub Pages shows. `Preview (dist only)` cannot: those files are not in dist/.
+            */
+            "label": "Dev server (localhost:7360)",
+            "type": "shell",
+            "command": "npm run dev",
+            "options": { "cwd": "${workspaceFolder}/_app" },
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "vite",
+                "pattern": { "regexp": "^\\s*(.*)$", "file": 1 },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": ".*VITE.*",
+                    "endsPattern": ".*ready in.*"
+                }
+            },
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        },
+        {
+            /*
+              Serves the REPO ROOT on http://localhost:8000 — byte for byte what Pages serves:
+              the published build output next to the static contract it must never touch.
+
+              Run `Build + publish` first. python3's http.server returns genuine 404s and
+              resolves directory index.html, so it proves the 200s; it does NOT serve 404.html,
+              so it cannot exercise the SPA fallback. Use the dev server for that.
+            */
+            "label": "Serve built site (localhost:8000)",
+            "type": "shell",
+            "command": "npm run serve:site",
+            "options": { "cwd": "${workspaceFolder}/_app" },
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "http",
+                "pattern": { "regexp": "^\\s*(.*)$", "file": 1 },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": ".*Serving HTTP.*",
+                    "endsPattern": ".*Serving HTTP.*"
+                }
+            },
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        },
+        {
+            // The Definition of Done.
+            // typecheck is separate from build on purpose: `vite build` does NOT type-check,
+            // so a green build proves nothing about types.
+            "label": "Verify (typecheck + lint + test + build)",
+            "type": "shell",
+            "command": "npm run verify",
+            "options": { "cwd": "${workspaceFolder}/_app" },
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": ["$tsc"],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "Typecheck",
+            "type": "shell",
+            "command": "npm run typecheck",
+            "options": { "cwd": "${workspaceFolder}/_app" },
+            "problemMatcher": ["$tsc"],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "Lint",
+            "type": "shell",
+            "command": "npm run lint",
+            "options": { "cwd": "${workspaceFolder}/_app" },
+            "problemMatcher": ["$eslint-stylish"],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "Format",
+            "type": "shell",
+            "command": "npm run format",
+            "options": { "cwd": "${workspaceFolder}/_app" },
+            "problemMatcher": [],
+            "presentation": { "reveal": "silent", "panel": "shared" }
+        },
+        {
+            "label": "Test",
+            "type": "shell",
+            "command": "npm test",
+            "options": { "cwd": "${workspaceFolder}/_app" },
+            "group": { "kind": "test", "isDefault": true },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "Test (watch)",
+            "type": "shell",
+            "command": "npm run test:watch",
+            "options": { "cwd": "${workspaceFolder}/_app" },
+            "isBackground": true,
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        },
+        {
+            // Fills _app/dist only. Nothing reaches the site until `Build + publish`.
+            "label": "Build (dist only)",
+            "type": "shell",
+            "command": "npm run build",
+            "options": { "cwd": "${workspaceFolder}/_app" },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            /*
+              THE deploy step, minus the push.
+
+              Builds, then syncs dist/ out to the three repo-root paths this project owns
+              (/index.html, /404.html, /assets/) and asserts the whole URL contract — 23
+              checks, fail-closed, pre-flight before a single byte is written. It refuses to
+              touch terms/, privacy/, iptv, profile/, data/ or device/agent/, and proves
+              afterwards that it did not.
+
+              Then: review `git diff`, commit, push. The push is the deploy.
+            */
+            "label": "Build + publish (sync to repo root)",
+            "type": "shell",
+            "command": "npm run build && npm run publish",
+            "options": { "cwd": "${workspaceFolder}/_app" },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            // Re-asserts the URL contract against what is already on disk. Writes nothing.
+            // Use it after any hand edit at the repo root.
+            "label": "Check URL contract (no write)",
+            "type": "shell",
+            "command": "npm run check",
+            "options": { "cwd": "${workspaceFolder}/_app" },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            /*
+              Byte-compares every path that must never change against the DEPLOYED site.
+              Needs no local server.
+
+              This is the pre-push gate for the URLs submitted to the App Store and Play
+              Console, and for /iptv, which player apps read directly. An empty report means
+              a store reviewer sees exactly what they saw before.
+            */
+            "label": "Check against live site (byte-diff)",
+            "type": "shell",
+            "command": "npm run check:live",
+            "options": { "cwd": "${workspaceFolder}/_app" },
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            // verify + publish. Still does not push — deploying is a deliberate git action,
+            // and the diff is worth reading first.
+            "label": "Deploy (verify + publish, no push)",
+            "type": "shell",
+            "command": "npm run deploy",
+            "options": { "cwd": "${workspaceFolder}/_app" },
+            "problemMatcher": ["$tsc"],
+            "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+        },
+        {
+            "label": "Preview (dist only, localhost:4173)",
+            "type": "shell",
+            "command": "npm run preview",
+            "options": { "cwd": "${workspaceFolder}/_app" },
+            "isBackground": true,
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        }
+    ]
+}
