@@ -25,11 +25,12 @@ const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 /*
   The repo root serves a static contract that this build neither produces nor owns:
 
-    /terms/{slug}/   /privacy/{slug}/   /iptv   /profile/**   /data/**   /device/agent/**
+    /terms/{slug}/   /privacy/{slug}/   /iptv   /data/**   /device/agent/**
 
-  Those files are committed straight to the repo by the in-browser xconsole (or, for
-  /profile/, by a Flutter build) and GitHub Pages serves them directly — deliberately, so
-  that publishing an app-store-facing legal page never waits on a build.
+  Those files are committed straight to the repo by the in-browser xconsole and GitHub Pages
+  serves them directly — deliberately, so that publishing an app-store-facing legal page
+  never waits on a build. (/profile/ was on this list while it was a prebuilt Flutter bundle;
+  it is a route of this app now, so dev must let it fall through to the SPA.)
 
   `vite dev` knows nothing about them, so without this plugin `/terms/test-app-kaka/` in dev
   falls through to the SPA and you cannot see what a store reviewer sees. `vite preview` has
@@ -44,9 +45,9 @@ function serveRepoRootContract(): Plugin {
     an earlier version resolved the path and only asserted `startsWith(repoRoot)`, so
     `/terms/%2e%2e%2f_app%2fpackage.json` escaped the `terms/` prefix, stayed inside the
     repo, and served _app/package.json. Verified, then fixed. `npm run dev` must expose
-    exactly these six things and nothing else.
+    exactly these five things and nothing else.
   */
-  const DIRS = ['terms', 'privacy', 'profile', 'data', 'device/agent']
+  const DIRS = ['terms', 'privacy', 'data', 'device/agent']
   const FILES = ['iptv']
 
   const MIME: Record<string, string> = {
@@ -93,10 +94,9 @@ function serveRepoRootContract(): Plugin {
     for (const rel of DIRS) {
       /*
         Two cases, and the first is easy to forget: `path.resolve` drops the trailing
-        separator, so the directory ITSELF (`/profile/` → `<root>/profile`) does not
-        satisfy a `<root>/profile/` prefix test. Omitting it made `/profile/` fall through
-        to the SPA and stopped serving the Flutter bundle — caught by the size regression,
-        1331 B down to the 765 B shell.
+        separator, so the directory ITSELF (`/terms/` → `<root>/terms`) does not satisfy a
+        `<root>/terms/` prefix test. Omitting it once made the then-static `/profile/` fall
+        through to the SPA — caught by the size regression, 1331 B down to the 765 B shell.
       */
       if (target === path.join(repoRoot, rel)) return target
       // startsWith on the base WITH a trailing separator, so a sibling `terms-old/` cannot

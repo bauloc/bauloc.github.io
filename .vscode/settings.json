@@ -23,7 +23,6 @@
   },
   "search.exclude": {
     "assets": true,
-    "profile": true,
     "_deprecated": true,
     "_app/node_modules": true,
     "_app/dist": true,
@@ -32,7 +31,6 @@
   "files.watcherExclude": {
     "**/_deprecated/**": true,
     "**/_app/node_modules/**": true,
-    "**/_app/dist/**": true,
-    "**/profile/**": true
+    "**/_app/dist/**": true
   }
 }

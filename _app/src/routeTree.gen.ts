@@ -11,7 +11,15 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ShellRouteImport } from './routes/_shell'
+import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as ShellProbeRouteImport } from './routes/_shell/probe'
+import { Route as ProfileIndexRouteImport } from './routes/profile/index'
+import { Route as ProfileAbout_meRouteImport } from './routes/profile/about_me'
+import { Route as ProfileContactRouteImport } from './routes/profile/contact'
+import { Route as ProfilePortfolioRouteImport } from './routes/profile/portfolio'
+import { Route as ProfileRelaxRouteImport } from './routes/profile/relax'
+import { Route as ProfileResumeRouteImport } from './routes/profile/resume'
+import { Route as ProfileCvRouteImport } from './routes/profile_.cv'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,37 +30,133 @@ const ShellRoute = ShellRouteImport.update({
   id: '/_shell',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ShellProbeRoute = ShellProbeRouteImport.update({
   id: '/probe',
   path: '/probe',
   getParentRoute: () => ShellRoute,
 } as any)
+const ProfileIndexRoute = ProfileIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ProfileRoute,
+} as any)
+const ProfileAbout_meRoute = ProfileAbout_meRouteImport.update({
+  id: '/about_me',
+  path: '/about_me',
+  getParentRoute: () => ProfileRoute,
+} as any)
+const ProfileContactRoute = ProfileContactRouteImport.update({
+  id: '/contact',
+  path: '/contact',
+  getParentRoute: () => ProfileRoute,
+} as any)
+const ProfilePortfolioRoute = ProfilePortfolioRouteImport.update({
+  id: '/portfolio',
+  path: '/portfolio',
+  getParentRoute: () => ProfileRoute,
+} as any)
+const ProfileRelaxRoute = ProfileRelaxRouteImport.update({
+  id: '/relax',
+  path: '/relax',
+  getParentRoute: () => ProfileRoute,
+} as any)
+const ProfileResumeRoute = ProfileResumeRouteImport.update({
+  id: '/resume',
+  path: '/resume',
+  getParentRoute: () => ProfileRoute,
+} as any)
+const ProfileCvRoute = ProfileCvRouteImport.update({
+  id: '/profile_/cv',
+  path: '/profile/cv',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/profile': typeof ProfileRouteWithChildren
   '/probe': typeof ShellProbeRoute
+  '/profile/about_me': typeof ProfileAbout_meRoute
+  '/profile/contact': typeof ProfileContactRoute
+  '/profile/portfolio': typeof ProfilePortfolioRoute
+  '/profile/relax': typeof ProfileRelaxRoute
+  '/profile/resume': typeof ProfileResumeRoute
+  '/profile/cv': typeof ProfileCvRoute
+  '/profile/': typeof ProfileIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/probe': typeof ShellProbeRoute
+  '/profile/about_me': typeof ProfileAbout_meRoute
+  '/profile/contact': typeof ProfileContactRoute
+  '/profile/portfolio': typeof ProfilePortfolioRoute
+  '/profile/relax': typeof ProfileRelaxRoute
+  '/profile/resume': typeof ProfileResumeRoute
+  '/profile/cv': typeof ProfileCvRoute
+  '/profile': typeof ProfileIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_shell': typeof ShellRouteWithChildren
+  '/profile': typeof ProfileRouteWithChildren
   '/_shell/probe': typeof ShellProbeRoute
+  '/profile/about_me': typeof ProfileAbout_meRoute
+  '/profile/contact': typeof ProfileContactRoute
+  '/profile/portfolio': typeof ProfilePortfolioRoute
+  '/profile/relax': typeof ProfileRelaxRoute
+  '/profile/resume': typeof ProfileResumeRoute
+  '/profile_/cv': typeof ProfileCvRoute
+  '/profile/': typeof ProfileIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/probe'
+  fullPaths:
+    | '/'
+    | '/profile'
+    | '/probe'
+    | '/profile/about_me'
+    | '/profile/contact'
+    | '/profile/portfolio'
+    | '/profile/relax'
+    | '/profile/resume'
+    | '/profile/cv'
+    | '/profile/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/probe'
-  id: '__root__' | '/' | '/_shell' | '/_shell/probe'
+  to:
+    | '/'
+    | '/probe'
+    | '/profile/about_me'
+    | '/profile/contact'
+    | '/profile/portfolio'
+    | '/profile/relax'
+    | '/profile/resume'
+    | '/profile/cv'
+    | '/profile'
+  id:
+    | '__root__'
+    | '/'
+    | '/_shell'
+    | '/profile'
+    | '/_shell/probe'
+    | '/profile/about_me'
+    | '/profile/contact'
+    | '/profile/portfolio'
+    | '/profile/relax'
+    | '/profile/resume'
+    | '/profile_/cv'
+    | '/profile/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ShellRoute: typeof ShellRouteWithChildren
+  ProfileRoute: typeof ProfileRouteWithChildren
+  ProfileCvRoute: typeof ProfileCvRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -71,12 +175,68 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_shell/probe': {
       id: '/_shell/probe'
       path: '/probe'
       fullPath: '/probe'
       preLoaderRoute: typeof ShellProbeRouteImport
       parentRoute: typeof ShellRoute
+    }
+    '/profile/': {
+      id: '/profile/'
+      path: '/'
+      fullPath: '/profile/'
+      preLoaderRoute: typeof ProfileIndexRouteImport
+      parentRoute: typeof ProfileRoute
+    }
+    '/profile/about_me': {
+      id: '/profile/about_me'
+      path: '/about_me'
+      fullPath: '/profile/about_me'
+      preLoaderRoute: typeof ProfileAbout_meRouteImport
+      parentRoute: typeof ProfileRoute
+    }
+    '/profile/contact': {
+      id: '/profile/contact'
+      path: '/contact'
+      fullPath: '/profile/contact'
+      preLoaderRoute: typeof ProfileContactRouteImport
+      parentRoute: typeof ProfileRoute
+    }
+    '/profile/portfolio': {
+      id: '/profile/portfolio'
+      path: '/portfolio'
+      fullPath: '/profile/portfolio'
+      preLoaderRoute: typeof ProfilePortfolioRouteImport
+      parentRoute: typeof ProfileRoute
+    }
+    '/profile/relax': {
+      id: '/profile/relax'
+      path: '/relax'
+      fullPath: '/profile/relax'
+      preLoaderRoute: typeof ProfileRelaxRouteImport
+      parentRoute: typeof ProfileRoute
+    }
+    '/profile/resume': {
+      id: '/profile/resume'
+      path: '/resume'
+      fullPath: '/profile/resume'
+      preLoaderRoute: typeof ProfileResumeRouteImport
+      parentRoute: typeof ProfileRoute
+    }
+    '/profile_/cv': {
+      id: '/profile_/cv'
+      path: '/profile/cv'
+      fullPath: '/profile/cv'
+      preLoaderRoute: typeof ProfileCvRouteImport
+      parentRoute: typeof rootRouteImport
     }
   }
 }
@@ -91,9 +251,32 @@ const ShellRouteChildren: ShellRouteChildren = {
 
 const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)
 
+interface ProfileRouteChildren {
+  ProfileAbout_meRoute: typeof ProfileAbout_meRoute
+  ProfileContactRoute: typeof ProfileContactRoute
+  ProfilePortfolioRoute: typeof ProfilePortfolioRoute
+  ProfileRelaxRoute: typeof ProfileRelaxRoute
+  ProfileResumeRoute: typeof ProfileResumeRoute
+  ProfileIndexRoute: typeof ProfileIndexRoute
+}
+
+const ProfileRouteChildren: ProfileRouteChildren = {
+  ProfileAbout_meRoute: ProfileAbout_meRoute,
+  ProfileContactRoute: ProfileContactRoute,
+  ProfilePortfolioRoute: ProfilePortfolioRoute,
+  ProfileRelaxRoute: ProfileRelaxRoute,
+  ProfileResumeRoute: ProfileResumeRoute,
+  ProfileIndexRoute: ProfileIndexRoute,
+}
+
+const ProfileRouteWithChildren =
+  ProfileRoute._addFileChildren(ProfileRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ShellRoute: ShellRouteWithChildren,
+  ProfileRoute: ProfileRouteWithChildren,
+  ProfileCvRoute: ProfileCvRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

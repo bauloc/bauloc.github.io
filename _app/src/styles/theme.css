@@ -166,6 +166,36 @@
 }
 
 /*
+  ---- (e) The profile (`/profile/`). ----
+
+  A port of the Flutter portfolio that used to be served there, so its palette is Flutter's:
+  `Colors.teal` and its Material 3 scheme from `ColorScheme.fromSeed(seedColor: Colors.teal)`.
+  The values were sampled from the running Flutter build (converted from Display P3 to sRGB),
+  not derived, so the port looks like what visitors saw.
+
+  Light only, like the original: none of these is redefined under `.dark`.
+*/
+:root {
+  /* Colors.teal and Colors.teal[50]: the side panel, the selected-item bar, the timeline,
+     and the contact cards. */
+  --profile-teal: #009688;
+  --profile-teal-50: #e0f2f1;
+  /* The menu rail: Colors.black12 over the scheme's surface. */
+  --profile-rail: #d6dcda;
+  /* The scheme's roles, by their M3 names. */
+  --profile-surface: #f4fbf8;
+  --profile-on-surface: #161d1c;
+  --profile-on-surface-variant: #3f4947;
+  --profile-outline: #6f7977;
+  --profile-primary: #006a60;
+  --profile-surface-container-low: #eff5f2;
+  --profile-secondary-container: #cce8e2;
+  /* fluttertoast's web default: toastify with this gradient. */
+  --profile-toast-from: #00b09b;
+  --profile-toast-to: #96c93d;
+}
+
+/*
   ---- DARK ----
 
   `.dark` sits on <html>, set by src/lib/theme.ts (the index has a Light / Dark switch and
@@ -242,6 +272,19 @@
   --color-index-azure: var(--index-azure);
   --color-index-on-yellow: var(--index-on-yellow);
 
+  --color-profile-teal: var(--profile-teal);
+  --color-profile-teal-50: var(--profile-teal-50);
+  --color-profile-rail: var(--profile-rail);
+  --color-profile-surface: var(--profile-surface);
+  --color-profile-on-surface: var(--profile-on-surface);
+  --color-profile-on-surface-variant: var(--profile-on-surface-variant);
+  --color-profile-outline: var(--profile-outline);
+  --color-profile-primary: var(--profile-primary);
+  --color-profile-surface-container-low: var(--profile-surface-container-low);
+  --color-profile-secondary-container: var(--profile-secondary-container);
+  --color-profile-toast-from: var(--profile-toast-from);
+  --color-profile-toast-to: var(--profile-toast-to);
+
   --color-st-ok: var(--st-ok);
   --color-st-busy: var(--st-busy);
   --color-st-warn: var(--st-warn);
@@ -270,6 +313,13 @@
     Self-hosted via @fontsource, so the index makes no third-party request.
   */
   --font-display: 'Inter Tight Variable', 'Inter Tight', ui-sans-serif, system-ui, sans-serif;
+  /*
+    The profile's face: Flutter web renders in Roboto. Only 400 and 700 are loaded, which is
+    what the Flutter build drew with — so the weights its source asks for resolve the way
+    they did there (500 renders as 400, 600 and 900 as 700) under the browser's own
+    font-matching rules.
+  */
+  --font-profile: Roboto, ui-sans-serif, system-ui, sans-serif;
 
   /*
     Load-bearing geometry, promoted to tokens so `theme.test.ts` can assert it.
@@ -293,6 +343,12 @@
   --shadow-card-lift: 0 8px 24px color-mix(in srgb, var(--accent) 15%, transparent);
   --color-card-sheen: color-mix(in srgb, var(--accent) 6%, transparent);
 
+  /* Material 3 elevation levels 1 and 2: an elevated button at rest and under the pointer. */
+  --shadow-profile-1: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px 1px rgb(0 0 0 / 0.15);
+  --shadow-profile-2: 0 1px 2px rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15);
+  /* toastify's own shadow, which fluttertoast's web toasts wear. */
+  --shadow-profile-toast: 0 3px 6px -1px rgb(0 0 0 / 0.12), 0 10px 36px -4px rgb(77 96 232 / 0.3);
+
   --animate-blink: blink 1.1s step-end infinite;
   --animate-fade-in: fade-in 0.4s ease;
   --animate-pulse-dot: pulse-dot 1.4s ease-in-out infinite;
@@ -304,6 +360,80 @@
   --animate-sheet-fade: sheet-fade 0.35s ease-in-out 0.8s both;
   /* Same timing as circle-grow: the clip that turns text dark over the circle grows with it. */
   --animate-disc-clip: disc-clip 1s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
+
+  /*
+    The profile's motion, after the Flutter routes it replaces: a game opens as a full-screen
+    dialog that slides up on desktop, and as a popup that scales in on a phone.
+  */
+  --animate-slide-up: slide-up 0.4s cubic-bezier(0.2, 0, 0, 1) both;
+  --animate-pop-in: pop-in 0.25s ease-out both;
+  /* Material's indeterminate circular indicator: the arc spins while it grows and shrinks. */
+  --animate-spinner-turn: spinner-turn 1.4s linear infinite;
+  --animate-spinner-arc: spinner-arc 1.4s ease-in-out infinite;
+  --animate-progress-bar: progress-bar 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  /* toastify's timing: in over 0.4 s from below the viewport, shown 3 s, faded out over 0.4 s. */
+  --animate-toast:
+    toast-in 0.4s cubic-bezier(0.215, 0.61, 0.355, 1) both, toast-out 0.4s ease 3s forwards;
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0);
+  }
+}
+
+@keyframes spinner-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes spinner-arc {
+  /* In units of the circle's `pathLength="100"`, so it holds at any radius. */
+  0% {
+    stroke-dasharray: 1 150;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 70 150;
+    stroke-dashoffset: -15;
+  }
+  100% {
+    stroke-dasharray: 70 150;
+    stroke-dashoffset: -99;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(165px);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes progress-bar {
+  from {
+    left: -35%;
+    right: 100%;
+  }
+  60%,
+  to {
+    left: 100%;
+    right: -90%;
+  }
 }
 
 @keyframes disc-clip {

@@ -7,9 +7,8 @@ export default tseslint.config(
   {
     /*
       Nothing outside this project is ours to lint. `public/`-style content at the repo root —
-      profile/main.dart.js (2.67 MB of generated Flutter), and the terms/privacy pages the
-      browser console generates — must be byte-preserved, and merely parsing them wastes
-      minutes.
+      the terms/privacy pages the browser console generates, the committed build output —
+      must be byte-preserved, and merely parsing it wastes time.
     */
     ignores: ['dist', 'node_modules', 'coverage', 'src/routeTree.gen.ts'],
   },

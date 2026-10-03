@@ -16,6 +16,14 @@
   }
 }
 
+/* The profile's one breakpoint, ported from the Flutter build's `isSmallDevice` (width < 1000):
+   at `wide` the side panel appears, the menu rail widens and the padding grows. */
+@custom-variant wide {
+  @media (width >= 1000px) {
+    @slot;
+  }
+}
+
 @layer base {
   *,
   *::before,
@@ -74,6 +82,14 @@
 
   .dark {
     color-scheme: dark;
+  }
+
+  /* The profile is light only, as its Flutter original was: a dark-mode visitor still gets
+     light form controls and scrollbars, and overscroll shows the page's white. */
+  html:has([data-page='profile']),
+  html:has([data-page='profile']) body {
+    color-scheme: light;
+    background: white;
   }
 }
 
