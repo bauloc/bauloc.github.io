@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as ProfileRouteImport } from './routes/profile'
+import { Route as ShellDeviceRouteImport } from './routes/_shell/device'
 import { Route as ShellXconsoleRouteImport } from './routes/_shell/xconsole'
 import { Route as ProfileIndexRouteImport } from './routes/profile/index'
 import { Route as ProfileAbout_meRouteImport } from './routes/profile/about_me'
@@ -37,6 +38,11 @@ const ProfileRoute = ProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ShellDeviceRoute = ShellDeviceRouteImport.update({
+  id: '/device',
+  path: '/device',
+  getParentRoute: () => ShellRoute,
 } as any)
 const ShellXconsoleRoute = ShellXconsoleRouteImport.update({
   id: '/xconsole',
@@ -98,6 +104,7 @@ const ShellXconsoleTermPrivacyRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/profile': typeof ProfileRouteWithChildren
+  '/device': typeof ShellDeviceRoute
   '/xconsole': typeof ShellXconsoleRouteWithChildren
   '/profile/about_me': typeof ProfileAbout_meRoute
   '/profile/contact': typeof ProfileContactRoute
@@ -112,6 +119,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/device': typeof ShellDeviceRoute
   '/profile/about_me': typeof ProfileAbout_meRoute
   '/profile/contact': typeof ProfileContactRoute
   '/profile/portfolio': typeof ProfilePortfolioRoute
@@ -128,6 +136,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_shell': typeof ShellRouteWithChildren
   '/profile': typeof ProfileRouteWithChildren
+  '/_shell/device': typeof ShellDeviceRoute
   '/_shell/xconsole': typeof ShellXconsoleRouteWithChildren
   '/profile/about_me': typeof ProfileAbout_meRoute
   '/profile/contact': typeof ProfileContactRoute
@@ -145,6 +154,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/profile'
+    | '/device'
     | '/xconsole'
     | '/profile/about_me'
     | '/profile/contact'
@@ -159,6 +169,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/device'
     | '/profile/about_me'
     | '/profile/contact'
     | '/profile/portfolio'
@@ -174,6 +185,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_shell'
     | '/profile'
+    | '/_shell/device'
     | '/_shell/xconsole'
     | '/profile/about_me'
     | '/profile/contact'
@@ -216,6 +228,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/profile'
       preLoaderRoute: typeof ProfileRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_shell/device': {
+      id: '/_shell/device'
+      path: '/device'
+      fullPath: '/device'
+      preLoaderRoute: typeof ShellDeviceRouteImport
+      parentRoute: typeof ShellRoute
     }
     '/_shell/xconsole': {
       id: '/_shell/xconsole'
@@ -314,10 +333,12 @@ const ShellXconsoleRouteWithChildren = ShellXconsoleRoute._addFileChildren(
 )
 
 interface ShellRouteChildren {
+  ShellDeviceRoute: typeof ShellDeviceRoute
   ShellXconsoleRoute: typeof ShellXconsoleRouteWithChildren
 }
 
 const ShellRouteChildren: ShellRouteChildren = {
+  ShellDeviceRoute: ShellDeviceRoute,
   ShellXconsoleRoute: ShellXconsoleRouteWithChildren,
 }
 

@@ -48,8 +48,8 @@ const OWNED_DIRS = ['assets']
  * otherwise be previewed as "bauloc.github.io". Everything else stays byte-identical.
  *
  * Entries are added as each area is ported: 'profile' when the Flutter bundle was replaced,
- * 'xconsole' when the console moved into the app, 'device' in stage 4. Adding one early would
- * replace a working page with a shell the router cannot yet serve.
+ * 'xconsole' when the console moved into the app, 'device' when Device Lab did. Adding one
+ * early would replace a working page with a shell the router cannot yet serve.
  */
 const SECTIONS = [
   {
@@ -65,6 +65,14 @@ const SECTIONS = [
     head: {
       title: 'XConsole',
       description: 'Publish app Terms & Privacy pages straight to this repo.',
+    },
+  },
+  {
+    path: 'device',
+    head: {
+      title: 'Device Lab',
+      description:
+        'Identifiers, screenshots and logs for the phones plugged into this computer. Android works straight from Chrome over WebUSB.',
     },
   },
 ]

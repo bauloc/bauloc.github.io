@@ -1,0 +1,1 @@
+import{a as e,o as t,s as n}from"./index-Jo6_k8D1.js";function r(r){let i=n({warn:r?.router===void 0}),a=r?.router||i;return t(a.stores.__store,e(r,a))}export{r as t};

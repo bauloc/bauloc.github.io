@@ -6,11 +6,9 @@
  * with no `art` it still gets a finished sheet: its own title, set as large as fits.
  *
  * They are plain anchors and a full document load, not router links, and that is not an
- * oversight: some are not routes of this app —
- *   /iptv      is a raw M3U playlist read directly by player apps
- *   /device/   is a separate area, not yet ported
- * — and /profile/ and /xconsole/, which are, gain nothing from a client-side jump off a
- * full-screen camera. A plain anchor also keeps middle-click and ⌘-click working for free.
+ * oversight: /iptv is not a route of this app but a raw M3U playlist read directly by player
+ * apps, and /profile/, /xconsole/ and /device/, which are, gain nothing from a client-side
+ * jump off a full-screen camera. A plain anchor also keeps middle-click and ⌘-click working.
  */
 
 /** Used by the launcher's ranking (a group name is a search term), not for layout. */
@@ -74,7 +72,7 @@ export const HOME_LINKS: readonly HomeLink[] = [
   {
     href: '/device/',
     title: 'Device Lab',
-    description: 'Connected iOS & Android devices — identifiers, screenshots, bug reports.',
+    description: 'Connected iOS & Android devices — identifiers, screenshots, logs.',
     group: 'Tools',
     status: 'wip',
     art: { kind: 'pixelPhone' },
