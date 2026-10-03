@@ -48,8 +48,8 @@ const OWNED_DIRS = ['assets']
  * otherwise be previewed as "bauloc.github.io". Everything else stays byte-identical.
  *
  * Entries are added as each area is ported: 'profile' when the Flutter bundle was replaced,
- * 'xconsole' in stage 3, 'device' in stage 4. Adding one early would replace a working page
- * with a shell the router cannot yet serve.
+ * 'xconsole' when the console moved into the app, 'device' in stage 4. Adding one early would
+ * replace a working page with a shell the router cannot yet serve.
  */
 const SECTIONS = [
   {
@@ -58,6 +58,13 @@ const SECTIONS = [
       // The Flutter build's own title and manifest description, so previews read as before.
       title: "BAULOC's Profile",
       description: "BAULOC's Profile - Software Developer",
+    },
+  },
+  {
+    path: 'xconsole',
+    head: {
+      title: 'XConsole',
+      description: 'Publish app Terms & Privacy pages straight to this repo.',
     },
   },
 ]
@@ -82,11 +89,12 @@ const PROTECTED = [
   { path: 'terms', required: true },
   { path: 'privacy', required: true },
   { path: 'iptv', required: true },
-  // Protected from the first commit, but created later in the migration: `data/` arrives
-  // with the xconsole port (the git mv and the path-constant change must land together, or
-  // the console reads a 404, falls back to an empty index and writes that back), and
-  // device/agent/ arrives with the iOS helper. Never writable either way.
-  { path: 'data', required: false },
+  // The console's own records (data/term-privacy/, data/iptv/). They arrived with the
+  // console port, in the same commit as the path constants that read them: a console that
+  // reads a missing index must not mistake it for an empty one and write that back.
+  { path: 'data', required: true },
+  // Protected from the first commit, but created later in the migration: device/agent/
+  // arrives with the iOS helper. Never writable either way.
   { path: path.join('device', 'agent'), required: false },
 ]
 

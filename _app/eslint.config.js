@@ -110,7 +110,14 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-unsafe-member-access': 'off',
       'no-restricted-syntax': 'off',
+      // SidebarMenuSkeleton picks a random width in useMemo, as shadcn ships it.
+      'react-hooks/purity': 'off',
     },
+  },
+  {
+    // Vendored with the sidebar by `shadcn add`, and overwritten by it: same reasoning.
+    files: ['src/hooks/use-mobile.ts'],
+    rules: { 'react-hooks/set-state-in-effect': 'off' },
   },
   {
     files: ['**/*.test.{ts,tsx}'],

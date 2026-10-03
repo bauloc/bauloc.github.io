@@ -7,8 +7,9 @@ src/routeTree.gen.ts
 
 # Vendored shadcn/ui primitives. They ship in the registry's own formatting (double quotes,
 # 80 columns), so `npm run format` rewrites all of them — pure diff noise, and a guaranteed
-# conflict the next time `shadcn add` touches one.
+# conflict the next time `shadcn add` touches one. The sidebar vendors a hook beside them.
 src/components/ui
+src/hooks/use-mobile.ts
 
 # NOTE on the repo root, which is NOT ignored here because it is outside this project:
 # `prettier --write .` from _app/ cannot reach ../profile/main.dart.js or the
