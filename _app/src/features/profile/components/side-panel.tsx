@@ -1,5 +1,9 @@
+import { cn } from '@/lib/cn'
+
 import avatar from '../assets/avatar.jpg'
-import { ElevatedButton } from './elevated-button'
+import cv from '../assets/cv.pdf'
+import { CV_FILE_NAME } from '../cv'
+import { ELEVATED_BUTTON } from './elevated-button'
 
 /** The teal column with the portrait and the name. Only at `wide`, as in the Flutter build. */
 export function SidePanel() {
@@ -17,11 +21,10 @@ export function SidePanel() {
       <p className="mt-6 text-center text-[20px] font-black">NGUYEN PHUOC LOC</p>
       <p className="mt-1.5 text-center">Software Developer</p>
       <p className="mt-[3px] text-center">Electrical &amp; Electronic Engineer</p>
-      {/*
-        Kept from the Flutter build, where it also does nothing yet (`onPressed: () {}`): it is
-        waiting for a CV to download.
-      */}
-      <ElevatedButton className="mt-auto">DOWNLOAD</ElevatedButton>
+      {/* The Flutter build's button did nothing (`onPressed: () {}`); it downloads the CV now. */}
+      <a href={cv} download={CV_FILE_NAME} className={cn(ELEVATED_BUTTON, 'mt-auto')}>
+        DOWNLOAD
+      </a>
     </aside>
   )
 }

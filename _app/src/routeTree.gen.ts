@@ -19,6 +19,7 @@ import { Route as ProfileContactRouteImport } from './routes/profile/contact'
 import { Route as ProfilePortfolioRouteImport } from './routes/profile/portfolio'
 import { Route as ProfileRelaxRouteImport } from './routes/profile/relax'
 import { Route as ProfileResumeRouteImport } from './routes/profile/resume'
+import { Route as ProfileCvRouteImport } from './routes/profile_.cv'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -69,6 +70,11 @@ const ProfileResumeRoute = ProfileResumeRouteImport.update({
   path: '/resume',
   getParentRoute: () => ProfileRoute,
 } as any)
+const ProfileCvRoute = ProfileCvRouteImport.update({
+  id: '/profile_/cv',
+  path: '/profile/cv',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -79,6 +85,7 @@ export interface FileRoutesByFullPath {
   '/profile/portfolio': typeof ProfilePortfolioRoute
   '/profile/relax': typeof ProfileRelaxRoute
   '/profile/resume': typeof ProfileResumeRoute
+  '/profile/cv': typeof ProfileCvRoute
   '/profile/': typeof ProfileIndexRoute
 }
 export interface FileRoutesByTo {
@@ -89,6 +96,7 @@ export interface FileRoutesByTo {
   '/profile/portfolio': typeof ProfilePortfolioRoute
   '/profile/relax': typeof ProfileRelaxRoute
   '/profile/resume': typeof ProfileResumeRoute
+  '/profile/cv': typeof ProfileCvRoute
   '/profile': typeof ProfileIndexRoute
 }
 export interface FileRoutesById {
@@ -102,6 +110,7 @@ export interface FileRoutesById {
   '/profile/portfolio': typeof ProfilePortfolioRoute
   '/profile/relax': typeof ProfileRelaxRoute
   '/profile/resume': typeof ProfileResumeRoute
+  '/profile_/cv': typeof ProfileCvRoute
   '/profile/': typeof ProfileIndexRoute
 }
 export interface FileRouteTypes {
@@ -115,6 +124,7 @@ export interface FileRouteTypes {
     | '/profile/portfolio'
     | '/profile/relax'
     | '/profile/resume'
+    | '/profile/cv'
     | '/profile/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -125,6 +135,7 @@ export interface FileRouteTypes {
     | '/profile/portfolio'
     | '/profile/relax'
     | '/profile/resume'
+    | '/profile/cv'
     | '/profile'
   id:
     | '__root__'
@@ -137,6 +148,7 @@ export interface FileRouteTypes {
     | '/profile/portfolio'
     | '/profile/relax'
     | '/profile/resume'
+    | '/profile_/cv'
     | '/profile/'
   fileRoutesById: FileRoutesById
 }
@@ -144,6 +156,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ShellRoute: typeof ShellRouteWithChildren
   ProfileRoute: typeof ProfileRouteWithChildren
+  ProfileCvRoute: typeof ProfileCvRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -218,6 +231,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfileResumeRouteImport
       parentRoute: typeof ProfileRoute
     }
+    '/profile_/cv': {
+      id: '/profile_/cv'
+      path: '/profile/cv'
+      fullPath: '/profile/cv'
+      preLoaderRoute: typeof ProfileCvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -256,6 +276,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ShellRoute: ShellRouteWithChildren,
   ProfileRoute: ProfileRouteWithChildren,
+  ProfileCvRoute: ProfileCvRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

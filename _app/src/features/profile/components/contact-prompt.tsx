@@ -1,6 +1,8 @@
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
+import cv from '../assets/cv.pdf'
+import { CV_FILE_NAME } from '../cv'
 import { ELEVATED_BUTTON } from './elevated-button'
 
 /**
@@ -21,6 +23,14 @@ export function ContactPrompt({ children }: { children?: ReactNode }) {
           Contact me
         </Link>
         {children}
+        {/* The side panel's DOWNLOAD is hidden below `wide`, so phones get the CV here. */}
+        <a
+          href={cv}
+          download={CV_FILE_NAME}
+          className="text-profile-primary text-[16px] font-medium underline-offset-4 hover:underline"
+        >
+          Download CV (PDF)
+        </a>
       </div>
     </section>
   )

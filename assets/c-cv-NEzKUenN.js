@@ -1,0 +1,1 @@
+var e=`/assets/cv-CtOhL0T2.pdf`;export{e as t};

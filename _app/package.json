@@ -15,6 +15,8 @@
     "serve:site": "python3 -m http.server 8000 --directory ..",
     "//check:live": "Byte-compares every path that must never change against the deployed site. Needs no server. This is the pre-push gate for the app-store URLs.",
     "check:live": "node scripts/check-live.mjs",
+    "//cv": "Prints the /profile/cv page to src/features/profile/assets/cv.pdf with headless Chrome — the file the profile's DOWNLOAD button serves. Run it after editing the CV, then build and publish.",
+    "cv": "node scripts/cv.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
