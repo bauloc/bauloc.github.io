@@ -113,13 +113,61 @@
 }
 
 /*
+  ---- (d) The site index (`/`). ----
+
+  Its own small palette, because the index borrows rauno.me's visual language — a light grey
+  field, white sheets, near-black type and a few flat primaries — not the console's. All NEW
+  names: no existing value is touched, so the drift test's guarantee is intact.
+
+  The greys are steps of the Radix gray scale, the same scale the reference uses, so field,
+  label and ruler keep proven relationships rather than eyeballed ones. One deliberate
+  deviation: the reference's label grey (#6f6f6f) is 4.29:1 on this field, under AA for 14px
+  text, so the label takes the next step down (#646464, 5.06:1).
+*/
+:root {
+  --index-ground: #ededed;
+  --index-sheet: #ffffff;
+  --index-ink: #171717;
+  --index-label: #646464;
+  --index-rule: #8f8f8f;
+  --index-yellow: #ffff02;
+  --index-orange: #ff6100;
+  --index-blue: #0000ff;
+  --index-focus: #0090ff;
+  /* The rest of the reference's flat primaries; the test card uses them as colour bars. */
+  --index-cyan: #00f3ff;
+  --index-green: #00af3f;
+  --index-pink: #ff91a9;
+  --index-red: #f42800;
+  --index-azure: #056ff7;
+  /* Ink on the yellow circle — near-black in BOTH modes, because the circle stays yellow. */
+  --index-on-yellow: #171717;
+}
+
+/*
+  The index in dark mode: Radix's dark grays, field darkest and sheets one step up — the same
+  "paper resting on a field" relationship as light, inverted. The flat primaries keep their
+  values (the yellow circle is the signature, and it glows on dark); only the blue — the name
+  and the pixel phone — lifts, because pure #0000ff on near-black is barely visible (#6b7cff
+  is 4.9:1 on the sheet). Label grey is 7.2:1 here.
+*/
+.dark {
+  --index-ground: #111111;
+  --index-sheet: #1c1c1c;
+  --index-ink: #ededed;
+  --index-label: #a0a0a0;
+  --index-rule: #5c5c5c;
+  --index-blue: #6b7cff;
+  --index-focus: #3b9eff;
+}
+
+/*
   ---- DARK ----
 
-  Used TODAY by the landing page, which sets `.dark` on <html> and offers no toggle: being a
-  dark terminal page is its identity, not a preference. Defined as a full set so that a
-  Device Lab dark mode later is a flip rather than a rewrite.
-
-  Every value is the landing page's own, so this is a rename, not a redesign.
+  `.dark` sits on <html>, set by src/lib/theme.ts (the index has a Light / Dark switch and
+  otherwise follows the system). The values here are the old dark landing page's, kept as a
+  full set so a console or Device Lab dark mode later is a flip rather than a rewrite; the
+  index's own dark values are in section (d).
 */
 .dark {
   --background: #0d1117;
@@ -174,6 +222,22 @@
   --color-console-foreground: var(--console-foreground);
   --color-console-muted: var(--console-muted);
 
+  --color-index-ground: var(--index-ground);
+  --color-index-sheet: var(--index-sheet);
+  --color-index-ink: var(--index-ink);
+  --color-index-label: var(--index-label);
+  --color-index-rule: var(--index-rule);
+  --color-index-yellow: var(--index-yellow);
+  --color-index-orange: var(--index-orange);
+  --color-index-blue: var(--index-blue);
+  --color-index-focus: var(--index-focus);
+  --color-index-cyan: var(--index-cyan);
+  --color-index-green: var(--index-green);
+  --color-index-pink: var(--index-pink);
+  --color-index-red: var(--index-red);
+  --color-index-azure: var(--index-azure);
+  --color-index-on-yellow: var(--index-on-yellow);
+
   --color-st-ok: var(--st-ok);
   --color-st-busy: var(--st-busy);
   --color-st-warn: var(--st-warn);
@@ -195,6 +259,13 @@
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, ui-sans-serif, system-ui,
     sans-serif;
   --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  /*
+    The index's one face. The reference sets everything in PP Neue Montreal, a commercial
+    font; Inter Tight at weight 500 was the closest free match when the candidates were
+    rendered side by side (same width to within 0.5%, same colour, single-storey g).
+    Self-hosted via @fontsource, so the index makes no third-party request.
+  */
+  --font-display: 'Inter Tight Variable', 'Inter Tight', ui-sans-serif, system-ui, sans-serif;
 
   /*
     Load-bearing geometry, promoted to tokens so `theme.test.ts` can assert it.
@@ -221,6 +292,38 @@
   --animate-blink: blink 1.1s step-end infinite;
   --animate-fade-in: fade-in 0.4s ease;
   --animate-pulse-dot: pulse-dot 1.4s ease-in-out infinite;
+
+  /* The index's entrance: the first sheet grows in, its circle follows, its lines rise. */
+  --animate-sheet-grow: sheet-grow 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-circle-grow: sheet-grow 1s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
+  --animate-line-rise: line-rise 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-sheet-fade: sheet-fade 0.35s ease-in-out 0.8s both;
+  /* Same timing as circle-grow: the clip that turns text dark over the circle grows with it. */
+  --animate-disc-clip: disc-clip 1s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
+}
+
+@keyframes disc-clip {
+  from {
+    clip-path: circle(0 at 840px 360px);
+  }
+}
+
+@keyframes sheet-grow {
+  from {
+    transform: scale(0);
+  }
+}
+
+@keyframes line-rise {
+  from {
+    transform: translateY(110%);
+  }
+}
+
+@keyframes sheet-fade {
+  from {
+    opacity: 0;
+  }
 }
 
 @keyframes blink {

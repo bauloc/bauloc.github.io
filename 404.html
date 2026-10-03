@@ -7,8 +7,17 @@
     <meta property="og:title" content="bauloc.github.io" />
     <meta property="og:description" content="BAULOC — Mobile Developer" />
     <title>bauloc.github.io</title>
-    <script type="module" crossorigin src="/assets/index-wsi5QtEW.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-4qx8LzjY.css">
+    <script>
+      // Theme before first paint, so a dark-mode visitor never sees a light frame while the
+      // bundle loads. A saved choice wins, else the system's. Mirrors src/lib/theme.ts.
+      try {
+        var saved = localStorage.getItem('bauloc:theme')
+        if (saved === 'dark' || (saved !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches))
+          document.documentElement.classList.add('dark')
+      } catch (e) {}
+    </script>
+    <script type="module" crossorigin src="/assets/index-BH5IqwUn.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DX1bAyCd.css">
   </head>
   <body>
     <div id="root"></div>

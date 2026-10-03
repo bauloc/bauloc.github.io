@@ -1,201 +1,302 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { flushSync } from 'react-dom'
 
+import { SHEET_GAP, SHEET_WIDTH } from './camera'
+import { Crosshair } from './components/crosshair'
+import { IntroSheet } from './components/intro-sheet'
+import { LinkSheet } from './components/link-sheet'
+import { Minimap, tickCount } from './components/minimap'
+import { TextSwitch } from './components/text-switch'
+import { ThemeSwitch } from './components/theme-switch'
 import { HOME_LINKS } from './home-links'
-import { buildView, moveActive } from './launcher'
-import { LinkRow } from './components/link-row'
+import { buildView } from './launcher'
+import { useIndexCamera } from './use-camera'
+
+/** The statement is sheet 0; the links follow in data order. */
+const FIRST_LINK = 1
+const SHEETS = HOME_LINKS.length + FIRST_LINK
+
+/** Letters typed within this window build one query; a pause starts a new one. */
+const TYPE_AHEAD_MS = 900
+
+/*
+  Two layouts of the same sheets: `list`, the strip under a camera (the reference's), and
+  `grid`, every sheet at once with its description — the way to see the whole list without
+  travelling. The choice is remembered.
+*/
+type Layout = 'list' | 'grid'
+const LAYOUT_STORAGE_KEY = 'bauloc:layout'
+const LAYOUTS = [
+  { value: 'list', label: 'List' },
+  { value: 'grid', label: 'Grid' },
+] as const satisfies readonly { value: Layout; label: string }[]
+
+function readLayout(): Layout {
+  try {
+    return window.localStorage.getItem(LAYOUT_STORAGE_KEY) === 'grid' ? 'grid' : 'list'
+  } catch {
+    return 'list'
+  }
+}
+
+function saveLayout(layout: Layout) {
+  try {
+    window.localStorage.setItem(LAYOUT_STORAGE_KEY, layout)
+  } catch {
+    // Storage blocked: the switch still works, it just is not remembered.
+  }
+}
 
 /**
- * The site root: an index of everything here.
- *
- * Structure over decoration. Four choices carry it, and each replaces something the
- * previous card-grid version did:
- *
- *  1. ONE NARROW LEFT-ALIGNED COLUMN. The cards were a centred three-across grid capped at
- *     872px, which stopped working around the seventh entry. A single measure of ~34rem
- *     absorbs sixty rows without a layout change.
- *  2. NO BOXES. Whitespace separates rows — no border, no background, no divider. Chrome
- *     around every entry stops scaling long before the entries do.
- *  3. TOP-ALIGNED, never vertically centred. Centring is what the card page did, and with a
- *     filtering list it makes the whole page jump on each keystroke as the count changes.
- *  4. QUIET SECTION LABELS instead of headings. Small, uppercase, tracked, dim: enough to
- *     group, not enough to compete with the rows.
- *
- * `dark` sits on this wrapper rather than on <html>: the same SPA also serves /xconsole/ and
- * /device/, which are light. `.dark` in theme.css is a class selector, so redefining the
- * tokens here scopes them to this subtree — no effect, no flash, nothing to unwind on
- * navigation.
+ * Switch layouts through a view transition. While `html.morph` is set, every sheet carries a
+ * view-transition-name (globals.css), so the browser flies each one from its old place to
+ * its new one — the strip folding into the grid and back.
  */
-export function HomePage() {
-  const [query, setQuery] = useState('')
-  /*
-    The keyboard cursor is stored as an HREF, not an index. An index has to be reset every
-    time the result set changes, and doing that in an effect is a cascading render. An href
-    needs no reset: after a keystroke it either survives the new filter or it does not, and
-    `findIndex` returning -1 falls back to the first row. Derived, not synchronised.
-  */
-  const [activeHref, setActiveHref] = useState<string | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const listRef = useRef<HTMLDivElement>(null)
+function morph(update: () => void) {
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (reduced || !('startViewTransition' in document)) {
+    update()
+    return
+  }
+  const root = document.documentElement
+  root.classList.add('morph')
+  const transition = document.startViewTransition(update)
+  void transition.finished.finally(() => {
+    root.classList.remove('morph')
+  })
+}
 
-  const view = useMemo(() => buildView(HOME_LINKS, query), [query])
-  const rows = view.rows
+/** The sheet in front of the camera, in the list. */
+function sheetInFront(): number {
+  const element = document.querySelector('[data-sheet][data-active="true"]')
+  return Number(element?.getAttribute('data-sheet') ?? 0)
+}
 
-  const activeIndex = Math.max(
-    0,
-    rows.findIndex((row) => row.link.href === activeHref),
-  )
-  const activeLink = rows[activeIndex]?.link
+/** The sheet holding keyboard focus, if any — in the grid, the one you were looking at. */
+function focusedSheet(): number | null {
+  const element = document.activeElement?.closest('[data-sheet]')
+  return element ? Number(element.getAttribute('data-sheet')) : null
+}
 
-  // Keep the keyboard cursor visible without stealing focus from the filter.
-  useEffect(() => {
-    const el = listRef.current?.querySelector(`#index-row-${String(activeIndex)}`)
-    el?.scrollIntoView({ block: 'nearest' })
-  }, [activeIndex])
-
-  /*
-    Typing anywhere focuses the filter. The filter is deliberately small and easy to miss —
-    that restraint only works if you never have to find it before you can use it.
-  */
+/**
+ * Typing a few letters reaches the best match, ranked by the launcher — the index is meant to
+ * grow to dozens of entries, and nobody should travel past thirty to reach one.
+ */
+function useTypeAhead(onMatch: (sheet: number) => void) {
+  const typed = useRef({ text: '', at: Number.NEGATIVE_INFINITY })
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return
-      if (document.activeElement === inputRef.current) return
-      if (event.key === '/') {
-        event.preventDefault()
-        inputRef.current?.focus()
-        return
-      }
-      if (event.key.length === 1 || event.key === 'Backspace') inputRef.current?.focus()
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key.length !== 1 || !/[a-z0-9]/i.test(event.key)) return
+      const fresh = event.timeStamp - typed.current.at > TYPE_AHEAD_MS
+      const text = fresh ? event.key : typed.current.text + event.key
+      typed.current = { text, at: event.timeStamp }
+      const best = buildView(HOME_LINKS, text).rows[0]
+      if (best) onMatch(HOME_LINKS.indexOf(best.link) + FIRST_LINK)
     }
-    document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keydown', onKeyDown)
     return () => {
-      document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [onMatch])
+}
+
+/**
+ * The strip, after rauno.me: a camera over white 1200 × 720 sheets on a grey field. The
+ * statement is framed at full size; scrolling pulls the camera back and travels along the
+ * strip, one sheet per destination, each labelled with its name and, where it matters, a
+ * warning ("Needs a GitHub token", "In progress").
+ *
+ * Keyboard: Tab walks the sheets and the camera follows focus; ← → step sheet to sheet.
+ */
+function StripView({ entrance, initialSheet }: { entrance: boolean; initialSheet: number }) {
+  const { mode, track, stage, strip, minimap, goTo, seek, current } = useIndexCamera(
+    SHEETS,
+    FIRST_LINK,
+    initialSheet,
+  )
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return
+      event.preventDefault()
+      const step = event.key === 'ArrowRight' ? 1 : -1
+      const target = Math.min(SHEETS - 1, Math.max(0, current() + step))
+      // When a sheet has focus, focus travels with the camera, so Enter opens what you see.
+      const sheets = strip.current
+      if (sheets?.contains(document.activeElement) === true) {
+        const next = sheets.children.item(target)
+        if (next instanceof HTMLAnchorElement) next.focus({ preventScroll: true })
+      }
+      goTo(target)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [current, goTo, strip])
+
+  useTypeAhead(goTo)
+
+  return (
+    <>
+      {/* The scroll track: invisible, it only provides scroll length. See use-camera.ts. */}
+      {mode === 'fine' && <div aria-hidden="true" style={{ height: track.height }} />}
+
+      <div
+        ref={stage}
+        className={
+          mode === 'fine'
+            ? 'fixed inset-0 overflow-hidden'
+            : 'fixed inset-0 [scrollbar-width:none] overflow-x-auto overflow-y-hidden overscroll-x-contain [&::-webkit-scrollbar]:hidden'
+        }
+      >
+        {mode === 'coarse' && (
+          <div aria-hidden="true" style={{ width: track.width, height: track.height }} />
+        )}
+        <div
+          ref={strip}
+          className="absolute top-0 left-0 flex origin-top-left"
+          style={{ gap: SHEET_GAP }}
+        >
+          <IntroSheet entrance={entrance} />
+          {HOME_LINKS.map((link, index) => (
+            <LinkSheet
+              key={link.href}
+              link={link}
+              index={index + FIRST_LINK}
+              entrance={entrance}
+              onFocusVisible={() => {
+                goTo(index + FIRST_LINK)
+              }}
+            />
+          ))}
+        </div>
+      </div>
+
+      <Minimap ref={minimap} ticks={tickCount(SHEETS)} entrance={entrance} onSeek={seek} />
+      <Crosshair />
+    </>
+  )
+}
+
+/**
+ * One grid cell: room for the sheet's label above, the sheet drawn at the cell's width, and —
+ * for a link — its description below, which the strip never shows.
+ */
+function Cell({ caption, children }: { caption?: string; children: ReactNode }) {
+  return (
+    <div className="pt-7">
+      <div data-cell className="relative aspect-[5/3]">
+        <div
+          className="absolute top-0 left-0 origin-top-left"
+          style={{ transform: 'scale(var(--k, 0))' }}
+        >
+          {children}
+        </div>
+      </div>
+      {caption !== undefined && (
+        <p className="text-index-label mt-3 max-w-[48ch] text-[14px] leading-snug">{caption}</p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Every sheet at once: one column on a phone, two, then three. The sheets are the strip's own
+ * components, drawn at the cell's width (`--k` = cell width ÷ 1200, which also keeps their
+ * counter-scaled labels at 14 px). Typing jumps focus to the best match.
+ */
+function GridView() {
+  const grid = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    const element = grid.current
+    const cell = element?.querySelector<HTMLElement>('[data-cell]')
+    if (!element || !cell) return
+    const update = () => {
+      element.style.setProperty('--k', String(cell.clientWidth / SHEET_WIDTH))
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(cell)
+    return () => {
+      observer.disconnect()
     }
   }, [])
 
-  function onInputKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
-    switch (event.key) {
-      case 'ArrowDown':
-        event.preventDefault()
-        setActiveHref(rows[moveActive(activeIndex, 1, rows.length)]?.link.href ?? null)
-        break
-      case 'ArrowUp':
-        event.preventDefault()
-        setActiveHref(rows[moveActive(activeIndex, -1, rows.length)]?.link.href ?? null)
-        break
-      case 'Enter': {
-        if (activeLink === undefined) break
-        event.preventDefault()
-        if (event.metaKey || event.ctrlKey || activeLink.external === true) {
-          window.open(activeLink.href, '_blank', 'noopener,noreferrer')
-        } else {
-          window.location.assign(activeLink.href)
-        }
-        break
-      }
-      case 'Escape':
-        event.preventDefault()
-        setQuery('')
-        break
-    }
+  const focusSheet = useCallback((sheet: number) => {
+    grid.current?.querySelector<HTMLElement>(`[data-sheet="${String(sheet)}"]`)?.focus()
+  }, [])
+  useTypeAhead(focusSheet)
+
+  return (
+    <>
+      <div className="mx-auto w-full max-w-[1400px] px-6 pt-20 pb-28 sm:px-12">
+        <div ref={grid} className="grid grid-cols-1 gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
+          <Cell>
+            <IntroSheet entrance={false} />
+          </Cell>
+          {HOME_LINKS.map((link, index) => (
+            <Cell key={link.href} caption={link.description}>
+              <LinkSheet link={link} index={index + FIRST_LINK} entrance={false} />
+            </Cell>
+          ))}
+        </div>
+      </div>
+      {/*
+        The page scrolls under the corner switches; fade it out there so they stay legible —
+        the reference's own bottom fade, for the same reason.
+      */}
+      <div
+        aria-hidden="true"
+        className="from-index-ground pointer-events-none fixed inset-x-0 bottom-0 z-[5] h-28 bg-linear-to-t from-50% to-transparent"
+      />
+    </>
+  )
+}
+
+/**
+ * The site root. "List  Grid" bottom left, "Light  Dark" bottom right — the reference puts its
+ * own links in the corners of a sheet; these sit in the corners of the page.
+ */
+export function HomePage() {
+  const [layout, setLayout] = useState<Layout>(readLayout)
+  /** Entrance animations belong to the first load only; after a switch the morph is the motion. */
+  const [switched, setSwitched] = useState(false)
+  const [returnTo, setReturnTo] = useState(0)
+
+  const chooseLayout = (next: Layout) => {
+    // Leaving the list: remember the sheet in front. Leaving the grid: go back to the focused
+    // sheet, or else to the one the list was left at.
+    const from = layout === 'list' ? sheetInFront() : (focusedSheet() ?? returnTo)
+    saveLayout(next)
+    morph(() => {
+      flushSync(() => {
+        setReturnTo(from)
+        setSwitched(true)
+        setLayout(next)
+      })
+      if (next === 'grid') window.scrollTo({ top: 0, behavior: 'instant' })
+    })
   }
 
   return (
-    <div className="dark bg-background text-foreground min-h-screen px-6 pt-[14vh] pb-24">
-      <div className="mx-auto w-full max-w-[34rem]">
-        <header>
-          <h1 className="text-foreground font-mono text-lg font-semibold tracking-tight">
-            bauloc.github.io
-          </h1>
-          <p className="text-muted-foreground mt-1.5 text-[0.8125rem] leading-[1.6]">
-            Software Developer, Electrical &amp; Electronic Engineer.
-          </p>
-        </header>
-
-        {/*
-          The filter is one quiet line, not a prompt. It only earns visual weight once the
-          index is long enough to need it, and `/` or any keystroke reaches it from anywhere.
-        */}
-        <div className="mt-10">
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={onInputKeyDown}
-            type="text"
-            spellCheck={false}
-            autoComplete="off"
-            aria-label="Filter this index"
-            role="combobox"
-            aria-expanded
-            aria-controls="site-index"
-            aria-activedescendant={
-              activeLink === undefined ? undefined : `index-row-${String(activeIndex)}`
-            }
-            placeholder="Filter  /"
-            className="caret-accent placeholder:text-muted-foreground/50 text-foreground w-full border-none bg-transparent p-0 font-mono text-sm outline-none"
-          />
-          {/* A hairline, not a box: the input reads as a line of text you can type on. */}
-          <div
-            className={`mt-1.5 h-px transition-colors duration-150 ${
-              query === '' ? 'bg-border' : 'bg-accent/60'
-            }`}
-          />
-        </div>
-
-        {/* Announce the count, not each row. */}
-        <p className="sr-only" role="status" aria-live="polite">
-          {query === ''
-            ? `${String(rows.length)} entries`
-            : `${String(rows.length)} result${rows.length === 1 ? '' : 's'} for ${query}`}
-        </p>
-
-        <div ref={listRef} id="site-index" role="listbox" aria-label="Site index" className="mt-8">
-          {rows.map((row, index) => (
-            /*
-              A Fragment, not a wrapping <div>. Two reasons, and the first was a real bug:
-
-              1. Wrapped, the label was always its wrapper's `:first-child`, so a
-                 `first:mt-0` meant to spare the FIRST group applied to every group. The
-                 labels then sat 25px below the previous row and 32px above their own — a
-                 heading grouped with the wrong side, which is a proximity error, not a
-                 spacing preference. The first group is now identified by index.
-              2. `role="option"` should be a direct child of `role="listbox"`. The wrappers
-                 put a plain div between them.
-            */
-            <Fragment key={row.link.href}>
-              {row.group !== null && (
-                <div
-                  className={`text-muted-foreground/50 mb-1.5 font-mono text-[0.625rem] tracking-[0.16em] uppercase ${
-                    index === 0 ? '' : 'mt-10'
-                  }`}
-                >
-                  {row.group}
-                </div>
-              )}
-              <LinkRow
-                link={row.link}
-                active={index === activeIndex}
-                id={`index-row-${String(index)}`}
-                onHover={() => setActiveHref(row.link.href)}
-              />
-            </Fragment>
-          ))}
-
-          {rows.length === 0 && (
-            <p className="text-muted-foreground py-4 font-mono text-sm">
-              Nothing matches <span className="text-foreground">{query}</span>.
-            </p>
-          )}
-        </div>
-
-        <footer className="text-muted-foreground/50 mt-16 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[0.625rem] tracking-[0.02em]">
-          <span>↑↓ move</span>
-          <span>↵ open</span>
-          <span>⌘↵ new tab</span>
-          <span>esc clear</span>
-        </footer>
-      </div>
-    </div>
+    <main data-page="index" data-layout={layout} className="font-display text-index-ink relative">
+      {layout === 'list' ? (
+        <StripView entrance={!switched} initialSheet={switched ? returnTo : 0} />
+      ) : (
+        <GridView />
+      )}
+      <TextSwitch
+        label="Layout"
+        options={LAYOUTS}
+        value={layout}
+        onSelect={chooseLayout}
+        className="left-6"
+      />
+      <ThemeSwitch />
+    </main>
   )
 }
