@@ -6,11 +6,11 @@
  * with no `art` it still gets a finished sheet: its own title, set as large as fits.
  *
  * They are plain anchors and a full document load, not router links, and that is not an
- * oversight: most are not routes of this app —
+ * oversight: some are not routes of this app —
  *   /iptv      is a raw M3U playlist read directly by player apps
- *   /xconsole/ and /device/ are separate areas, not yet ported
- * — and /profile/, which is, gains nothing from a client-side jump off a full-screen camera.
- * A plain anchor is also what keeps middle-click and ⌘-click working for free.
+ *   /device/   is a separate area, not yet ported
+ * — and /profile/ and /xconsole/, which are, gain nothing from a client-side jump off a
+ * full-screen camera. A plain anchor also keeps middle-click and ⌘-click working for free.
  */
 
 /** Used by the launcher's ranking (a group name is a search term), not for layout. */

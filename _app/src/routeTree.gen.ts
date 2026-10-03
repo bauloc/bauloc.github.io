@@ -12,7 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as ProfileRouteImport } from './routes/profile'
-import { Route as ShellProbeRouteImport } from './routes/_shell/probe'
+import { Route as ShellXconsoleRouteImport } from './routes/_shell/xconsole'
 import { Route as ProfileIndexRouteImport } from './routes/profile/index'
 import { Route as ProfileAbout_meRouteImport } from './routes/profile/about_me'
 import { Route as ProfileContactRouteImport } from './routes/profile/contact'
@@ -20,6 +20,9 @@ import { Route as ProfilePortfolioRouteImport } from './routes/profile/portfolio
 import { Route as ProfileRelaxRouteImport } from './routes/profile/relax'
 import { Route as ProfileResumeRouteImport } from './routes/profile/resume'
 import { Route as ProfileCvRouteImport } from './routes/profile_.cv'
+import { Route as ShellXconsoleIndexRouteImport } from './routes/_shell/xconsole/index'
+import { Route as ShellXconsoleIptvRouteImport } from './routes/_shell/xconsole/iptv'
+import { Route as ShellXconsoleTermPrivacyRouteImport } from './routes/_shell/xconsole/term-privacy'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -35,9 +38,9 @@ const ProfileRoute = ProfileRouteImport.update({
   path: '/profile',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ShellProbeRoute = ShellProbeRouteImport.update({
-  id: '/probe',
-  path: '/probe',
+const ShellXconsoleRoute = ShellXconsoleRouteImport.update({
+  id: '/xconsole',
+  path: '/xconsole',
   getParentRoute: () => ShellRoute,
 } as any)
 const ProfileIndexRoute = ProfileIndexRouteImport.update({
@@ -75,11 +78,27 @@ const ProfileCvRoute = ProfileCvRouteImport.update({
   path: '/profile/cv',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ShellXconsoleIndexRoute = ShellXconsoleIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ShellXconsoleRoute,
+} as any)
+const ShellXconsoleIptvRoute = ShellXconsoleIptvRouteImport.update({
+  id: '/iptv',
+  path: '/iptv',
+  getParentRoute: () => ShellXconsoleRoute,
+} as any)
+const ShellXconsoleTermPrivacyRoute =
+  ShellXconsoleTermPrivacyRouteImport.update({
+    id: '/term-privacy',
+    path: '/term-privacy',
+    getParentRoute: () => ShellXconsoleRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/profile': typeof ProfileRouteWithChildren
-  '/probe': typeof ShellProbeRoute
+  '/xconsole': typeof ShellXconsoleRouteWithChildren
   '/profile/about_me': typeof ProfileAbout_meRoute
   '/profile/contact': typeof ProfileContactRoute
   '/profile/portfolio': typeof ProfilePortfolioRoute
@@ -87,10 +106,12 @@ export interface FileRoutesByFullPath {
   '/profile/resume': typeof ProfileResumeRoute
   '/profile/cv': typeof ProfileCvRoute
   '/profile/': typeof ProfileIndexRoute
+  '/xconsole/iptv': typeof ShellXconsoleIptvRoute
+  '/xconsole/term-privacy': typeof ShellXconsoleTermPrivacyRoute
+  '/xconsole/': typeof ShellXconsoleIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/probe': typeof ShellProbeRoute
   '/profile/about_me': typeof ProfileAbout_meRoute
   '/profile/contact': typeof ProfileContactRoute
   '/profile/portfolio': typeof ProfilePortfolioRoute
@@ -98,13 +119,16 @@ export interface FileRoutesByTo {
   '/profile/resume': typeof ProfileResumeRoute
   '/profile/cv': typeof ProfileCvRoute
   '/profile': typeof ProfileIndexRoute
+  '/xconsole/iptv': typeof ShellXconsoleIptvRoute
+  '/xconsole/term-privacy': typeof ShellXconsoleTermPrivacyRoute
+  '/xconsole': typeof ShellXconsoleIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_shell': typeof ShellRouteWithChildren
   '/profile': typeof ProfileRouteWithChildren
-  '/_shell/probe': typeof ShellProbeRoute
+  '/_shell/xconsole': typeof ShellXconsoleRouteWithChildren
   '/profile/about_me': typeof ProfileAbout_meRoute
   '/profile/contact': typeof ProfileContactRoute
   '/profile/portfolio': typeof ProfilePortfolioRoute
@@ -112,13 +136,16 @@ export interface FileRoutesById {
   '/profile/resume': typeof ProfileResumeRoute
   '/profile_/cv': typeof ProfileCvRoute
   '/profile/': typeof ProfileIndexRoute
+  '/_shell/xconsole/iptv': typeof ShellXconsoleIptvRoute
+  '/_shell/xconsole/term-privacy': typeof ShellXconsoleTermPrivacyRoute
+  '/_shell/xconsole/': typeof ShellXconsoleIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/profile'
-    | '/probe'
+    | '/xconsole'
     | '/profile/about_me'
     | '/profile/contact'
     | '/profile/portfolio'
@@ -126,10 +153,12 @@ export interface FileRouteTypes {
     | '/profile/resume'
     | '/profile/cv'
     | '/profile/'
+    | '/xconsole/iptv'
+    | '/xconsole/term-privacy'
+    | '/xconsole/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/probe'
     | '/profile/about_me'
     | '/profile/contact'
     | '/profile/portfolio'
@@ -137,12 +166,15 @@ export interface FileRouteTypes {
     | '/profile/resume'
     | '/profile/cv'
     | '/profile'
+    | '/xconsole/iptv'
+    | '/xconsole/term-privacy'
+    | '/xconsole'
   id:
     | '__root__'
     | '/'
     | '/_shell'
     | '/profile'
-    | '/_shell/probe'
+    | '/_shell/xconsole'
     | '/profile/about_me'
     | '/profile/contact'
     | '/profile/portfolio'
@@ -150,6 +182,9 @@ export interface FileRouteTypes {
     | '/profile/resume'
     | '/profile_/cv'
     | '/profile/'
+    | '/_shell/xconsole/iptv'
+    | '/_shell/xconsole/term-privacy'
+    | '/_shell/xconsole/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -182,11 +217,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfileRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_shell/probe': {
-      id: '/_shell/probe'
-      path: '/probe'
-      fullPath: '/probe'
-      preLoaderRoute: typeof ShellProbeRouteImport
+    '/_shell/xconsole': {
+      id: '/_shell/xconsole'
+      path: '/xconsole'
+      fullPath: '/xconsole'
+      preLoaderRoute: typeof ShellXconsoleRouteImport
       parentRoute: typeof ShellRoute
     }
     '/profile/': {
@@ -238,15 +273,52 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfileCvRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_shell/xconsole/': {
+      id: '/_shell/xconsole/'
+      path: '/'
+      fullPath: '/xconsole/'
+      preLoaderRoute: typeof ShellXconsoleIndexRouteImport
+      parentRoute: typeof ShellXconsoleRoute
+    }
+    '/_shell/xconsole/iptv': {
+      id: '/_shell/xconsole/iptv'
+      path: '/iptv'
+      fullPath: '/xconsole/iptv'
+      preLoaderRoute: typeof ShellXconsoleIptvRouteImport
+      parentRoute: typeof ShellXconsoleRoute
+    }
+    '/_shell/xconsole/term-privacy': {
+      id: '/_shell/xconsole/term-privacy'
+      path: '/term-privacy'
+      fullPath: '/xconsole/term-privacy'
+      preLoaderRoute: typeof ShellXconsoleTermPrivacyRouteImport
+      parentRoute: typeof ShellXconsoleRoute
+    }
   }
 }
 
+interface ShellXconsoleRouteChildren {
+  ShellXconsoleIptvRoute: typeof ShellXconsoleIptvRoute
+  ShellXconsoleTermPrivacyRoute: typeof ShellXconsoleTermPrivacyRoute
+  ShellXconsoleIndexRoute: typeof ShellXconsoleIndexRoute
+}
+
+const ShellXconsoleRouteChildren: ShellXconsoleRouteChildren = {
+  ShellXconsoleIptvRoute: ShellXconsoleIptvRoute,
+  ShellXconsoleTermPrivacyRoute: ShellXconsoleTermPrivacyRoute,
+  ShellXconsoleIndexRoute: ShellXconsoleIndexRoute,
+}
+
+const ShellXconsoleRouteWithChildren = ShellXconsoleRoute._addFileChildren(
+  ShellXconsoleRouteChildren,
+)
+
 interface ShellRouteChildren {
-  ShellProbeRoute: typeof ShellProbeRoute
+  ShellXconsoleRoute: typeof ShellXconsoleRouteWithChildren
 }
 
 const ShellRouteChildren: ShellRouteChildren = {
-  ShellProbeRoute: ShellProbeRoute,
+  ShellXconsoleRoute: ShellXconsoleRouteWithChildren,
 }
 
 const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)

@@ -91,6 +91,25 @@
     color-scheme: light;
     background: white;
   }
+
+  /* The consoles set their face and ground on <body>, so dialogs and toasts portalled there
+     match them. Their palette is in theme.css section (f). */
+  html:has([data-shell='console']) body {
+    font-family: var(--font-console);
+    font-size: 0.875rem;
+    background: var(--background);
+    color: var(--foreground);
+  }
+
+  /* shadcn's base rule, which its components assume: Tailwind v4 draws a bare `border` in
+     currentColor, so without it every card and divider is outlined in near-black. Scoped to
+     the consoles — the index and the profile set their border colours explicitly. */
+  html:has([data-shell='console']) *,
+  html:has([data-shell='console']) *::before,
+  html:has([data-shell='console']) *::after {
+    border-color: var(--color-border);
+    outline-color: color-mix(in oklab, var(--color-ring) 50%, transparent);
+  }
 }
 
 /*
