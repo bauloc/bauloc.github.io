@@ -87,6 +87,12 @@
   /* The profile is light only, as its Flutter original was: a dark-mode visitor still gets
      light form controls and scrollbars, and overscroll shows the page's white. */
   html:has([data-page='profile']),
+  /* Device Lab's header sticks to the top: keep a control scrolled into view (Shift+Tab, a
+     find) out from under it. */
+  html:has([data-page='device']) {
+    scroll-padding-top: 4.5rem;
+  }
+
   html:has([data-page='profile']) body {
     color-scheme: light;
     background: white;

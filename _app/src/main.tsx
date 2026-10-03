@@ -6,6 +6,17 @@ import { routeTree } from './routeTree.gen'
 import './styles/globals.css'
 
 /*
+  Section shells are real files, so /device/index.html (or /profile/index.html) loads the app —
+  and the router would answer that path with Not Found. Links like it predate the port, when
+  those pages were plain index.html files, so the address is folded back to its directory first.
+*/
+if (window.location.pathname.endsWith('/index.html')) {
+  const { pathname, search, hash } = window.location
+  const directory = pathname.slice(0, -'index.html'.length)
+  window.history.replaceState(window.history.state, '', `${directory}${search}${hash}`)
+}
+
+/*
   Browser history, no basepath: this is a GitHub *user* site served from the domain root,
   so `base` stays '/' and every asset URL is root-absolute.
 

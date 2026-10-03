@@ -18,25 +18,31 @@ export function CopyButton({ text, label }: { text: string; label: string }) {
     }
   }, [copied])
 
+  // The label swap alone is not reliably spoken, so a polite status says it too.
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="size-7 shrink-0"
-      aria-label={copied ? 'Copied' : label}
-      title={copied ? 'Copied' : label}
-      onClick={() => {
-        navigator.clipboard.writeText(text).then(
-          () => {
-            setCopied(true)
-          },
-          () => {
-            toast.error('Copy failed', { description: 'Select the text and copy it by hand.' })
-          },
-        )
-      }}
-    >
-      {copied ? <Check className="text-success" /> : <Copy />}
-    </Button>
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-7 shrink-0"
+        aria-label={copied ? 'Copied' : label}
+        title={copied ? 'Copied' : label}
+        onClick={() => {
+          navigator.clipboard.writeText(text).then(
+            () => {
+              setCopied(true)
+            },
+            () => {
+              toast.error('Copy failed', { description: 'Select the text and copy it by hand.' })
+            },
+          )
+        }}
+      >
+        {copied ? <Check className="text-success" /> : <Copy />}
+      </Button>
+      <span role="status" className="sr-only">
+        {copied ? 'Copied' : ''}
+      </span>
+    </>
   )
 }

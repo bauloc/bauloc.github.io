@@ -126,6 +126,11 @@ function serveRepoRootContract(): Plugin {
   }
 }
 
+// Local-time formatting is tested to the minute (Device Lab's parity answers were recorded
+// here), so the suite runs in the owner's zone on any machine. Set before vitest starts its
+// workers, which is when a zone is read; `test.env` would come too late.
+if (process.env.VITEST) process.env.TZ = 'Asia/Ho_Chi_Minh'
+
 export default defineConfig({
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   plugins: [

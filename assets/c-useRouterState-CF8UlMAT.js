@@ -1,1 +1,0 @@
-import{a as e,i as t,o as n}from"./index-Dj4wiChu.js";function r(r){let i=n({warn:r?.router===void 0}),a=r?.router||i;return e(a.stores.__store,t(r,a))}export{r as t};
