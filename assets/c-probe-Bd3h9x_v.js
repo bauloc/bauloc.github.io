@@ -1,1 +1,0 @@
-import{r as e}from"./index-0vGxrJ4B.js";var t=e(),n=()=>(0,t.jsx)(`div`,{className:`p-8`,children:`probe`});export{n as component};

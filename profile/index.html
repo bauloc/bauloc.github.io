@@ -1,43 +1,27 @@
-<!DOCTYPE html>
-<html>
-
-<head>
-  <base href="/profile/">
-
-  <meta charset="UTF-8">
-  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-
-  <meta name="description" content="BAULOC's Profile">
-  <meta name="theme-color" content="#1A1A1A">
-
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
-
-  <!-- iOS meta tags & icons -->
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="BAULOC's Profile">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
-
-  <!-- Favicon -->
-  <link rel="shortcut icon" href="favicon.png" type="image/x-icon">
-  <link rel="icon" href="favicon.png" type="image/x-icon">
-
-  <title>BAULOC's Profile</title>
-
-  <meta property="og:title" content="BAULOC's Profile">
-  <meta property="og:image" href="/logo.png" content="/logo.png">
-
-  <meta name="mobile-web-app-capable" content="yes">
-
-  <link rel="manifest" href="manifest.json">
-
-  <script type="application/javascript" src="assets/packages/flutter_inappwebview_web/assets/web/web_support.js" defer=""></script>
-</head>
-
-<body>
-  <script src="flutter_bootstrap.js" async=""></script>
-</body>
-
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="BAULOC's Profile - Software Developer" />
+    <meta property="og:title" content="BAULOC's Profile" />
+    <meta property="og:description" content="BAULOC's Profile - Software Developer" />
+    <title>BAULOC's Profile</title>
+    <script>
+      // Theme before first paint, so a dark-mode visitor never sees a light frame while the
+      // bundle loads. A saved choice wins, else the system's. Mirrors src/lib/theme.ts.
+      try {
+        var saved = localStorage.getItem('bauloc:theme')
+        if (saved === 'dark' || (saved !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches))
+          document.documentElement.classList.add('dark')
+      } catch (e) {}
+    </script>
+    <script type="module" crossorigin src="/assets/index-CFqqAsB3.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/c-jsx-runtime-BkSabwWG.js">
+    <link rel="modulepreload" crossorigin href="/assets/c-react-BMT1u0sz.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-zbwpCiRb.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
 </html>

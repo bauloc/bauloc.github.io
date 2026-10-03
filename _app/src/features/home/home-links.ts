@@ -5,12 +5,12 @@
  * index's strip, in the order listed here, so adding an entry needs no layout change — and
  * with no `art` it still gets a finished sheet: its own title, set as large as fits.
  *
- * None of these is a SPA route, and that is not an oversight:
- *   /profile/  is a prebuilt Flutter bundle served as static files
+ * They are plain anchors and a full document load, not router links, and that is not an
+ * oversight: most are not routes of this app —
  *   /iptv      is a raw M3U playlist read directly by player apps
  *   /xconsole/ and /device/ are separate areas, not yet ported
- * So they are plain anchors and a full document load — which is also what keeps middle-click
- * and ⌘-click working for free.
+ * — and /profile/, which is, gains nothing from a client-side jump off a full-screen camera.
+ * A plain anchor is also what keeps middle-click and ⌘-click working for free.
  */
 
 /** Used by the launcher's ranking (a group name is a search term), not for layout. */
@@ -57,11 +57,11 @@ export const HOME_LINKS: readonly HomeLink[] = [
   {
     href: '/profile/',
     title: 'Profile',
-    description: 'Personal portfolio — projects, skills & contact. Built with Flutter.',
+    description: 'Mobile developer — about, portfolio, resume & contact.',
     group: 'Site',
     status: 'live',
     art: { kind: 'monogram', letters: 'BL' },
-    keywords: ['about', 'cv', 'resume', 'contact', 'portfolio', 'flutter'],
+    keywords: ['about', 'cv', 'resume', 'contact', 'portfolio', 'games', 'relax'],
   },
   {
     href: '/xconsole/',

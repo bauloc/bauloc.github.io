@@ -12,8 +12,8 @@
               Dev server on http://localhost:7360.
 
               A custom middleware also serves the repo-root static contract — /terms/{slug}/,
-              /privacy/{slug}/, /iptv, /profile/, /data/, /device/agent/ — so dev shows what
-              GitHub Pages shows. `Preview (dist only)` cannot: those files are not in dist/.
+              /privacy/{slug}/, /iptv, /data/, /device/agent/ — so dev shows what GitHub
+              Pages shows. `Preview (dist only)` cannot: those files are not in dist/.
             */
             "label": "Dev server (localhost:7360)",
             "type": "shell",
@@ -123,11 +123,11 @@
             /*
               THE deploy step, minus the push.
 
-              Builds, then syncs dist/ out to the three repo-root paths this project owns
-              (/index.html, /404.html, /assets/) and asserts the whole URL contract — 23
-              checks, fail-closed, pre-flight before a single byte is written. It refuses to
-              touch terms/, privacy/, iptv, profile/, data/ or device/agent/, and proves
-              afterwards that it did not.
+              Builds, then syncs dist/ out to the repo-root paths this project owns
+              (/index.html, /404.html, /assets/, and section shells such as
+              /profile/index.html) and asserts the whole URL contract — fail-closed,
+              pre-flight before a single byte is written. It refuses to touch terms/,
+              privacy/, iptv, data/ or device/agent/, and proves afterwards that it did not.
 
               Then: review `git diff`, commit, push. The push is the deploy.
             */

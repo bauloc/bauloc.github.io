@@ -17,7 +17,7 @@
  *   node scripts/publish.mjs --check-only   # assert only, write nothing
  */
 
-import { readdirSync, statSync, existsSync, rmSync, mkdirSync, copyFileSync, readFileSync } from 'node:fs'
+import { readdirSync, statSync, existsSync, rmSync, mkdirSync, copyFileSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -39,26 +39,49 @@ const OWNED_FILES = ['index.html', '404.html']
 const OWNED_DIRS = ['assets']
 
 /**
- * Section shells: a byte copy of index.html placed at `<section>/index.html` so that the
+ * Section shells: a copy of index.html placed at `<section>/index.html` so that the
  * bookmarked URL `/<section>/` answers 200 from a real file instead of 404-ing into the SPA
  * fallback. Asset URLs are root-absolute, so the same HTML boots from any path.
  *
- * Entries are added as each area is ported: 'xconsole' in stage 3, 'device' in stage 4.
- * Adding one early would replace a working page with a shell the router cannot yet serve.
+ * `head` gives a section its own title and description. Link previews (Zalo, Telegram,
+ * Facebook) read them from the HTML without running JS, so a shared /profile/ link would
+ * otherwise be previewed as "bauloc.github.io". Everything else stays byte-identical.
+ *
+ * Entries are added as each area is ported: 'profile' when the Flutter bundle was replaced,
+ * 'xconsole' in stage 3, 'device' in stage 4. Adding one early would replace a working page
+ * with a shell the router cannot yet serve.
  */
-const SECTIONS = []
+const SECTIONS = [
+  {
+    path: 'profile',
+    head: {
+      // The Flutter build's own title and manifest description, so previews read as before.
+      title: "BAULOC's Profile",
+      description: "BAULOC's Profile - Software Developer",
+    },
+  },
+]
+
+/**
+ * Hand-written files that must sit beside a section shell. /profile/ was a Flutter app, and
+ * its service worker is still registered in the browsers of everyone who visited it; this
+ * replacement unregisters it the next time the browser checks for an update. Without it the
+ * old worker keeps waking up for every request under /profile/.
+ */
+const SECTION_COMPANIONS = [
+  { path: path.join('profile', 'flutter_service_worker.js'), mustContain: 'unregister()' },
+]
 
 /**
  * Paths this script must NEVER write, and which must exist. These are published directly —
- * by the browser console (terms/privacy/iptv/data), by a Flutter build (profile), or by hand
- * (device/agent) — and a build must not be able to change or delete them.
+ * by the browser console (terms/privacy/iptv/data) or by hand (device/agent) — and a build
+ * must not be able to change or delete them.
  */
 const PROTECTED = [
   // Live and store-facing / machine-consumed. Their absence is a bug, not a stage.
   { path: 'terms', required: true },
   { path: 'privacy', required: true },
   { path: 'iptv', required: true },
-  { path: 'profile', required: true },
   // Protected from the first commit, but created later in the migration: `data/` arrives
   // with the xconsole port (the git mv and the path-constant change must land together, or
   // the console reads a 404, falls back to an empty index and writes that back), and
@@ -102,6 +125,47 @@ function fingerprint(rel) {
   return walk(full)
     .map((f) => `${f}:${statSync(path.join(full, f)).size}`)
     .join('\n')
+}
+
+/** Escape text for an HTML attribute value or element content. */
+function escapeHtml(text) {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+/**
+ * The tags a section's `head` replaces, each of which index.html must contain exactly once.
+ * Fail-closed: a shell with half its head rewritten would preview with the site's title and
+ * the section's description.
+ */
+const HEAD_TAGS = [
+  { pattern: /<title>[^<]*<\/title>/g, render: (h) => `<title>${escapeHtml(h.title)}</title>` },
+  {
+    pattern: /<meta name="description" content="[^"]*" \/>/g,
+    render: (h) => `<meta name="description" content="${escapeHtml(h.description)}" />`,
+  },
+  {
+    pattern: /<meta property="og:title" content="[^"]*" \/>/g,
+    render: (h) => `<meta property="og:title" content="${escapeHtml(h.title)}" />`,
+  },
+  {
+    pattern: /<meta property="og:description" content="[^"]*" \/>/g,
+    render: (h) => `<meta property="og:description" content="${escapeHtml(h.description)}" />`,
+  },
+]
+
+/** Tags in `html` that do not occur exactly once, by pattern source. */
+function headTagProblems(html) {
+  return HEAD_TAGS.filter(({ pattern }) => (html.match(pattern) ?? []).length !== 1).map(
+    ({ pattern }) => pattern.source,
+  )
+}
+
+/** index.html with a section's title and description swapped in. */
+function sectionHtml(html, head) {
+  if (!head) return html
+  let out = html
+  for (const { pattern, render } of HEAD_TAGS) out = out.replace(pattern, render(head))
+  return out
 }
 
 function copyDir(from, to) {
@@ -148,6 +212,24 @@ check(
  * 2. Snapshot the protected paths, sync, then prove they did not move
  * ------------------------------------------------------------------ */
 
+if (existsSync(distIndex) && SECTIONS.some((s) => s.head)) {
+  const problems = headTagProblems(readFileSync(distIndex, 'utf8'))
+  check(
+    problems.length === 0,
+    problems.length === 0
+      ? 'dist/index.html has one of each head tag a section rewrites'
+      : `dist/index.html lacks exactly one of: ${problems.join(', ')} — section heads cannot be rewritten`,
+  )
+}
+
+for (const { path: rel, mustContain } of SECTION_COMPANIONS) {
+  const file = path.join(ROOT, rel)
+  check(
+    existsSync(file) && readFileSync(file, 'utf8').includes(mustContain),
+    `section companion in place: /${rel.split(path.sep).join('/')}`,
+  )
+}
+
 for (const { path: rel, required } of PROTECTED) {
   if (required) check(fingerprint(rel) !== null, `protected path exists: ${rel}`)
 }
@@ -189,9 +271,10 @@ if (!CHECK_ONLY) {
   */
   copyFileSync(distIndex, path.join(ROOT, '404.html'))
 
+  const shell = readFileSync(distIndex, 'utf8')
   for (const section of SECTIONS) {
-    mkdirSync(path.join(ROOT, section), { recursive: true })
-    copyFileSync(distIndex, path.join(ROOT, section, 'index.html'))
+    mkdirSync(path.join(ROOT, section.path), { recursive: true })
+    writeFileSync(path.join(ROOT, section.path, 'index.html'), sectionHtml(shell, section.head))
   }
 }
 
@@ -205,8 +288,20 @@ for (const [rel, fp] of before) {
  * 3. Assert the served contract
  * ------------------------------------------------------------------ */
 
-for (const f of [...OWNED_FILES, ...SECTIONS.map((s) => path.join(s, 'index.html'))]) {
+for (const f of [...OWNED_FILES, ...SECTIONS.map((s) => path.join(s.path, 'index.html'))]) {
   check(existsSync(path.join(ROOT, f)), `published: /${f.split(path.sep).join('/')}`)
+}
+
+// A section shell must boot the SAME build as /index.html — a stale shell would load hashed
+// chunks that publish just deleted from /assets/.
+const rootIndex = path.join(ROOT, 'index.html')
+for (const section of SECTIONS) {
+  const file = path.join(ROOT, section.path, 'index.html')
+  if (!existsSync(file) || !existsSync(rootIndex)) continue
+  check(
+    readFileSync(file, 'utf8') === sectionHtml(readFileSync(rootIndex, 'utf8'), section.head),
+    `/${section.path}/index.html is the current shell${section.head ? ` titled "${section.head.title}"` : ''}`,
+  )
 }
 
 check(
@@ -274,6 +369,6 @@ if (failures.length > 0) {
 console.log(`\n${verb}: all ${notes.length} checks passed`)
 console.log(notes.join('\n'))
 if (!CHECK_ONLY) {
-  console.log(`\nWrote: /index.html, /404.html, /assets/${SECTIONS.length ? `, ${SECTIONS.map((s) => `/${s}/index.html`).join(', ')}` : ''}`)
+  console.log(`\nWrote: /index.html, /404.html, /assets/${SECTIONS.length ? `, ${SECTIONS.map((s) => `/${s.path}/index.html`).join(', ')}` : ''}`)
   console.log('Commit and push to deploy.\n')
 }

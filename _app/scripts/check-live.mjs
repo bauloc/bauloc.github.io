@@ -8,7 +8,9 @@
  *   /terms/{slug}/    and  /privacy/{slug}/   are submitted to the App Store and Play
  *                                             Console. A reviewer's crawler does not run JS.
  *   /iptv                                     is read directly by IPTV player apps.
- *   /profile/index.html                       is a prebuilt Flutter bundle, copied verbatim.
+ *
+ * (/profile/index.html was on this list while it was a prebuilt Flutter bundle. It is a
+ * section shell written by `npm run publish` now, so it changes with every build.)
  *
  * An empty report means those URLs did not move. A non-empty one means stop and look.
  *
@@ -24,7 +26,7 @@ const ORIGIN = 'https://bauloc.github.io'
 
 /** Every path that must be byte-identical between the working copy and the live site. */
 function contractPaths() {
-  const out = ['/iptv', '/profile/index.html']
+  const out = ['/iptv']
   for (const kind of ['terms', 'privacy']) {
     const dir = path.join(ROOT, kind)
     if (!existsSync(dir)) continue
