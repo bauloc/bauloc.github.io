@@ -7,6 +7,15 @@
    index lets you choose, and the class is also what the dark tokens are keyed on. */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Too short for the index's minimap above the sheet: a touch screen on its side (the
+   sheet's top edge is 14.7% of the height down), or any window short enough that the ruler
+   would cross the opening sheet. */
+@custom-variant short-screen {
+  @media (pointer: coarse) and (max-height: 680px), (max-height: 560px) {
+    @slot;
+  }
+}
+
 @layer base {
   *,
   *::before,

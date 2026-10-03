@@ -22,6 +22,11 @@ const WORD_PROBE = 100
  * a probe size, measured, scaled to the room. Measured again once the web font has loaded,
  * because the fallback face has different widths. The sheet's layout is in fixed design
  * units, so this never depends on the viewport.
+ *
+ * Centred on its capitals, as the reference centres its letters: with `leading-none`, Inter
+ * Tight's cap height sits exactly mid-line, so -50% is the true centre. The right padding
+ * gives back the letter-space the negative tracking takes after the last glyph, so that the
+ * ink is what gets centred, not the advance box.
  */
 function Word({ text }: { text: string }) {
   const word = useRef<HTMLSpanElement>(null)
@@ -48,7 +53,7 @@ function Word({ text }: { text: string }) {
     <span
       ref={word}
       aria-hidden="true"
-      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[54%] leading-none font-medium tracking-[-0.04em] whitespace-nowrap"
+      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pr-[0.04em] leading-none font-medium tracking-[-0.04em] whitespace-nowrap"
     >
       {text}
     </span>
@@ -75,6 +80,10 @@ export function Disc({ className }: { className: string }) {
 /**
  * Two letters, the second sitting on a full-height circle that warms from yellow to orange
  * while the sheet is the one in front of the camera (or hovered).
+ *
+ * Centred on their capitals like the word above. The first letter keeps about 30 design px
+ * clear of the circle, as the reference's does; it was set closer, and the two shapes
+ * pinched. Its offset and the gap move together, so the second letter stays put.
  */
 function Monogram({ letters }: { letters: string }) {
   const first = letters.slice(0, 1)
@@ -82,7 +91,7 @@ function Monogram({ letters }: { letters: string }) {
   return (
     <span aria-hidden="true" className="absolute inset-0">
       <Disc className="text-index-yellow group-hover:text-index-orange group-data-[active=true]:text-index-orange absolute top-0 right-0 size-[720px] transition-colors duration-500" />
-      <span className="absolute top-1/2 left-[56px] flex -translate-y-[52%] gap-[200px] text-[720px] leading-none font-medium tracking-[-0.04em]">
+      <span className="absolute top-1/2 left-[44px] flex -translate-y-1/2 gap-[212px] text-[720px] leading-none font-medium tracking-[-0.04em]">
         <span>{first}</span>
         {/* Sits wholly on the circle, which stays yellow in dark mode — so it stays dark. */}
         <span className="dark:text-index-on-yellow">{rest}</span>

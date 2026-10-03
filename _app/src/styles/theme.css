@@ -123,6 +123,10 @@
   label and ruler keep proven relationships rather than eyeballed ones. One deliberate
   deviation: the reference's label grey (#6f6f6f) is 4.29:1 on this field, under AA for 14px
   text, so the label takes the next step down (#646464, 5.06:1).
+
+  The focus ring is Radix blue 11 for the same reason. It is drawn just outside the sheet, on
+  the field, where a focus indicator needs 3:1 (WCAG 1.4.11): blue 9 (#0090ff) managed only
+  2.79:1, while blue 11 is 4.07:1.
 */
 :root {
   --index-ground: #ededed;
@@ -133,7 +137,7 @@
   --index-yellow: #ffff02;
   --index-orange: #ff6100;
   --index-blue: #0000ff;
-  --index-focus: #0090ff;
+  --index-focus: #0d74ce;
   /* The rest of the reference's flat primaries; the test card uses them as colour bars. */
   --index-cyan: #00f3ff;
   --index-green: #00af3f;

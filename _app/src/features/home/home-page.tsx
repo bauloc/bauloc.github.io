@@ -10,7 +10,7 @@ import { TextSwitch } from './components/text-switch'
 import { ThemeSwitch } from './components/theme-switch'
 import { HOME_LINKS } from './home-links'
 import { buildView } from './launcher'
-import { useIndexCamera } from './use-camera'
+import { STAGE_ID, useIndexCamera } from './use-camera'
 
 /** The statement is sheet 0; the links follow in data order. */
 const FIRST_LINK = 1
@@ -72,12 +72,6 @@ function sheetInFront(): number {
   return Number(element?.getAttribute('data-sheet') ?? 0)
 }
 
-/** The sheet holding keyboard focus, if any — in the grid, the one you were looking at. */
-function focusedSheet(): number | null {
-  const element = document.activeElement?.closest('[data-sheet]')
-  return element ? Number(element.getAttribute('data-sheet')) : null
-}
-
 /**
  * Typing a few letters reaches the best match, ranked by the launcher — the index is meant to
  * grow to dozens of entries, and nobody should travel past thirty to reach one.
@@ -107,13 +101,32 @@ function useTypeAhead(onMatch: (sheet: number) => void) {
  * strip, one sheet per destination, each labelled with its name and, where it matters, a
  * warning ("Needs a GitHub token", "In progress").
  *
- * Keyboard: Tab walks the sheets and the camera follows focus; ← → step sheet to sheet.
+ * Keyboard: Tab walks the sheets and the camera follows focus; ← → step sheet to sheet, and
+ * typing jumps to the best match. Focus goes wherever the camera goes, so Enter always opens
+ * the sheet on screen.
  */
-function StripView({ entrance, initialSheet }: { entrance: boolean; initialSheet: number }) {
+function StripView({ entrance, initialSheet }: { entrance: boolean; initialSheet: number | null }) {
   const { mode, track, stage, strip, minimap, goTo, seek, current } = useIndexCamera(
     SHEETS,
     FIRST_LINK,
     initialSheet,
+  )
+
+  /**
+   * Centre a sheet, and move focus to it when asked or when a sheet already has focus. The
+   * statement takes focus too (from script only, see IntroSheet); otherwise stepping onto it
+   * would leave focus, and Enter, on a sheet that has left the screen.
+   */
+  const travel = useCallback(
+    (sheet: number, takeFocus: boolean) => {
+      const sheets = strip.current
+      if (sheets && (takeFocus || sheets.contains(document.activeElement))) {
+        const next = sheets.children.item(sheet)
+        if (next instanceof HTMLElement) next.focus({ preventScroll: true })
+      }
+      goTo(sheet)
+    },
+    [goTo, strip],
   )
 
   useEffect(() => {
@@ -122,33 +135,52 @@ function StripView({ entrance, initialSheet }: { entrance: boolean; initialSheet
       if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return
       event.preventDefault()
       const step = event.key === 'ArrowRight' ? 1 : -1
-      const target = Math.min(SHEETS - 1, Math.max(0, current() + step))
-      // When a sheet has focus, focus travels with the camera, so Enter opens what you see.
-      const sheets = strip.current
-      if (sheets?.contains(document.activeElement) === true) {
-        const next = sheets.children.item(target)
-        if (next instanceof HTMLAnchorElement) next.focus({ preventScroll: true })
-      }
-      goTo(target)
+      travel(Math.min(SHEETS - 1, Math.max(0, current() + step)), false)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [current, goTo, strip])
+  }, [current, travel])
 
-  useTypeAhead(goTo)
+  // Typing is keyboard use, so the match takes focus: Enter then opens it.
+  const travelAndFocus = useCallback(
+    (sheet: number) => {
+      travel(sheet, true)
+    },
+    [travel],
+  )
+  useTypeAhead(travelAndFocus)
+
+  /**
+   * The sheet that keyboard focus last panned the camera to. When its window comes back to
+   * the front, the browser sends that sheet focus again; that must not drag the camera back
+   * from wherever scrolling has taken it since. Cleared when focus moves within the page —
+   * the only kind of blur during which the document still has focus.
+   */
+  const panned = useRef<number | null>(null)
+  const panTo = (sheet: number) => {
+    if (panned.current === sheet) return
+    panned.current = sheet
+    goTo(sheet)
+  }
 
   return (
     <>
       {/* The scroll track: invisible, it only provides scroll length. See use-camera.ts. */}
       {mode === 'fine' && <div aria-hidden="true" style={{ height: track.height }} />}
 
+      {/*
+        On a fine pointer the stage clips with `overflow: clip`, not `hidden`. A hidden box is
+        still a scroll container, so focus, find-in-page and text fragments would scroll it
+        behind the camera's back, and the strip would no longer be where the camera thinks.
+      */}
       <div
         ref={stage}
+        data-scroll-restoration-id={STAGE_ID}
         className={
           mode === 'fine'
-            ? 'fixed inset-0 overflow-hidden'
+            ? 'fixed inset-0 overflow-clip'
             : 'fixed inset-0 [scrollbar-width:none] overflow-x-auto overflow-y-hidden overscroll-x-contain [&::-webkit-scrollbar]:hidden'
         }
       >
@@ -157,6 +189,9 @@ function StripView({ entrance, initialSheet }: { entrance: boolean; initialSheet
         )}
         <div
           ref={strip}
+          onBlur={() => {
+            if (document.hasFocus()) panned.current = null
+          }}
           className="absolute top-0 left-0 flex origin-top-left"
           style={{ gap: SHEET_GAP }}
         >
@@ -168,7 +203,7 @@ function StripView({ entrance, initialSheet }: { entrance: boolean; initialSheet
               index={index + FIRST_LINK}
               entrance={entrance}
               onFocusVisible={() => {
-                goTo(index + FIRST_LINK)
+                panTo(index + FIRST_LINK)
               }}
             />
           ))}
@@ -208,7 +243,7 @@ function Cell({ caption, children }: { caption?: string; children: ReactNode }) 
  * components, drawn at the cell's width (`--k` = cell width ÷ 1200, which also keeps their
  * counter-scaled labels at 14 px). Typing jumps focus to the best match.
  */
-function GridView() {
+function GridView({ onSheetFocus }: { onSheetFocus: (sheet: number) => void }) {
   const grid = useRef<HTMLDivElement>(null)
 
   useLayoutEffect(() => {
@@ -234,7 +269,14 @@ function GridView() {
   return (
     <>
       <div className="mx-auto w-full max-w-[1400px] px-6 pt-20 pb-28 sm:px-12">
-        <div ref={grid} className="grid grid-cols-1 gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
+        <div
+          ref={grid}
+          onFocus={(event) => {
+            const sheet = event.target instanceof Element && event.target.closest('[data-sheet]')
+            if (sheet) onSheetFocus(Number(sheet.getAttribute('data-sheet')))
+          }}
+          className="grid grid-cols-1 gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-3"
+        >
           <Cell>
             <IntroSheet entrance={false} />
           </Cell>
@@ -266,11 +308,17 @@ export function HomePage() {
   /** Entrance animations belong to the first load only; after a switch the morph is the motion. */
   const [switched, setSwitched] = useState(false)
   const [returnTo, setReturnTo] = useState(0)
+  /**
+   * The sheet last focused in the grid, kept as it happens: by the time the List button's
+   * click is handled, focus has moved to that button.
+   */
+  const gridSheet = useRef<number | null>(null)
 
   const chooseLayout = (next: Layout) => {
-    // Leaving the list: remember the sheet in front. Leaving the grid: go back to the focused
-    // sheet, or else to the one the list was left at.
-    const from = layout === 'list' ? sheetInFront() : (focusedSheet() ?? returnTo)
+    // Leaving the list: remember the sheet in front. Leaving the grid: go back to the sheet
+    // focused there, or else to the one the list was left at.
+    const from = layout === 'list' ? sheetInFront() : (gridSheet.current ?? returnTo)
+    gridSheet.current = null
     saveLayout(next)
     morph(() => {
       flushSync(() => {
@@ -285,9 +333,13 @@ export function HomePage() {
   return (
     <main data-page="index" data-layout={layout} className="font-display text-index-ink relative">
       {layout === 'list' ? (
-        <StripView entrance={!switched} initialSheet={switched ? returnTo : 0} />
+        <StripView entrance={!switched} initialSheet={switched ? returnTo : null} />
       ) : (
-        <GridView />
+        <GridView
+          onSheetFocus={(sheet) => {
+            gridSheet.current = sheet
+          }}
+        />
       )}
       <TextSwitch
         label="Layout"

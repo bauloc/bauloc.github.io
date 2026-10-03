@@ -55,6 +55,9 @@ export function LinkSheet({
   const note = statusNote(link)
   const external = link.external === true
   const name = [link.title, note, external ? 'opens in a new tab' : null].filter(Boolean).join(', ')
+  // Art that covers the sheet edge to edge gets no white sheet under it: at fractional zoom
+  // the white would show through the art's anti-aliased edges as a pale rim.
+  const fullBleed = link.art?.kind === 'testCard'
 
   return (
     <a
@@ -86,7 +89,9 @@ export function LinkSheet({
           {note}
         </span>
       )}
-      <span className={`bg-index-sheet absolute inset-0 overflow-hidden ${FOCUS_RING}`}>
+      <span
+        className={`absolute inset-0 overflow-hidden ${fullBleed ? '' : 'bg-index-sheet'} ${FOCUS_RING}`}
+      >
         <SheetArt link={link} />
       </span>
     </a>

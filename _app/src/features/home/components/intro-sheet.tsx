@@ -44,13 +44,17 @@ function Statement({ tinted, entrance }: { tinted: boolean; entrance: boolean })
  * at full size: on the page's first load it grows in, its circle follows, and its lines rise
  * out of their own clips. `entrance` is off when it appears through a List ⇄ Grid switch —
  * the morph is the motion then, and a sheet scaled to zero would morph into nothing.
+ *
+ * Focusable from script only (`tabIndex={-1}`, no ring, as it opens nothing): stepping back
+ * onto it moves focus here, off the sheet that has just left the screen.
  */
 export function IntroSheet({ entrance }: { entrance: boolean }) {
   return (
     <section
       data-sheet={0}
+      tabIndex={-1}
       style={morphName(0)}
-      className={`bg-index-sheet relative h-[720px] w-[1200px] shrink-0 overflow-hidden ${entrance ? 'motion-safe:animate-sheet-grow' : ''}`}
+      className={`bg-index-sheet relative h-[720px] w-[1200px] shrink-0 overflow-hidden outline-none ${entrance ? 'motion-safe:animate-sheet-grow' : ''}`}
     >
       <Disc
         className={`text-index-yellow absolute top-0 right-0 size-[720px] ${entrance ? 'motion-safe:animate-circle-grow' : ''}`}

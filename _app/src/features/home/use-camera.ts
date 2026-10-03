@@ -3,9 +3,11 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  useState,
   useSyncExternalStore,
   type RefObject,
 } from 'react'
+import { useElementScrollRestoration } from '@tanstack/react-router'
 
 import {
   SHEET_HEIGHT,
@@ -27,9 +29,10 @@ import type { MinimapHandle } from './components/minimap'
   The DOM half of the camera. `camera.ts` decides where the camera is; this hook reads the
   scroll position, eases towards that camera, and writes it to the strip.
 
-  Scrolling is always native — a mouse wheel, a trackpad, PageDown, Space and scroll
-  restoration all work for free — and an invisible track element provides exactly the scroll
-  range the strip needs. Who scrolls depends on the pointer:
+  Scrolling is always native — a mouse wheel, a trackpad, a swipe, PageDown and Space all
+  work — and an invisible track element provides exactly the scroll range the strip needs.
+  The router saves that position per history entry (main.tsx), so a reload or Back opens on
+  the sheet you left. Who scrolls depends on the pointer:
 
   - fine: the DOCUMENT scrolls vertically over a tall track, and the strip sits in a fixed
     stage, moved by a transform.
@@ -39,6 +42,12 @@ import type { MinimapHandle } from './components/minimap'
     that is `user-scalable=no` (the reference does), which takes pinch-zoom away from
     everyone who needs it.
 */
+
+/** Names the touch stage for the router's scroll restoration, instead of a DOM path. */
+export const STAGE_ID = 'index-stage'
+
+/** Keys the browser scrolls the page with: pressing one takes over from a glide. */
+const SCROLL_KEYS = new Set(['PageUp', 'PageDown', 'Home', 'End', ' ', 'ArrowUp', 'ArrowDown'])
 
 function subscribeResize(onChange: () => void) {
   window.addEventListener('resize', onChange)
@@ -75,6 +84,11 @@ function scrollToOffset(
 ) {
   if (mode === 'fine') window.scrollTo({ top: offset, behavior })
   else stage?.scrollTo({ left: offset, behavior })
+}
+
+/** A wheel delta in pixels. Firefox counts a mouse wheel in lines; 40 px makes a notch ~120 px. */
+function wheelPixels(delta: number, event: WheelEvent): number {
+  return event.deltaMode === WheelEvent.DOM_DELTA_LINE ? delta * 40 : delta
 }
 
 interface PaintContext {
@@ -120,7 +134,7 @@ export interface IndexCamera {
   readonly minimap: RefObject<MinimapHandle | null>
   /** Centre sheet `index`. */
   goTo: (index: number) => void
-  /** Jump to a point along the strip, 0…1. */
+  /** Centre the sheet nearest a point along the strip, 0…1 — never the gap between two. */
   seek: (progress: number) => void
   /** The sheet the camera is heading for — what arrow keys count from. */
   current: () => number
@@ -128,9 +142,14 @@ export interface IndexCamera {
 
 /**
  * @param initialSheet where to open the strip on mount — coming back from the grid, the sheet
- *   that was in front before; otherwise 0, and the browser's own scroll restoration applies.
+ *   that was in front before. `null` on a page load, which opens where the router saved the
+ *   position (a reload, Back), or else on the first sheet.
  */
-export function useIndexCamera(count: number, firstLink: number, initialSheet = 0): IndexCamera {
+export function useIndexCamera(
+  count: number,
+  firstLink: number,
+  initialSheet: number | null = null,
+): IndexCamera {
   const mode: PointerMode = useSyncExternalStore(
     coarsePointer.subscribe,
     coarsePointer.matches,
@@ -155,10 +174,34 @@ export function useIndexCamera(count: number, firstLink: number, initialSheet = 
   const minimap = useRef<MinimapHandle>(null)
   /** The camera as last painted — eased, so it can lag the scroll position. */
   const shown = useRef<Camera | null>(null)
+  /**
+   * Where the scroll position puts the camera, in design units, before easing. A resize
+   * re-places the strip from this: not from the painted camera, which lags, and not from the
+   * scroll offset, which is in the old viewport's pixels.
+   */
+  const aim = useRef<number | null>(null)
+  /**
+   * The sheet a `goTo` is gliding to, until it arrives or the user scrolls. A smooth scroll
+   * takes up to a second, and a key pressed meanwhile must count from where the camera is
+   * going, not from wherever it has got to.
+   */
+  const heading = useRef<number | null>(null)
+
+  /*
+    The router saves the scroll position per history entry and restores it once the route has
+    rendered — after this camera has painted the first sheet, so it would then glide past
+    every sheet in between. Read the saved position on mount instead, and open there before
+    the first paint.
+  */
+  const saved = useElementScrollRestoration(
+    mode === 'fine' ? { getElement: () => window } : { id: STAGE_ID },
+  )
+  const [restoreTo] = useState(saved ? (mode === 'fine' ? saved.scrollY : saved.scrollX) : null)
 
   const range = scrollRange(count, { width, height }, mode)
   const track =
     mode === 'fine' ? { width: 1, height: height + range } : { width: width + range, height: 1 }
+  const behavior: ScrollBehavior = reduced ? 'instant' : 'smooth'
 
   /*
     Before paint, on mount and whenever the geometry changes: put the camera where it was in
@@ -169,35 +212,54 @@ export function useIndexCamera(count: number, firstLink: number, initialSheet = 
     const element = strip.current
     if (!element) return
     const viewport = { width, height }
-    const previous = shown.current
-    if (previous) {
-      const offset = scrollForX(previous.x, count, viewport, mode)
-      scrollToOffset(offset, mode, stage.current, 'instant')
-    } else if (initialSheet > 0) {
+    if (aim.current !== null) {
+      scrollToOffset(scrollForX(aim.current, count, viewport, mode), mode, stage.current, 'instant')
+      // That instant scroll cancels a glide in flight: send it on again, at the new scale.
+      if (heading.current !== null) {
+        const offset = scrollFor(heading.current, count, viewport, mode)
+        scrollToOffset(offset, mode, stage.current, behavior)
+      }
+    } else if (initialSheet !== null) {
       scrollToOffset(scrollFor(initialSheet, count, viewport, mode), mode, stage.current, 'instant')
+    } else if (restoreTo !== null) {
+      scrollToOffset(restoreTo, mode, stage.current, 'instant')
     }
     const camera = cameraAt(readScroll(mode, stage.current), count, viewport, mode)
     shown.current = camera
+    aim.current = camera.x
     paint(element, minimap.current, camera, { viewport, mode, count, firstLink })
-  }, [width, height, mode, count, firstLink, initialSheet])
+  }, [width, height, mode, count, firstLink, initialSheet, restoreTo, behavior])
 
   useEffect(() => {
     const viewport = { width, height }
     const context = { viewport, mode, count, firstLink }
     const source: Window | HTMLDivElement | null = mode === 'fine' ? window : stage.current
     let frame = 0
-    let last = 0
+    /** The previous tick's timestamp, or -1 when a run of ticks is just starting. */
+    let last = -1
 
     const tick = (now: number) => {
       frame = 0
       const element = strip.current
       if (!element) return
-      const target = cameraAt(readScroll(mode, stage.current), count, viewport, mode)
+      const scroll = readScroll(mode, stage.current)
+      if (
+        heading.current !== null &&
+        Math.abs(scroll - scrollFor(heading.current, count, viewport, mode)) < 1
+      ) {
+        heading.current = null
+      }
+      const target = cameraAt(scroll, count, viewport, mode)
+      aim.current = target.x
       let next = target
       // Ease only where script moves the strip. On touch the browser already scrolled it.
       if (mode === 'fine' && !reduced && shown.current) {
         const from = shown.current
-        const blend = 1 - Math.exp(-Math.max(0, now - last) / 80)
+        // A run's first tick counts as one whole frame. Its `now` is the frame's start, which
+        // comes before the scroll event that asked for it: measured from that event, the step
+        // would be zero and the frame wasted.
+        const elapsed = last < 0 ? 1000 / 60 : Math.max(0, now - last)
+        const blend = 1 - Math.exp(-elapsed / 80)
         next = {
           x: from.x + (target.x - from.x) * blend,
           scale: from.scale + (target.scale - from.scale) * blend,
@@ -213,32 +275,52 @@ export function useIndexCamera(count: number, firstLink: number, initialSheet = 
 
     const request = () => {
       if (frame !== 0) return
-      last = performance.now()
+      last = -1
       frame = requestAnimationFrame(tick)
     }
 
-    // A sideways trackpad swipe has nowhere to go on a page that scrolls vertically: make it travel.
     const onWheel = (event: WheelEvent) => {
+      // The user is scrolling: a glide that a key or the ruler started is over.
+      heading.current = null
+      // A trackpad pinch arrives as a ctrl+wheel; that is the browser's zoom, not travel.
+      if (event.ctrlKey) return
+      // A sideways swipe has nowhere to go on a page that scrolls vertically, nor a vertical
+      // one on a stage that scrolls sideways (a tablet with a trackpad): make either travel.
       if (mode === 'fine' && Math.abs(event.deltaX) > Math.abs(event.deltaY)) {
-        window.scrollBy({ top: event.deltaX, behavior: 'instant' })
+        window.scrollBy({ top: wheelPixels(event.deltaX, event), behavior: 'instant' })
+      } else if (mode === 'coarse' && Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+        stage.current?.scrollBy({ left: wheelPixels(event.deltaY, event), behavior: 'instant' })
       }
+    }
+
+    // A touch or a click takes over from a glide too. Captured, so this runs before the
+    // ruler's own handler, which may start a new glide of its own.
+    const onPointerDown = () => {
+      heading.current = null
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (SCROLL_KEYS.has(event.key)) heading.current = null
     }
 
     source?.addEventListener('scroll', request, { passive: true })
     window.addEventListener('wheel', onWheel, { passive: true })
+    window.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true })
+    window.addEventListener('keydown', onKeyDown)
     request()
     return () => {
       source?.removeEventListener('scroll', request)
       window.removeEventListener('wheel', onWheel)
+      window.removeEventListener('pointerdown', onPointerDown, { capture: true })
+      window.removeEventListener('keydown', onKeyDown)
       cancelAnimationFrame(frame)
     }
   }, [width, height, mode, count, firstLink, reduced])
 
-  const behavior: ScrollBehavior = reduced ? 'instant' : 'smooth'
-
   const goTo = useCallback(
     (index: number) => {
-      const offset = scrollFor(index, count, { width, height }, mode)
+      const sheet = Math.min(Math.max(0, index), count - 1)
+      heading.current = sheet
+      const offset = scrollFor(sheet, count, { width, height }, mode)
       scrollToOffset(offset, mode, stage.current, behavior)
     },
     [count, width, height, mode, behavior],
@@ -246,13 +328,13 @@ export function useIndexCamera(count: number, firstLink: number, initialSheet = 
 
   const seek = useCallback(
     (progress: number) => {
-      const offset = progress * scrollRange(count, { width, height }, mode)
-      scrollToOffset(offset, mode, stage.current, behavior)
+      goTo(Math.round(progress * (count - 1)))
     },
-    [count, width, height, mode, behavior],
+    [count, goTo],
   )
 
   const current = useCallback(() => {
+    if (heading.current !== null) return heading.current
     const camera = cameraAt(readScroll(mode, stage.current), count, { width, height }, mode)
     return nearestSheet(camera.x, count)
   }, [count, width, height, mode])
