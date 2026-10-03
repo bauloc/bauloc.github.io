@@ -189,7 +189,12 @@ export function createWebUsbBackend(): Backend {
       if (superseded()) return
       setState(s, 'connecting')
       const connection = await s.device.connect() // claims the interface
-      if (superseded()) return
+      if (superseded()) {
+        // Whatever superseded this could not close a device that was still opening (WebUSB
+        // refuses a close while an open or claim is in flight), so close it now.
+        await s.device.raw.close().catch(() => undefined)
+        return
+      }
 
       // authenticate() stays pending while the phone shows "Allow USB debugging?" — so the
       // honest state is `authorizing`, not a spinner that looks like our own slowness.
@@ -257,6 +262,9 @@ export function createWebUsbBackend(): Backend {
     try {
       const { manager: m } = await ensureManager()
       const devices = await m.getDevices()
+      // stop() may have run while this waited: connecting now would leave a session that
+      // nothing releases.
+      if (!started) return
       const present = new Set<string>()
       for (const device of devices) {
         const s = entry(device)
