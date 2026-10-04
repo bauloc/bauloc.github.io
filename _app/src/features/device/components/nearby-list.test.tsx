@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { HelperStatus } from '../helper/connection'
 import type { NearbyDevice } from '../helper/protocol'
 import { nearbyRows, type NearbySnapshot } from '../nearby'
-import { HEALTH, helperStatus } from './helper-status.fixture'
+import { HEALTH, LANES, helperStatus } from './helper-status.fixture'
 import { NearbySection, nearbyAnnouncement } from './nearby-list'
 
 /*
@@ -109,11 +109,59 @@ describe('NearbySection', () => {
     expect(show({ status: helperStatus('unpaired') }).calls.watch).not.toHaveBeenCalled()
   })
 
-  it('a helper too old to look: the command that replaces it, and no looking', () => {
-    const { calls, section } = show({ status: helperStatus('connected') })
-    expect(section).toHaveTextContent('This helper can’t look for devices on the network.')
-    expect(section).toHaveTextContent('curl -fsSL')
+  it('a helper too old to look: says so, with the update command for its port, and no looking', () => {
+    // The owner's case: a helper downloaded before discovery shipped, Android on.
+    const old = helperStatus('connected', {
+      health: { ...HEALTH, features: ['android.start-server', 'android.connect'] },
+    })
+    const { calls, section } = show({ status: old })
+    expect(section).toHaveTextContent('Update the helper')
+    expect(section).toHaveTextContent(
+      'Your helper is older than this page: it can’t look for devices on this network yet. Update it: press Ctrl+C in its window, then run:',
+    )
+    expect(within(section).getByText(/^curl -fsSL /)).toHaveTextContent(
+      'curl -fsSL https://bauloc.github.io/device/agent/device-bridge.mjs -o ~/device-bridge.mjs && node ~/device-bridge.mjs',
+    )
+    expect(within(section).getByRole('button', { name: 'Copy command' })).toBeInTheDocument()
+    expect(section).toHaveTextContent('Then reload this page.')
+    expect(within(section).queryByRole('button', { name: /Look again/ })).toBeNull()
     expect(calls.watch).not.toHaveBeenCalled()
+  })
+
+  it('names the port the page talks to in the update command', () => {
+    const old = helperStatus('connected', {
+      env: { ...helperStatus('connected').env, port: 8788, apiBase: 'http://127.0.0.1:8788' },
+    })
+    const { section } = show({ status: old })
+    expect(within(section).getByText(/^curl -fsSL /)).toHaveTextContent(
+      'node ~/device-bridge.mjs --port 8788',
+    )
+  })
+
+  it('a helper whose route turned out missing gets the same notice', () => {
+    const { section } = show({ snapshot: snap({ state: 'unsupported', code: 'NOT_FOUND' }) })
+    expect(section).toHaveTextContent('Your helper is older than this page')
+  })
+
+  it('started with --no-android: says that, not that the helper is old', () => {
+    const off = helperStatus('connected', {
+      health: { ...HEALTH, features: [] },
+      lanes: { ...LANES, android: { status: 'off', adb: 'found', startedByHelper: false } },
+    })
+    const { calls, section } = show({ status: off })
+    expect(section).toHaveTextContent(
+      'The helper was started with --no-android, so it can’t reach Android devices. Stop the helper (Ctrl+C) and start it again without --no-android.',
+    )
+    expect(section).not.toHaveTextContent('older')
+    expect(within(section).queryByText(/^curl /)).toBeNull()
+    expect(calls.watch).not.toHaveBeenCalled()
+  })
+
+  it('a helper with discovery: the list, and no update notice', () => {
+    const { calls, section } = show({ snapshot: snap({ devices: [TV] }) })
+    expect(within(section).getByRole('button', { name: /Connect SONY KD-43X8050H/ })).toBeVisible()
+    expect(section).not.toHaveTextContent('older than this page')
+    expect(calls.watch).toHaveBeenCalledOnce()
   })
 
   it('looks while it shows, and stops when it goes', () => {

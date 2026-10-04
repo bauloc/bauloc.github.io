@@ -4,6 +4,7 @@ import { cn } from '@/lib/cn'
 import type { HelperStatus } from '../helper/connection'
 import type { HelperDevice } from '../helper/protocol'
 import { helperChip, type HelperAction, type HelperActionView } from '../helper/status'
+import type { HelperUpdate } from '../helper/update'
 import { StateDot } from './status'
 
 /*
@@ -35,13 +36,16 @@ export function HelperChip({
   status,
   devices,
   on,
+  update = null,
 }: {
   status: HelperStatus
   /** The helper's own rows, for "1/2 ready via helper". */
   devices: readonly HelperDevice[]
   on: HelperHandlers
+  /** helperUpdate(…): adds "update available" while the helper is connected. */
+  update?: HelperUpdate | null
 }) {
-  const view = helperChip(status, devices)
+  const view = helperChip(status, devices, update)
   const body = (
     <>
       <StateDot tone={view.tone} />

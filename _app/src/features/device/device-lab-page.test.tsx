@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { HEALTH, IPHONE_ROW, REPORT, helperStatus } from './components/helper-status.fixture'
 import { DeviceLabPage, installRefusal, keepListed, slowCapture, withOpen } from './device-lab-page'
 import type * as ConnectionModule from './helper/connection'
+import type * as EnvModule from './preflight/env'
 import type { HelperConnection, HelperStatus } from './helper/connection'
 import type { HelperDevice } from './helper/protocol'
 import { normalizeDevice } from './model'
@@ -90,6 +91,15 @@ function fakeConnection(): HelperConnection {
 vi.mock('./helper/connection', async (importOriginal) => ({
   ...(await importOriginal<typeof ConnectionModule>()),
   createHelperConnection: () => fakeConnection(),
+}))
+
+// The published helper file, read once the helper is connected: never the network in a test.
+const readPublished = vi.hoisted(() =>
+  vi.fn<() => Promise<{ version: string; sha256: string } | null>>(() => Promise.resolve(null)),
+)
+vi.mock('./preflight/env', async (importOriginal) => ({
+  ...(await importOriginal<typeof EnvModule>()),
+  readPublishedHelper: readPublished,
 }))
 
 const APK = new File(['PK'], 'shop.apk', { type: 'application/vnd.android.package-archive' })
@@ -301,6 +311,8 @@ describe('DeviceLabPage, with the local helper', () => {
     fake.state.status = null
     fake.state.devices = []
     for (const fn of Object.values(calls)) fn.mockClear()
+    readPublished.mockReset()
+    readPublished.mockImplementation(() => Promise.resolve(null))
   })
 
   const live = () => screen.getAllByRole('status').find((el) => el.getAttribute('aria-live'))
@@ -636,12 +648,105 @@ describe('DeviceLabPage, with the local helper', () => {
     })
   })
 
-  it('a helper too old to look is never asked', async () => {
+  /** The update notice's command, in a section. */
+  const command = (section: HTMLElement) => within(section).getByText(/^curl -fsSL /)
+
+  it('a helper older than discovery: says so under the devices, with the command, never asked', async () => {
     await renderPage()
     setHelper(WIFI_HELPER, [TV_ROW])
     const section = await screen.findByRole('region', { name: 'On this network' })
-    expect(section).toHaveTextContent('This helper can’t look for devices on the network.')
+    expect(section).toHaveTextContent(
+      'Your helper is older than this page: it can’t look for devices on this network yet.',
+    )
+    expect(command(section)).toHaveTextContent(
+      'curl -fsSL https://bauloc.github.io/device/agent/device-bridge.mjs -o ~/device-bridge.mjs && node ~/device-bridge.mjs',
+    )
+    expect(section).toHaveTextContent('Then reload this page.')
     expect(calls.nearby).not.toHaveBeenCalled()
+  })
+
+  it('…and in the Gate’s Wi‑Fi part when nothing is plugged in (the owner’s case)', async () => {
+    await renderPage()
+    setHelper(WIFI_HELPER, [])
+    act(() => {
+      screen.getByRole('radio', { name: /Android/ }).click()
+    })
+    const wifi = screen.getByRole('region', { name: /Phone or TV on Wi‑Fi\?/ })
+    const section = within(wifi).getByRole('region', { name: 'On this network' })
+    expect(section).toHaveTextContent('Update the helper')
+    expect(command(section)).toBeInTheDocument()
+    expect(calls.nearby).not.toHaveBeenCalled()
+    // The same helper, updated: the list instead, and no notice.
+    nearbyReply([BRAVIA])
+    setHelper(DISCOVER_HELPER, [])
+    await waitFor(() => {
+      expect(section).toHaveTextContent('SONY KD-43X8050H')
+    })
+    expect(section).not.toHaveTextContent('older than this page')
+  })
+
+  it('says “update available” on the chip and the notice when a newer helper is published', async () => {
+    readPublished.mockImplementation(() =>
+      Promise.resolve({ version: '1.1.0', sha256: 'cd'.repeat(32) }),
+    )
+    await renderPage()
+    setHelper(WIFI_HELPER, [TV_ROW])
+    const header = document.querySelector('header')
+    if (!header) throw new Error('no header')
+    const chip = await within(header).findByRole('button', {
+      name: '1/1 ready via helper · update available: open the Environment check',
+    })
+    expect(chip).toHaveAttribute(
+      'title',
+      expect.stringMatching(/^Helper 1\.1\.0 is out; this one is 1\.0\.0\./),
+    )
+    const notice = screen.getByRole('region', { name: 'Local helper' })
+    expect(notice).toHaveTextContent(
+      'Helper update available. Helper 1.1.0 is out; this one is 1.0.0. Press Ctrl+C in its window, run the command, then reload this page.',
+    )
+    expect(within(notice).getByRole('button', { name: 'Copy command' })).toHaveAttribute(
+      'title',
+      expect.stringMatching(/^curl -fsSL /),
+    )
+    expect(readPublished).toHaveBeenCalledTimes(1)
+  })
+
+  it('…above the Gate too, when nothing is plugged in, and nothing else of the strip there', async () => {
+    readPublished.mockImplementation(() =>
+      Promise.resolve({ version: '1.1.0', sha256: 'cd'.repeat(32) }),
+    )
+    await renderPage()
+    setHelper(WIFI_HELPER, [])
+    const notice = await screen.findByRole('region', { name: 'Local helper' })
+    expect(notice).toHaveTextContent('Helper update available. Helper 1.1.0 is out')
+    expect(screen.getByRole('heading', { name: 'Connect a device' })).toBeInTheDocument()
+    // The Gate's cards say a stopped helper; the strip doesn't repeat it there.
+    setHelper(helperStatus('lost'), [])
+    expect(screen.queryByRole('region', { name: 'Local helper' })).toBeNull()
+  })
+
+  it('…the same version built again counts (both files said 1.0.0); the same file does not', async () => {
+    readPublished.mockImplementation(() =>
+      Promise.resolve({ version: '1.0.0', sha256: 'cd'.repeat(32) }),
+    )
+    await renderPage()
+    setHelper(WIFI_HELPER, [TV_ROW])
+    expect(
+      await screen.findByText(
+        /^Helper update available\. A newer build of helper 1\.0\.0 is out\./,
+      ),
+    ).toBeInTheDocument()
+    cleanup()
+    readPublished.mockImplementation(() =>
+      Promise.resolve({ version: '1.0.0', sha256: HEALTH.sha256 }),
+    )
+    await renderPage()
+    setHelper(WIFI_HELPER, [TV_ROW])
+    await waitFor(() => {
+      expect(readPublished).toHaveBeenCalledTimes(2)
+    })
+    expect(screen.queryByText(/update available/i)).toBeNull()
+    expect(screen.getByRole('button', { name: /^1\/1 ready via helper:/ })).toBeInTheDocument()
   })
 
   it('a log whose device drops says so, and stops once the device leaves the list', async () => {

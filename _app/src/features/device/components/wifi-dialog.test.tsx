@@ -113,12 +113,14 @@ describe('WifiDialog', () => {
     expect(calls.pairHelper).toHaveBeenCalled()
   })
 
-  it('says a helper without Wi‑Fi must be downloaded again', () => {
+  it('says a helper without Wi‑Fi is older than this page, with the update command', () => {
     show({ status: helperStatus('connected') })
     expect(within(dialog()).queryByLabelText('IP address')).toBeNull()
     expect(dialog()).toHaveTextContent(
-      'This helper can’t connect to Wi‑Fi devices. Download it again; the command replaces it.',
+      'Your helper is older than this page: it can’t connect to devices over Wi‑Fi yet. Update it: press Ctrl+C in its window, then run:',
     )
+    expect(within(dialog()).getByText(/^curl -fsSL /)).toBeInTheDocument()
+    expect(dialog()).toHaveTextContent('Then reload this page.')
   })
 
   it('offers Start adb server while the server is stopped', () => {

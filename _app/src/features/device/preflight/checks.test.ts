@@ -2673,10 +2673,24 @@ describe('wifiChecks', () => {
     expect(targets(unpaired[0] as CheckItem)).toEqual(['action:pair-helper'])
     const old = helperAt('connected')
     expect(wifiHelperReady(old)).toBe(false)
-    expect(wifiChecks({ helper: old, attempt: null, device: null })[0]).toMatchObject({
+    const oldRow = wifiChecks({ helper: old, attempt: null, device: null })[0] as CheckItem
+    expect(oldRow).toMatchObject({
       status: 'blocking',
       sentence:
-        'This helper can’t connect to Wi‑Fi devices. Download it again; the command replaces it.',
+        'Your helper is older than this page: it can’t connect to devices over Wi‑Fi yet. Update it: press Ctrl+C in its window, then run:',
+      detail: 'Then reload this page.',
+    })
+    expect(targets(oldRow)).toEqual([expect.stringMatching(/^copy:curl -fsSL /)])
+    // --no-android leaves android.connect out too: the adb server's row says why, not this one.
+    const off: HelperStatus = {
+      ...old,
+      lanes: { ...LANES, android: { status: 'off', adb: 'found', startedByHelper: false } },
+    }
+    const offRows = wifiChecks({ helper: off, attempt: null, device: null })
+    expect(offRows[0]?.status).toBe('ok')
+    expect(offRows[1]).toMatchObject({
+      status: 'blocking',
+      sentence: expect.stringMatching(/--no-android/),
     })
   })
 

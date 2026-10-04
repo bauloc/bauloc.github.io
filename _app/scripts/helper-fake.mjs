@@ -11,6 +11,12 @@
  *                                              # the real helper serves the published page
  *   npm run helper:fake -- --source            # run helper/src instead of the built file
  *                                              # (before `npm run helper:build`)
+ *   npm run helper:fake -- --helper <file>     # run another built helper, such as an older
+ *                                              # release, to see what the page says to it:
+ *       git show 6ecedd0:device/agent/device-bridge.mjs > /tmp/old-helper.mjs
+ *       npm run helper:fake -- --helper /tmp/old-helper.mjs   # 1.0.0, before discovery
+ *   npm run helper:fake -- --no-android        # as `--no-android`: no Android lane, so no
+ *                                              # android.* features either
  *
  * For UI work without phones (spec §9.3): every chip, card, notice, hint and checklist state
  * on demand. It runs ../device/agent/device-bridge.mjs — the very file testers download — through
@@ -89,12 +95,18 @@ const port = Number(option('--port') ?? 8787)
 const token = option('--token')
 const localFrom = option('--local-from')
 const fromSource = args.includes('--source')
+const otherHelper = option('--helper')
+const noAndroid = args.includes('--no-android')
 if (!Number.isInteger(port) || port < 1024 || port > 65535) {
   console.error('--port must be a port from 1024 to 65535.')
   process.exit(64)
 }
 if (localFrom !== undefined && !/^http:\/\/(127\.0\.0\.1|localhost):\d{2,5}$/.test(localFrom)) {
   console.error('--local-from must be a loopback origin such as http://127.0.0.1:4173.')
+  process.exit(64)
+}
+if (otherHelper !== undefined && (fromSource || !/\.m?js$/.test(otherHelper))) {
+  console.error('--helper takes a built helper file (.mjs), and not together with --source.')
   process.exit(64)
 }
 if (token !== undefined && !/^[A-Za-z0-9_-]{43}$/.test(token)) {
@@ -152,7 +164,9 @@ const chunk = bundled.output.find((o) => o.type === 'chunk')
 writeFileSync(path.join(tmp, 'fakes.mjs'), chunk.code)
 const fakes = await import(pathToFileURL(path.join(tmp, 'fakes.mjs')).href)
 // --source: the bridge comes from the same bundle as the fakes, so their errors are its own.
-const helper = fromSource ? fakes : await import(pathToFileURL(HELPER_FILE).href)
+const helper = fromSource
+  ? fakes
+  : await import(pathToFileURL(otherHelper ? path.resolve(otherHelper) : HELPER_FILE).href)
 
 /**
  * A HelperError the bridge recognises (describeError checks the class). The built file's own
@@ -662,7 +676,12 @@ const { input, bin } = await fakes.isolation({
     ),
   log: (line) => console.log(`  helper │ ${line}`),
   errorLog: (line) => console.error(`  helper ! ${line}`),
-  lanes: { ios: iosLane.factory, android: androidLane.factory, simulators: simLane.factory },
+  ...(noAndroid ? { android: false } : {}),
+  lanes: {
+    ios: iosLane.factory,
+    android: noAndroid ? null : androidLane.factory,
+    simulators: simLane.factory,
+  },
 })
 
 let adbServer = null
@@ -696,8 +715,11 @@ function publish() {
   )
   iosLane.ctx().setLane('ios', iosLaneState())
   iosLane.ctx().publish('ios', iosRows())
-  androidLane.ctx().setLane('android', androidLaneState())
-  androidLane.ctx().publish('android', androidRows())
+  // --no-android: the bridge never created the Android lane, so there is nothing to tell.
+  if (!noAndroid) {
+    androidLane.ctx().setLane('android', androidLaneState())
+    androidLane.ctx().publish('android', androidRows())
+  }
   simLane.ctx().setLane('simulators', simLaneState())
   simLane.ctx().publish('simulators', simRows())
 }
@@ -714,7 +736,9 @@ await setAdb('on')
 
 const pairLink = (origin) => `${origin}/device/#pair=${bridge.token}&port=${bridge.port}`
 console.log(`
-Device Lab helper ${helper.VERSION} — FAKE PHONES — 127.0.0.1:${bridge.port} (fingerprint ${bridge.tokenId})
+Device Lab helper ${helper.VERSION} — FAKE PHONES — 127.0.0.1:${bridge.port} (fingerprint ${bridge.tokenId})${
+  otherHelper ? `\n  Running ${path.resolve(otherHelper)}` : ''
+}${noAndroid ? '\n  --no-android: no Android lane' : ''}
 
   Pair the dev page:     ${pairLink('http://localhost:7360')}
   Token (pair dialog):   ${bridge.token}${

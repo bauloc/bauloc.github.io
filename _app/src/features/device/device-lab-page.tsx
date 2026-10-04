@@ -51,6 +51,7 @@ import { readPendingPair, takePairFragment } from './helper/pair-fragment'
 import type { DoctorReport } from './helper/protocol'
 import { helperAnnouncement, pairError, rememberNote } from './helper/status'
 import { readStoredPort, readStoredToken } from './helper/token'
+import { helperUpdate } from './helper/update'
 import { createLogSessions, RESUME_WINDOW_TEXT, type LogEvent } from './log-sessions'
 import { installPhoneOf, type Device } from './model'
 import {
@@ -346,7 +347,7 @@ export function DeviceLabPage() {
   }, [wifi, helperDevices])
   const [pair, setPair] = useState({ open: false, key: 0 })
   const [doctor, setDoctor] = useState<DoctorReport | null>(null)
-  // Undefined until the Environment check has read the published file.
+  // Undefined until the published file was read (once the helper is connected).
   const [published, setPublished] = useState<PublishedHelper | null | undefined>(undefined)
   const [rechecking, setRechecking] = useState(false)
   const [startingAdb, setStartingAdb] = useState(false)
@@ -681,10 +682,12 @@ export function DeviceLabPage() {
     }
   }, [helper, needDoctor, lanesKey])
 
-  // The published helper, to say whether this one is current: Environment check only.
+  // The published helper, to say whether this one is current: the Environment check's update
+  // row, and "update available" on the chip and the notice strip. Read once per running helper
+  // (by its SHA-256), not per poll; the check's Recheck reads it again.
   const runningSha = connected ? (status.health?.sha256 ?? null) : null
   useEffect(() => {
-    if (!doctorOpen || runningSha === null) return
+    if (runningSha === null) return
     let live = true
     void readPublishedHelper().then((next) => {
       if (live) setPublished(next)
@@ -692,7 +695,8 @@ export function DeviceLabPage() {
     return () => {
       live = false
     }
-  }, [doctorOpen, runningSha])
+  }, [runningSha])
+  const update = connected ? helperUpdate(status.health, published) : null
 
   const openPair = () => {
     setPair((p) => ({ open: true, key: p.key + 1 }))
@@ -985,7 +989,7 @@ export function DeviceLabPage() {
             <StateDot tone={laneTone} />
             {laneText}
           </Badge>
-          <HelperChip status={status} devices={helperDevices} on={helperOn} />
+          <HelperChip status={status} devices={helperDevices} on={helperOn} update={update} />
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           {mock && (
@@ -1022,28 +1026,36 @@ export function DeviceLabPage() {
       >
         <main>
           {gate ? (
-            <Gate
-              browser={browserItems}
-              phone={phoneItems}
-              wiring={wiring}
-              os={env.os}
-              helper={status}
-              helperOn={helperOn}
-              checklist={gateItems}
-              onWifi={openWifi}
-              choice={gatePlatform}
-              onChoose={(platform) => {
-                setGatePlatform(platform)
-                saveGatePlatform(platform)
-              }}
-              nearby={nearbyAvailability(status) === 'helper' ? undefined : nearbySection}
-            />
+            <>
+              {/* Only "update available" here: the Gate's own cards say every other phase. */}
+              {update && (
+                <div className="mx-auto w-full max-w-3xl">
+                  <HelperNotice status={status} on={helperOn} update={update} />
+                </div>
+              )}
+              <Gate
+                browser={browserItems}
+                phone={phoneItems}
+                wiring={wiring}
+                os={env.os}
+                helper={status}
+                helperOn={helperOn}
+                checklist={gateItems}
+                onWifi={openWifi}
+                choice={gatePlatform}
+                onChoose={(platform) => {
+                  setGatePlatform(platform)
+                  saveGatePlatform(platform)
+                }}
+                nearby={nearbyAvailability(status) === 'helper' ? undefined : nearbySection}
+              />
+            </>
           ) : (
             <>
               <div className="mx-auto mb-4 w-full max-w-7xl empty:hidden">
-                <HelperNotice status={status} on={helperOn} />
+                <HelperNotice status={status} on={helperOn} update={update} />
               </div>
-              <div className="mx-auto grid w-full max-w-7xl items-start gap-6 lg:grid-cols-[22rem_1fr]">
+              <div className="mx-auto grid w-full max-w-7xl grid-cols-1 items-start gap-6 lg:grid-cols-[22rem_1fr]">
                 {/* At lg the list stays in view and scrolls on its own, as the legacy pane did, so
                   a long list is never cut off below the fold. The padding keeps focus rings whole. */}
                 <div className="lg:sticky lg:top-20 lg:-m-1 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto lg:p-1">

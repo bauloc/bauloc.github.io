@@ -322,20 +322,48 @@ describe('nearbyAvailability', () => {
   })
   const pairing = { tokenId: 'abcd1234', remembered: true, tokenPersistent: false }
 
+  const lanes = (android: 'ok' | 'off' | 'stopped') => ({
+    ios: {
+      status: 'ok' as const,
+      screenshots: 'devicectl' as const,
+      xcode: 'ready' as const,
+      wifi: false,
+      wifiHidden: 0,
+    },
+    android: { status: android, adb: 'found' as const, startedByHelper: false },
+    simulators: { status: 'off' as const, booted: 0 },
+  })
+
   it('looks only through a running, paired helper that can', () => {
-    expect(nearbyAvailability({ phase: 'absent', pairing: null, health: null })).toBe('helper')
+    expect(nearbyAvailability({ phase: 'absent', pairing: null, health: null, lanes: null })).toBe(
+      'helper',
+    )
     expect(
       nearbyAvailability({
         phase: 'connected',
         pairing: null,
         health: health(['android.discover']),
+        lanes: lanes('ok'),
       }),
     ).toBe('helper')
     expect(
-      nearbyAvailability({ phase: 'connected', pairing, health: health(['android.connect']) }),
-    ).toBe('old')
-    expect(
-      nearbyAvailability({ phase: 'connected', pairing, health: health(['android.discover']) }),
+      nearbyAvailability({
+        phase: 'connected',
+        pairing,
+        health: health(['android.discover']),
+        lanes: lanes('ok'),
+      }),
     ).toBe('ready')
+  })
+
+  it('tells a helper older than discovery from one started with --no-android', () => {
+    // The owner's helper, downloaded before discovery shipped: Android on, no android.discover.
+    const old = { phase: 'connected' as const, pairing, health: health(['android.connect']) }
+    expect(nearbyAvailability({ ...old, lanes: lanes('ok') })).toBe('older')
+    expect(nearbyAvailability({ ...old, lanes: lanes('stopped') })).toBe('older')
+    // --no-android leaves every Android feature out: not a reason to download it again.
+    expect(nearbyAvailability({ ...old, health: health([]), lanes: lanes('off') })).toBe('off')
+    // Connected a moment ago, lanes not read yet: no guess either way.
+    expect(nearbyAvailability({ ...old, lanes: null })).toBe('unknown')
   })
 })

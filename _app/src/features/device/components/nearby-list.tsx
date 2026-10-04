@@ -8,11 +8,11 @@ import { cn } from '@/lib/cn'
 import { deviceErrorMessage } from '../backends/backend'
 import type { HelperStatus } from '../helper/connection'
 import type { NearbyKind } from '../helper/protocol'
-import { downloadCommand } from '../helper/status'
 import { nearbyAvailability, type NearbyRow, type NearbySnapshot } from '../nearby'
 import { nearbyBlockedCheck } from '../preflight/checks'
 import { COPY, FIX } from '../preflight/copy'
-import { Command, PathFix, RowBody, StatusWord } from './checklist'
+import { PathFix, RowBody, StatusWord } from './checklist'
+import { OlderHelper } from './older-helper'
 import { TONE_SURFACE } from './status'
 
 /*
@@ -22,7 +22,8 @@ import { TONE_SURFACE } from './status'
   in. Nothing here connects by itself.
 
   Looks when it first shows, then every 30 s while the tab is visible (nearby.ts); Refresh looks
-  again now. Without a running, paired helper it is one quiet line, not an error.
+  again now. Without a running, paired helper it is one quiet line, not an error. A helper
+  downloaded before discovery shipped gets the update notice here, with its command.
 */
 
 /** The badge: how the device offers debugging. */
@@ -136,12 +137,32 @@ export function NearbySection({
     )
   }
 
-  if (availability === 'old' || snapshot.state === 'unsupported') {
+  // Older than discovery: said here, where the devices would be, never hidden.
+  if (availability === 'older' || (ready && snapshot.state === 'unsupported')) {
     return (
       <section aria-labelledby={headingId} className="space-y-2">
         <Heading id={headingId} />
-        <p className="text-muted-foreground text-xs leading-relaxed">{COPY.nearby.helperOld}</p>
-        <Command text={downloadCommand(status.env.port)} />
+        <OlderHelper feature="android.discover" port={status.env.port} />
+      </section>
+    )
+  }
+
+  if (availability === 'off') {
+    return (
+      <section aria-labelledby={headingId} className="space-y-1.5">
+        <Heading id={headingId} />
+        <p className="text-muted-foreground text-xs leading-relaxed">
+          {COPY.wifi.adbOff} {COPY.wifi.adbOffStep}
+        </p>
+      </section>
+    )
+  }
+
+  // Connected a moment ago: the heading alone until the helper's lanes say which case it is.
+  if (availability === 'unknown') {
+    return (
+      <section aria-labelledby={headingId}>
+        <Heading id={headingId} />
       </section>
     )
   }

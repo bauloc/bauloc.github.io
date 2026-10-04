@@ -3,7 +3,7 @@ import type { Timeouts } from './types'
 /** What answers on 127.0.0.1: the page checks `health.name` before it trusts anything else. */
 export const NAME = 'bauloc-device-bridge'
 /** Semver of this file. The page shows it and compares it with the published file. */
-export const VERSION = '1.0.0'
+export const VERSION = '1.1.0'
 /**
  * The wire protocol's integer major. Within a major only additions are allowed (fields,
  * codes, endpoints, `features`); the page accepts DVC_MIN_AGENT ≤ PROTOCOL ≤ DVC_MAX_AGENT.

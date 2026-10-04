@@ -72,7 +72,11 @@ function status(phase: HelperPhase, patch: Partial<HelperStatus> = {}): HelperSt
     permission: 'granted',
     health: HEALTH,
     lanes: LANES,
-    pairing: null,
+    // A connected page is a paired one (connection.ts adopt).
+    pairing:
+      phase === 'connected'
+        ? { tokenId: '4d1566a1', remembered: false, tokenPersistent: false }
+        : null,
     remember: false,
     intent: true,
     since: new Date(2026, 9, 4, 14, 5).getTime(),
@@ -173,6 +177,26 @@ describe('helperChip', () => {
       devOrigin: false,
     }
     expect(helperChip(status('foreign', { env }), []).text).toBe('Port 8788 is another app')
+  })
+
+  it('says “update available” when a newer helper is published, outside the check too', () => {
+    const newer = { version: '1.1.0', running: '1.0.0', kind: 'newer' } as const
+    expect(helperChip(status('connected'), [], newer)).toEqual({
+      tone: 'warn',
+      text: 'Helper ready · update available',
+      action: { action: 'check', label: 'Environment check' },
+      tooltip: 'Helper 1.1.0 is out; this one is 1.0.0. The Environment check has the command.',
+    })
+    expect(helperChip(status('connected'), [device('ready')], newer).text).toBe(
+      '1/1 ready via helper · update available',
+    )
+    const rebuilt = { version: '1.0.0', running: '1.0.0', kind: 'rebuilt' } as const
+    expect(helperChip(status('connected'), [], rebuilt).tooltip).toBe(
+      'A newer build of helper 1.0.0 is out. The Environment check has the command.',
+    )
+    // Only a connected helper's chip: the other phases say their own thing first.
+    expect(helperChip(status('stale'), [], newer).text).toBe('Helper restarted — pair again')
+    expect(helperChip(status('connected'), [], null).text).toBe('Helper ready · no devices')
   })
 })
 
@@ -430,6 +454,23 @@ describe('helperAndroid', () => {
       )?.startAdb,
     ).toBeNull()
   })
+
+  it('says a helper without Start adb server is older than this page, with its update', () => {
+    const view = helperAndroid(
+      status('connected', {
+        health: { ...HEALTH, features: [] },
+        lanes: lanes({ status: 'stopped', adb: 'found', startedByHelper: false }),
+      }),
+    )
+    expect(view).toMatchObject({ startAdb: null, update: 'android.start-server' })
+    expect(
+      helperAndroid(
+        status('connected', {
+          lanes: lanes({ status: 'stopped', adb: 'found', startedByHelper: false }),
+        }),
+      )?.update,
+    ).toBeUndefined()
+  })
 })
 
 describe('helperNotice', () => {
@@ -454,6 +495,22 @@ describe('helperNotice', () => {
     for (const p of ['off', 'checking', 'absent', 'connected', 'unpaired'] as const) {
       expect(helperNotice(status(p))).toBeNull()
     }
+  })
+
+  it('says a newer published helper above the grid, with the command for its port', () => {
+    const newer = { version: '1.1.0', running: '1.0.0', kind: 'newer' } as const
+    expect(helperNotice(status('connected'), newer)).toEqual({
+      tone: 'warn',
+      text: 'Helper update available. Helper 1.1.0 is out; this one is 1.0.0. Press Ctrl+C in its window, run the command, then reload this page.',
+      action: { action: 'copy-command', label: 'Copy command', command: DOWNLOAD_COMMAND },
+    })
+    const env = { ...status('connected').env, port: 8788, apiBase: 'http://127.0.0.1:8788' }
+    expect(helperNotice(status('connected', { env }), newer)?.action.command).toBe(
+      `${DOWNLOAD_COMMAND} --port 8788`,
+    )
+    // The phase's own notice comes first; an update waits for a connected helper.
+    expect(helperNotice(status('lost'), newer)?.text).toMatch(/^The helper stopped/)
+    expect(helperNotice(status('connected', { intent: false }), newer)).toBeNull()
   })
 
   it('clockTime is 24-hour HH:MM', () => {

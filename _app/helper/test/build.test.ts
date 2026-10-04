@@ -19,7 +19,7 @@ describe('the built file', () => {
     const lines = code.split('\n')
     expect(lines[0]).toBe('#!/usr/bin/env node')
     expect(lines[1]).toBe('/*')
-    expect(lines[2]).toBe(' * Device Lab helper 1.0.0 (bauloc-device-bridge)')
+    expect(lines[2]).toBe(' * Device Lab helper 1.1.0 (bauloc-device-bridge)')
     expect(code).toContain(' * What it never does')
     expect(code).toContain('https://github.com/bauloc/bauloc.github.io/tree/master/_app/helper/src')
   })
@@ -66,7 +66,14 @@ describe('the built file', () => {
     const imports = [...code.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1])
     expect(imports.length).toBeGreaterThan(3)
     expect(imports.every((source) => source?.startsWith('node:'))).toBe(true)
-    expect(code.match(/^const VERSION = "1\.0\.0";$/gm)).toHaveLength(1)
+    expect(code.match(/^const VERSION = "1\.1\.0";$/gm)).toHaveLength(1)
+  })
+  it('is 1.1.0, the first version with android.discover, in the line the page reads', () => {
+    // A new feature bumps the minor version (§2.8): 1.0.0 helpers exist with and without
+    // discovery, so the page's update chip could not tell them apart by version.
+    // The page's own pattern (preflight/env.ts HELPER_VERSION_LINE), on the published file.
+    expect(/^const VERSION = "([^"]+)";$/m.exec(code)?.[1]).toBe('1.1.0')
+    expect(code).toContain('lanes.android ? "android.discover" : null')
   })
   it('keeps the doc comments a reader needs', () => {
     expect(code).toContain('* 1. Host: a DNS-rebound evil.example still says')
@@ -158,7 +165,7 @@ describe('its exports and its first run', () => {
   })
   it('runs on this Node: --version, and a usage error exits 64', () => {
     expect(execFileSync(process.execPath, [file, '--version'], { encoding: 'utf8' })).toBe(
-      '1.0.0\n',
+      '1.1.0\n',
     )
     let status: number | null = null
     try {
