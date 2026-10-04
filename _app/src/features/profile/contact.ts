@@ -4,11 +4,12 @@
 
   - Telegram, as the Flutter build did: a bot posts the message into a group. The site is
     static, so the browser calls the Bot API itself and the bot's token ends up in the
-    published bundle, readable by anyone. For that reason it is NOT in this repo's source: it
-    comes from VITE_TELEGRAM_BOT_TOKEN and VITE_TELEGRAM_CHAT_ID at build time (see
-    .env.example), and setting them is a decision to publish that token.
-  - Email, whenever those are not set: the visitor's mail app opens on a message to the
-    address the Contact cards show, already written.
+    published bundle, readable by anyone; its owner accepts that. It comes from
+    VITE_TELEGRAM_BOT_TOKEN and VITE_TELEGRAM_CHAT_ID at build time, set by the committed
+    .env.production. They once lived only in the git-ignored .env, which a git worktree does
+    not have, and a build made in one published a form that never reached Telegram.
+  - Email, whenever those are not set (a dev server without .env): the visitor's mail app
+    opens on a message to the address the Contact cards show, already written.
 */
 
 export const CONTACT_EMAIL = 'bauloc79@gmail.com'

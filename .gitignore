@@ -10,6 +10,9 @@ _app/.vite/
 .env
 .env.*
 !.env.example
+# Not a secret: the contact form's Telegram bot ships inside the public bundle anyway, and
+# its owner keeps it in the repo so that every checkout builds with it (see the file).
+!_app/.env.production
 *.pem
 *.key
 

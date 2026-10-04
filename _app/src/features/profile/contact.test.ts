@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { parseEnv } from 'node:util'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -43,6 +45,11 @@ describe('configuredTelegram', () => {
       token: 't',
       chatId: '1',
     })
+  })
+
+  it('is given the bot by the committed production settings, not only by a local .env', () => {
+    const settings = readFileSync(new URL('../../../.env.production', import.meta.url), 'utf8')
+    expect(configuredTelegram(parseEnv(settings))).not.toBeNull()
   })
 })
 

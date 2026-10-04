@@ -71,9 +71,9 @@ Mở http://localhost:7360. Mọi lệnh npm đều chạy trong thư mục `_ap
 | `npm run publish` | Chép bản build ra thư mục gốc của repo |
 | `npm run deploy` | Chạy `verify` rồi `publish` |
 
-### Biến môi trường (tùy chọn)
+### Biến môi trường
 
-Form liên hệ gửi tin nhắn qua bot Telegram khi `_app/.env` có đủ `VITE_TELEGRAM_BOT_TOKEN` và `VITE_TELEGRAM_CHAT_ID` (tạo file từ [`_app/.env.example`](_app/.env.example)). Nếu thiếu, form sẽ mở ứng dụng email của người gửi.
+Form liên hệ gửi tin nhắn qua bot Telegram. `VITE_TELEGRAM_BOT_TOKEN` và `VITE_TELEGRAM_CHAT_ID` nằm trong [`_app/.env.production`](_app/.env.production). File này được commit vào repo nên bản build nào cũng có, kể cả khi build trong git worktree. `npm run dev` không đọc file này: nếu `_app/.env` không có hai biến đó, form ở máy dev sẽ mở ứng dụng email của người gửi.
 
 > Giá trị các biến `VITE_*` được nhúng vào JavaScript công khai của site, ai cũng đọc được.
 
