@@ -446,6 +446,9 @@ export function createWebUsbBackend(): Backend {
         ['logcat', '-v', 'threadtime', '-T', '200'],
         signal,
       )
+      // Given a signal, the library rejects `exited` with an AbortError on Stop. Nothing here
+      // waits on it, so that rejection would surface as an unhandled error each time.
+      void process.exited.catch(() => undefined)
       const reader = process.output.getReader()
       // Closing the socket does not end the output until the phone acknowledges, so lines in
       // flight would keep arriving after Stop: cancel the reader at once instead.
