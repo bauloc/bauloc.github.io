@@ -1,6 +1,6 @@
 # Device Lab helper: specification
 
-`device/agent/device-bridge.mjs`, built from `_app/helper/src`, and the page's helper lane in `_app/src/features/device` · helper 1.0.0, protocol 1 · as built, 2026-10-04
+`device/agent/device-bridge.mjs`, built from `_app/helper/src`, and the page's helper lane in `_app/src/features/device` · helper 1.1.0, protocol 1 · as built, 2026-10-04
 
 **What this is.** The design Device Lab's local helper was built from, kept up to date with what was built. Decisions taken while building it are recorded where they apply, and §0.6 lists them in one place. The code cites this document by section ("§3.3", "spec §12b"), so section numbers are stable: a section that no longer applies says so instead of disappearing.
 
@@ -239,6 +239,7 @@ What was decided while building, and where each one now lives in this document.
 | Logs end with `{reason:'device-gone', code:'DEVICE_DROPPED'}` when a Wi‑Fi device drops mid-stream; the page waits as long as the helper holds the row (120 s) and resumes; a row that leaves the list stops the log at once | A log that silently went back to "Press Start" hid the drop | §2.5, §7.8 |
 | New error codes: `ANDROID_OFF`, `HELPER_STOPPING`, `STREAM_REPLACED`, `BAD_REQUEST`, `DEVICE_DROPPED`, `ANDROID_CONNECT_FAILED`, `ANDROID_PAIR_FAILED`; `INTERNAL` | Cases the design left unnamed | §2.7 |
 | New health feature `android.connect` | The page shows the Wi‑Fi dialog only to a helper that has it | §2.8 |
+| Helper 1.1.0: a release that adds a feature bumps the minor version. Where the page would use a feature the running helper lacks, it says "Your helper is older than this page" with the update command; the header chip and the notice strip say "update available" from the published file | Discovery shipped as 1.0.0 like the helper before it. The owner kept running the older file, the page silently hid "On this network", and only the Environment check's update row hinted why | §2.8, §4.8, §6.8 |
 | Discovery: `GET /api/android/nearby`, a zero-dependency mDNS browser (`mdns.ts`), `host:mdns:services` on the allowlist, health feature `android.discover`, a `Wi-Fi:` line in the terminal and `--doctor` | Wi‑Fi devices appeared only after a manual connect; the owner asked for every Android device on the network | §4.8 |
 | Discovery also asks the system's resolver (`dns-sd` on macOS, `avahi-browse` on Linux) and reads adbd's TXT (`given_name`, `name`, `serial`, `api`); `blocked` only when no source could look, otherwise a `note` | On the owner's network the dozing Pixel 9 never answered the helper's own queries, while `dns-sd` listed it from mDNSResponder's cache, even from an app without local-network access | §4.8 |
 | `HelperError` is exported from the bundle | The bridge maps only its own class to a code; `helper:fake` builds its errors from it | §1.2 |
@@ -321,7 +322,7 @@ The **file §** labels number the regions of the built file. Each module's heade
 
 **Constants in file §1**
 
-- Identity: `NAME = 'bauloc-device-bridge'`, `VERSION = '1.0.0'`, `PROTOCOL = 1`, `SITE = 'https://bauloc.github.io'`, `DEFAULT_PORT = 8787`, `DOWNLOAD_URL`, `SOURCE_URL`.
+- Identity: `NAME = 'bauloc-device-bridge'`, `VERSION = '1.1.0'`, `PROTOCOL = 1`, `SITE = 'https://bauloc.github.io'`, `DEFAULT_PORT = 8787`, `DOWNLOAD_URL`, `SOURCE_URL`.
 - Dev origins: `DEV_ORIGINS` = `http://localhost:7360` and `http://127.0.0.1:7360`, the same for `:4173` and `:8000`.
 - Tables: `LIMITS`, `TIMEOUTS`, `ID`, `INSTALL`.
 - Allowlists:
@@ -581,7 +582,7 @@ node device-bridge.mjs [options]
 
 **`--doctor` output**
 
-- First line `bauloc-device-bridge 1.0.0 · doctor`, then the checklist (§12) by group, with a status word ("OK", "Warning", "Needs action", "Not checked"); fixes are printed only for items that are not OK.
+- First line `bauloc-device-bridge 1.1.0 · doctor`, then the checklist (§12) by group, with a status word ("OK", "Warning", "Needs action", "Not checked"); fixes are printed only for items that are not OK.
 - Then per device:
   - **iOS:** the UDID and ProductType (never the device name); usbmuxd entry (connection, DeviceID); pair record yes/no; QueryType; plaintext key count; StartSession result; TLS protocol and cipher; whether the peer certificate equals the pair record's `DeviceCertificate`; session key count; `PasswordProtected`; battery, disk and amfi results; syslog_relay 3 s byte count; `devicectl device info lockState` (only when Xcode is ready).
   - **Android:** server state and the `devices -l` rows, or `Android: no adb server on 127.0.0.1:<port> (the doctor never starts one)`.
@@ -592,7 +593,7 @@ node device-bridge.mjs [options]
 `<T>` is the 43-character token. A port other than 8787 adds `&port=<n>` to both fragments, so a link without `&port` always means 8787: the page reads it that way, never as the port it used last (§6.5).
 
 ```
-Device Lab helper 1.0.0 · http://127.0.0.1:8787 (this Mac only)
+Device Lab helper 1.1.0 · http://127.0.0.1:8787 (this Mac only)
 
 Opening Device Lab in your browser. If nothing opens, use the link for your browser:
   Chrome, Edge, Firefox   https://bauloc.github.io/device/#pair=<T>
@@ -659,7 +660,7 @@ Keep this window open while you test. Ctrl+C stops the helper; the token changes
 | --- | --- |
 | Node too old | `Device Lab helper needs Node 18 or newer (this is v16.20.2). Install the current LTS from https://nodejs.org, then run the same command again.` |
 | Running as root | `Don't run the Device Lab helper with sudo; it never needs root. Run it as yourself: node ~/device-bridge.mjs` |
-| Port held by our helper | `A Device Lab helper (1.0.0) is already running on port 8787. Use that window, or stop it with Ctrl+C there.` |
+| Port held by our helper | `A Device Lab helper (1.1.0) is already running on port 8787. Use that window, or stop it with Ctrl+C there.` |
 | Port held by another program | `Port 8787 is used by another program. Start the helper on another port:` then `  node ~/device-bridge.mjs --port 8788` |
 | Token file readable by others | `The token file <path> can be read by other users. Fix it with: chmod 600 '<path>'` |
 | Token file is a symlink / not ours | `The token file <path> is a symbolic link or belongs to another user; refusing to use it.` |
@@ -1030,15 +1031,21 @@ The registry is the authority on state. An operation error that reveals a new st
 
 - `protocol` is an integer major. The page accepts `DVC_MIN_AGENT (1) ≤ protocol ≤ DVC_MAX_AGENT (1)`.
 - Within a major, only additions are allowed: fields, codes, endpoints, `features`.
-- The page feature-detects through `features` and per-device `capabilities`. It never compares `version` for behaviour.
+- The page feature-detects through `features` and per-device `capabilities`. It never compares `version` for behaviour; versions only word the update notices below.
+
+**Version**
+
+- `VERSION` is semver, independent of `protocol`.
+- A release that adds a feature (a new `features` entry, endpoint or field) bumps the **minor** version: `android.discover` made 1.0.0 into 1.1.0. A fix alone bumps the patch. The protocol stays 1 while every change is an addition.
+- Why: discovery first shipped as 1.0.0, like the helper before it. With both files saying 1.0.0 the page could not say "a newer helper is out", and the tester could not tell which one was running.
 
 **Features in v1** (present only when true):
 
 | Feature | Present when |
 | --- | --- |
 | `android.start-server` | the Android lane runs (not `--no-android`) |
-| `android.connect` | the same: the Wi‑Fi routes of §4.7 exist. The page shows its Wi‑Fi dialog's form only to a helper that lists it, and otherwise says to download the helper again. |
-| `android.discover` | the same: `GET /api/android/nearby` exists (§4.8). |
+| `android.connect` | the same: the Wi‑Fi routes of §4.7 exist (since 1.0.0). The page shows its Wi‑Fi dialog's form only to a helper that lists it, and otherwise says the helper is older than this page, with the update command. |
+| `android.discover` | the same: `GET /api/android/nearby` exists (§4.8; since 1.1.0). |
 | `local` | local mode is on |
 | `simulators` | `--simulators` |
 | `wifi` | `--wifi` (iPhones over Wi‑Fi) |
@@ -1047,14 +1054,19 @@ Everything else in §2.2 is protocol 1 itself.
 
 **Skew.** The page ships with every deploy while the helper is downloaded once.
 
-- "Helper too old" → the download command.
+- "Helper too old" (protocol) → the download command.
 - "Page too old" → "Reload". Pages caches for 600 s.
+- **A feature the page would use is missing** (`helper/update.ts` `featureSupport`): running and paired, and the feature not in `features`.
+  - Android lane on → `older`. Said where the feature would be, never hidden: "Your helper is older than this page: it can't look for devices on this network yet. Update it: press Ctrl+C in its window, then run:", the download command for the page's port (`downloadCommand(port)`), then "Then reload this page." The feature's words: `android.discover` "look for devices on this network" ("On this network", under the device list and in the Gate's Wi‑Fi part), `android.connect` "connect to devices over Wi‑Fi" (the Wi‑Fi dialog's `wifi.helper` row), `android.start-server` "start Google's adb server" (the Gate's Android card without WebUSB).
+  - `lanes.android.status === 'off'` (`--no-android`, which leaves every Android feature out) → `off`: the `--no-android` sentence and how to restart without it, no download.
+  - Lanes not read yet (the moment after connecting) → `unknown`: nothing is said until they are.
 
-**Update row**
+**Update row, chip and notice**
 
-- In the Environment check the page fetches same-origin `/device/agent/device-bridge.mjs` (proxied in local mode) with `cache:'no-cache'`, no credentials and no referrer, 10 s at most.
+- Once the helper is connected (once per running helper, keyed by `health.sha256`), and again on the Environment check's Recheck, the page fetches `/device/agent/device-bridge.mjs` (proxied in local mode) with no credentials and no referrer, 10 s at most.
 - It reads the version with `/^const VERSION = "([^"]+)";$/m` (the bundler's spelling) and computes the file's SHA-256.
-- It compares both with `health.version` and `health.sha256`.
+- It compares both with `health.version` and `health.sha256`: the Environment check's `helper.update` row (§12b).
+- `helperUpdate()` (`helper/update.ts`) says "update available" on the header chip and the notice strip (§6.8) when the published file is a higher version, or the same version with another SHA-256 (a rebuilt 1.0.0, as when discovery shipped). Never when the running helper is the higher version (built ahead of a deploy), nor when the file couldn't be read.
 
 **Proof of possession (bound to the port)**
 
@@ -1086,7 +1098,7 @@ Everything else in §2.2 is protocol 1 itself.
       mode: 'local',
       apiBase: 'http://127.0.0.1:8787',
       protocol: 1,
-      version: '1.0.0',
+      version: '1.1.0',
     }
   </script>
   ```
@@ -1135,7 +1147,7 @@ Ranges matter only for the later-phase lanes and for the amfi read (≥ 16). Scr
 
 **Frame:** a 16-byte little-endian header `{u32 total length (header included), u32 version 1, u32 message 8 (plist), u32 tag}`, then an XML plist [V].
 
-- Every request carries `ClientVersionString: 'bauloc-device-bridge 1.0.0'`, `ProgName: 'device-bridge'` and `kLibUSBMuxVersion: 3`. Without `kLibUSBMuxVersion: 3`, `Listen` never pushes network devices [V].
+- Every request carries `ClientVersionString: 'bauloc-device-bridge 1.1.0'`, `ProgName: 'device-bridge'` and `kLibUSBMuxVersion: 3`. Without `kLibUSBMuxVersion: 3`, `Listen` never pushes network devices [V].
 - One connection per request; `Listen` keeps its own. `connect()` hands the socket back paused.
 
 | Message | Reply | Use |
@@ -1662,7 +1674,7 @@ So "No route to host" has its own `reason`, `blocked`: the address can be right 
 - The Wi‑Fi dialog (`components/wifi-dialog.tsx`, state in `wifi.ts`, input rules in `helper/network.ts`): an address and a port (5555 by default; pasting `IP:port` into the address works), "Pair with a code (Android 11 and newer)", a Recent list for one-click reconnects (localStorage `dvc_wifi_recent`, 6 at most, with Disconnect and Forget), and "How to turn it on" for TVs and phones.
 - `helper/network.ts` mirrors the helper's rules so a bad address is explained at once; the helper stays the authority.
 - Progress shows as checklist rows (connecting → the device answered → waiting for "Allow debugging?" → allowed, with "Show <name>"). Each `reason` has its own wording, with adb's sentence beside it; a stopped server offers Start adb server.
-- Without a running, paired helper the dialog shows the helper card's steps instead of the form; a helper without `android.connect` gets "This helper can't connect to Wi‑Fi devices. Download it again."
+- Without a running, paired helper the dialog shows the helper card's steps instead of the form; a helper without `android.connect` (Android lane on) gets "Your helper is older than this page: it can't connect to devices over Wi‑Fi yet. Update it: press Ctrl+C in its window, then run:" with the download command and "Then reload this page." (§2.8).
 - Wi‑Fi rows carry a Wi‑Fi badge and a Disconnect button (only for `host:port` serials), and say that Apps, Images and installs need a USB cable for now. A gone device's pane offers "Connect again". `DEVICE_NOT_FOUND` from a disconnect counts as success only when the row is gone from the list.
 - The Environment check's "Wi‑Fi devices" group (`wifi.helper`, `wifi.adbServer`, `wifi.reachable`, `wifi.authorized`) appears once a connect was tried or a Wi‑Fi device is listed.
 - Page deadlines: connect 35 s, pair 25 s, disconnect 10 s.
@@ -1777,11 +1789,11 @@ A multicast query fails only when it left on no interface (the first interface's
 
 **The page** (`nearby.ts`, `components/nearby-list.tsx`, the Wi‑Fi dialog)
 
-- `HelperConnection.nearby(refresh)` asks only when health lists `android.discover`; otherwise it throws `DISCOVER_UNSUPPORTED` without a request ("This helper can't look for devices on the network. Download it again; the command replaces it."). Page deadline 12 s (`TIMEOUTS.nearby`: the helper's 2 s window, plus a scan it may be waiting on).
+- `HelperConnection.nearby(refresh)` asks only when health lists `android.discover`; otherwise it throws `DISCOVER_UNSUPPORTED` without a request, and the section says the helper is older than this page (§2.8). Page deadline 12 s (`TIMEOUTS.nearby`: the helper's 2 s window, plus a scan it may be waiting on).
 - `parseNearby` checks every host again with `checkHost` (`helper/network.ts`), so only private, link-local or CGNAT addresses ever reach a button; it strips control and direction characters from names, drops repeated ids and keeps 64. Optional `model` and `hostname` are read when a helper sends them.
 - `nearby.ts` looks when something first shows the list (the section, the dialog's pick list), then every 30 s while the tab is visible and something still shows it; never while hidden. Refresh sends `?refresh=1` and announces how it ended, once. A blocked or failed reply keeps the devices adb listed.
 - `nearbyRows`: one row per device (by serial, else by address), leaving out what is listed already: `connected`, the same serial (a cable too), an adb mDNS serial with the same instance, or the same `host:port`. Named by friendly name, else model, else serial, else address. One action: **Connect** for Network debugging, or Wireless debugging known to be paired; otherwise **Pair…**, with the same device's `pairing` entry as the pairing address when its pairing screen is open (never a guessed port) and its `wireless` port kept for the connect after pairing.
-- **"On this network"**, under the device list (and in the Gate's Android card when nothing is plugged in): rows with a TV or phone icon, the address, a "Network debugging" / "Wireless debugging" badge and "Pairing screen open". Connect opens the Wi‑Fi dialog filled in and runs its connect (the device then asks "Allow debugging?"); Pair… opens it filled in, with focus on the pairing code (or the pairing address when the pairing screen isn't open). States: helper not running (one line, "Set up the helper"), helper too old (the download command), Looking…, nothing found (how to turn on Network or Wireless debugging; same Wi‑Fi, no VPN), everything found already connected (only after a look that ran), blocked (the `wifi.localNetwork` row "This computer reaches the local network" with the VPN and macOS fixes, the start command and the socket's detail), failed (the helper's sentence).
+- **"On this network"**, under the device list (and in the Gate's Android card when nothing is plugged in): rows with a TV or phone icon, the address, a "Network debugging" / "Wireless debugging" badge and "Pairing screen open". Connect opens the Wi‑Fi dialog filled in and runs its connect (the device then asks "Allow debugging?"); Pair… opens it filled in, with focus on the pairing code (or the pairing address when the pairing screen isn't open). States: helper not running (one line, "Set up the helper"), helper older than discovery ("Update the helper": "Your helper is older than this page: it can't look for devices on this network yet. Update it: press Ctrl+C in its window, then run:", the download command for its port, "Then reload this page."), started with `--no-android` (that sentence, no download), Looking…, nothing found (how to turn on Network or Wireless debugging; same Wi‑Fi, no VPN), everything found already connected (only after a look that ran), blocked (the `wifi.localNetwork` row "This computer reaches the local network" with the VPN and macOS fixes, the start command and the socket's detail), failed (the helper's sentence).
 - **The Wi‑Fi dialog** shows "Found on this network" above the address fields; choosing one only fills the fields, and a blocked look is shown before anything is tried.
 - Nothing found is ever connected or paired by itself: every Connect and Pair… is the tester's click.
 
@@ -2071,6 +2083,7 @@ The tables below are the design's words. The shipped words live in `helper/statu
 | `stale` | warn | Helper restarted — pair again | pair dialog |
 | `connected`, 0 helper devices | ok | Helper ready · no devices | Environment check |
 | `connected`, r/n | ok if r = n, else warn | r/n ready via helper | Environment check |
+| `connected`, a newer helper published (§2.8) | warn | Helper ready · update available, or r/n ready via helper · update available; tooltip "Helper 1.1.0 is out; this one is 1.0.0. The Environment check has the command." (same version rebuilt: "A newer build of helper 1.0.0 is out.") | Environment check |
 | `lost` | bad | Helper stopped | Environment check |
 
 The WebUSB chip is unchanged: two chips keep "helper unreachable" and "helper up, zero devices" from looking alike.
@@ -2093,7 +2106,7 @@ The WebUSB chip is unchanged: two chips keep "helper unreachable" and "helper up
 
 - Not connected: the card's usual copy.
 - adb missing: "Install Android's platform tools first:" `brew install --cask android-platform-tools`.
-- Server stopped: "The helper reaches Android through Google's adb server, which isn't running." **Start adb server**, with the note "While it runs, Chrome's WebUSB can't use Android phones on this Mac; adb kill-server gives them back."
+- Server stopped: "The helper reaches Android through Google's adb server, which isn't running." **Start adb server**, with the note "While it runs, Chrome's WebUSB can't use Android phones on this Mac; adb kill-server gives them back." A helper without `android.start-server` gets "Update the helper" instead (§2.8).
 - Running: "Ready through the helper. Plug in a phone with USB debugging on."
 - With or without WebUSB, the card offers "Network device (Wi‑Fi)…" (§4.7).
 
@@ -2102,7 +2115,7 @@ The WebUSB chip is unchanged: two chips keep "helper unreachable" and "helper up
 - **H1:** "Plug in a phone." when connected; otherwise unchanged.
 - **Footer:** "WebUSB needs Chrome, Edge or Opera · USB debugging must be on · the helper needs macOS and Node 18 or newer, plus Xcode for iOS 17+ screenshots".
 
-**Notice strip** (`components/helper-notice.tsx`). It sits above the device grid once devices are listed (the Gate is gone), only if the tester showed intent (`status.intent`: a token stored, a pairing, a Connect click, or a connection earlier in this page view). Built from `TONE_SURFACE` and `Button`.
+**Notice strip** (`components/helper-notice.tsx`). It sits above the device grid once devices are listed (the Gate is gone; "update available" alone also sits above the Gate, whose cards say every other phase), only if the tester showed intent (`status.intent`: a token stored, a pairing, a Connect click, or a connection earlier in this page view). Built from `TONE_SURFACE` and `Button`.
 
 | Phase | Text | Action |
 | --- | --- | --- |
@@ -2111,6 +2124,7 @@ The WebUSB chip is unchanged: two chips keep "helper unreachable" and "helper up
 | `outdated` | "The helper is older than this page needs. Download it again." | Copy command |
 | `newer` | "The helper is newer than this page." | **Reload** |
 | `foreign` | "Port 8787 is used by another program, not the helper." | Open check |
+| `connected`, a newer helper published (§2.8) | "Helper update available. Helper 1.1.0 is out; this one is 1.0.0. Press Ctrl+C in its window, run the command, then reload this page." | Copy command (the download command for the page's port) |
 
 **Pair dialog** (`components/pair-dialog.tsx`; `Dialog`, `Input`, `Switch`, `Label`):
 
@@ -2151,6 +2165,7 @@ All paths are under `_app/src/features/device/` unless noted.
 | `helper/connection.ts` (+ test) | `createHelperConnection(env, deps)` (§7.2), `CADENCE` |
 | `helper/status.ts` (+ test) | All helper wording per phase: `helperChip()`, `helperCard()`, `helperAndroid()`, `helperNotice()`, `pairError()`, `rememberNote()`, `helperAnnouncement()`; the download, start and dev commands |
 | `helper/network.ts` (+ test) | The Wi‑Fi input rules and the Recent list (§4.7) |
+| `helper/update.ts` (+ test), `components/older-helper.tsx` | Whether the running helper is behind this page: `featureSupport()` per gated feature (`ready`, `older`, `off`, `unknown`, `helper`), `helperUpdate()` against the published file, `compareVersions()`; the "Update the helper" notice with the command for the page's port (§2.8) |
 | `helper/testing/real-helper.ts`, `helper/real-helper.test.ts` | `startRealHelper()`: the built helper in-process with the helper suite's fake lanes, for tests that pair against the real thing |
 | `backends/agent.ts` (+ test, + `agent.contract.test.ts`) | `createAgentBackend(conn): Backend`, `toDevice`, `toDetail`, `connectionLabel`, `streamLogs`, `logEndError` (§7.3) |
 | `backends/ios.ts` (+ test) | `iosDetail(facts, connectionLabel)`, `simulatorDetail(facts)`, `fmtDecimalBytes()`, `fmtEcid()`, `iosModelName(modelId)` |
@@ -2161,7 +2176,7 @@ All paths are under `_app/src/features/device/` unless noted.
 | `components/helper-chip.tsx`, `helper-card.tsx`, `helper-notice.tsx`, `pair-dialog.tsx`, `wifi-dialog.tsx` (+ tests) | §6.8, §4.7 |
 | `components/log-level.ts` | `logLevel(line)` (§7.8) |
 | `_app/scripts/ios-models.mjs` | Generates the JSON from Xcode's `device_traits.db` with `/usr/bin/sqlite3 -json -readonly`; `--check` exits 1 when it is stale |
-| `_app/scripts/helper-fake.mjs` | The built helper on 8787 against the helper suite's fakes, for UI work without phones (§9.3) |
+| `_app/scripts/helper-fake.mjs` | The built helper on 8787 against the helper suite's fakes, for UI work without phones (§9.3); `--helper <file>` runs another built file (an older release), `--no-android` drops the Android lane |
 | `_app/helper/**` | The helper's source, tests, fakes and fixtures (§1.1, §9.2) |
 | `_app/tsconfig.helper.json` | §1.1 |
 | `device/agent/device-bridge.mjs` | The built helper |
@@ -2605,7 +2620,7 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
 
 ### 9.3 Simulators and UI without phones
 
-- `npm run helper:fake` + `npm run dev`: the **built** helper on 8787 with `--dev`, the suite's fake lanes, fake usbmuxd and fake adb server. Nothing on the Mac is run: the PATH is empty and the Toolbox fixed. It prints the dev pair link and the token. Flags: `--port`, `--token`, `--source` (run `helper/src` instead of the bundle), `--local-from <origin>` (local mode from a dev build). stdin commands:
+- `npm run helper:fake` + `npm run dev`: the **built** helper on 8787 with `--dev`, the suite's fake lanes, fake usbmuxd and fake adb server. Nothing on the Mac is run: the PATH is empty and the Toolbox fixed. It prints the dev pair link and the token. Flags: `--port`, `--token`, `--source` (run `helper/src` instead of the bundle), `--local-from <origin>` (local mode from a dev build), `--helper <file>` (run another built helper, such as `git show 6ecedd0:device/agent/device-bridge.mjs`, the 1.0.0 from before discovery, to see what the page says to an older helper), `--no-android` (no Android lane, so no `android.*` features). stdin commands:
   - `plug`/`unplug ios|android|sim` (an unplug ends a running log like a real drop), `trust on|off`, `lock bfu|afu|off`, `devmode on|off`, `xcode ready|missing|setup`;
   - `adb on|off|missing`, `android ready|auth|offline`, `simulators on|off`;
   - a fake "Living Room TV" at 192.168.1.42:5555: `tv answer ok|refused|unreachable|timeout|slow`, `tv allow|deny|drop|back|forget`, `tv pairing on|off` (prints a code and a pairing port);
@@ -2855,10 +2870,10 @@ The sentences below are the design's. The helper's shipped words are in `helper/
 | `browser.secure` | `window.isSecureContext` | ok → "This page runs in a secure context." · blocking → "This page isn't in a secure context, so WebUSB and pairing can't work." → link `https://bauloc.github.io/device/` "Open the secure page" |
 | `browser.webusb` | `'usb' in navigator` | ok → "This browser reaches Android phones directly over WebUSB." · without WebUSB → "This browser has no WebUSB, so Android needs the helper and Google's adb." → step "Use Chrome or Edge for Android without the helper." |
 | `helper.lna` | Mode, `safariLike`, `loopbackPermission()` (§6.3) | local → ok "Not needed: the helper serves this page." · `granted` → ok "Allowed to reach apps on this device." (with a note that the grant covers the whole site, T12) · `unsupported` (not Safari) → ok "This browser doesn't ask for this permission." · `prompt` → not checked "The browser will ask once to let this page reach apps on this device; choose Allow." → action `connect` "Connect helper" · `denied` → blocking "This browser blocks this page from reaching apps on this device." → step "Chrome or Edge: Site settings → Apps on device → Allow. Firefox: Settings → Privacy & Security → Device apps and services." + action `open-local` · hosted Safari → blocking "Safari can't reach the helper from this secure page." → action `open-local` "Open the helper's page" |
-| `helper.running` | Phase | `connected` → ok "Helper 1.0.0 answers on 127.0.0.1:8787." · `off`/`checking` → not checked "Not checked yet." → action `connect` · `absent` → blocking "Nothing answers on 127.0.0.1:8787." (+ "…or the helper was started without --dev." on a dev origin) → command `curl -fsSL https://bauloc.github.io/device/agent/device-bridge.mjs -o ~/device-bridge.mjs && node ~/device-bridge.mjs` (dev: `node ../device/agent/device-bridge.mjs --dev`) · `lost` → blocking "The helper stopped." → command `node ~/device-bridge.mjs` · `foreign` → blocking "Another program answers on port 8787." → command `node ~/device-bridge.mjs --port 8788` · `dismissed`/`denied`/`safari` → not checked (see `helper.lna`) |
-| `helper.version` | `health.protocol` vs `[1,1]` | ok → "Protocol 1, version 1.0.0." · `outdated` → blocking "This helper (0.9.0) is older than this page needs." → the download command · `newer` → blocking "This page is older than the helper." → action `reload` |
+| `helper.running` | Phase | `connected` → ok "Helper 1.1.0 answers on 127.0.0.1:8787." · `off`/`checking` → not checked "Not checked yet." → action `connect` · `absent` → blocking "Nothing answers on 127.0.0.1:8787." (+ "…or the helper was started without --dev." on a dev origin) → command `curl -fsSL https://bauloc.github.io/device/agent/device-bridge.mjs -o ~/device-bridge.mjs && node ~/device-bridge.mjs` (dev: `node ../device/agent/device-bridge.mjs --dev`) · `lost` → blocking "The helper stopped." → command `node ~/device-bridge.mjs` · `foreign` → blocking "Another program answers on port 8787." → command `node ~/device-bridge.mjs --port 8788` · `dismissed`/`denied`/`safari` → not checked (see `helper.lna`) |
+| `helper.version` | `health.protocol` vs `[1,1]` | ok → "Protocol 1, version 1.1.0." · `outdated` → blocking "This helper (0.9.0) is older than this page needs." → the download command · `newer` → blocking "This page is older than the helper." → action `reload` |
 | `helper.paired` | Phase | ok → "Paired · fingerprint 4d1566a1 · this tab only" (or "· remembered on this computer") · `unpaired` → blocking "This page isn't paired with the helper." → action `pair` · `stale` → blocking "The helper restarted, so this page's pairing ended." → action `pair` · `foreign` → blocking "The program on port 8787 couldn't prove it is your helper; nothing was sent." |
-| `helper.update` | `readPublishedHelper()`: fetch `/device/agent/device-bridge.mjs`; SHA-256 + `VERSION` vs health | ok → "Matches the published helper (1.0.0)." · warning → "A newer helper (1.1.0) is published." → download command · warning → "This helper differs from the published file." → download command · not checked (offline, or not published yet) |
+| `helper.update` | `readPublishedHelper()`: fetch `/device/agent/device-bridge.mjs`; SHA-256 + `VERSION` vs health | ok → "Matches the published helper (1.1.0)." · warning → "A newer helper (1.2.0) is published." → download command · warning → "This helper differs from the published file." → download command · not checked (offline, or not published yet) |
 | `mac.tools` | Until a doctor report exists | not checked → "This Mac's tools aren't checked yet; start the helper to check Xcode, adb and the rest." (running but unpaired: "Checked once this page is paired…") |
 
 **Mac items (helper; §1.5 detection)**

@@ -12,6 +12,7 @@ import {
   otherPortCommand,
   startCommand,
 } from '../helper/status'
+import { compareVersions, featureSupport } from '../helper/update'
 import { DEVICE_HINTS, type Device, type DeviceState } from '../model'
 import {
   BROWSER_NAMES,
@@ -579,20 +580,8 @@ function pairingRow({ phase, pairing, env }: HelperProbe): CheckItem {
   }
 }
 
-/**
- * Compares two dotted versions numerically ("1.10.0" > "1.9.2"); a missing part counts as 0 and
- * anything after a `-` is ignored. Negative, zero or positive, like a sort comparator.
- */
-export function compareVersions(a: string, b: string): number {
-  const parts = (v: string) => (v.split('-')[0] ?? '').split('.').map((n) => Number(n) || 0)
-  const x = parts(a)
-  const y = parts(b)
-  for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    const d = (x[i] ?? 0) - (y[i] ?? 0)
-    if (d !== 0) return d
-  }
-  return 0
-}
+/** Re-exported: the update row and the header chip compare versions the same way. */
+export { compareVersions }
 
 /** Whether the running helper is the published file (same SHA-256), or which is newer. */
 function updateRow(probe: HelperProbe, published: PublishedHelper | null): CheckItem {
@@ -1436,21 +1425,25 @@ export function wifiHelperReady(helper: HelperProbe): boolean {
 
 function wifiHelperRow(helper: HelperProbe): CheckItem {
   const id = 'wifi.helper'
+  const update = (): CheckItem =>
+    row(
+      id,
+      'wifi',
+      'blocking',
+      COPY.older.sentence('android.connect'),
+      [copyCommand(downloadCommand(helper.env.port), true)],
+      COPY.older.then,
+    )
   if (helper.phase === 'connected' && helper.pairing) {
-    return helper.health?.features.includes('android.connect')
-      ? row(id, 'wifi', 'ok', COPY.wifi.helperOk(helper.pairing.tokenId))
-      : row(id, 'wifi', 'blocking', COPY.wifi.helperOld, [
-          copyCommand(downloadCommand(helper.env.port), true),
-        ])
+    // --no-android leaves android.connect out too: the adb server's row says that one.
+    return featureSupport(helper, 'android.connect') === 'older'
+      ? update()
+      : row(id, 'wifi', 'ok', COPY.wifi.helperOk(helper.pairing.tokenId))
   }
   if (helper.phase === 'unpaired' || helper.phase === 'stale') {
     return row(id, 'wifi', 'blocking', COPY.wifi.helperUnpaired, [FIX.pair])
   }
-  if (helper.phase === 'outdated') {
-    return row(id, 'wifi', 'blocking', COPY.wifi.helperOld, [
-      copyCommand(downloadCommand(helper.env.port), true),
-    ])
-  }
+  if (helper.phase === 'outdated') return update()
   const command = helper.env.devOrigin ? DEV_COMMAND : downloadCommand(helper.env.port)
   return row(id, 'wifi', 'blocking', COPY.wifi.helperOff, [copyCommand(command), FIX.connectHelper])
 }
@@ -1544,7 +1537,11 @@ export function wifiFailure(a: WifiAttempt): {
     case 'ANDROID_OFF':
       return out(COPY.wifi.adbOff, [], COPY.wifi.adbOffStep)
     case 'NETWORK_UNSUPPORTED':
-      return out(COPY.wifi.helperOld, [copyCommand(DOWNLOAD_COMMAND, true)])
+      return out(
+        COPY.older.sentence('android.connect'),
+        [copyCommand(DOWNLOAD_COMMAND, true)],
+        COPY.older.then,
+      )
     case 'BUSY':
       return { status: 'unchecked', sentence: COPY.wifi.busy(a.host), fixes: [], detail: '' }
     case 'TOOL_TIMEOUT':

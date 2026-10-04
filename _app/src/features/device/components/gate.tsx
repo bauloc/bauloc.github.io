@@ -23,6 +23,7 @@ import {
 } from './checklist'
 import { IOS_STEP_ROWS, IosSetup } from './helper-card'
 import type { HelperHandlers } from './helper-chip'
+import { OlderHelper } from './older-helper'
 import { PlatformIcon } from './platform-icon'
 import { STEP_TEXT, StepBody, StepItem, StepList } from './setup-steps'
 import { TONE_SURFACE } from './status'
@@ -243,6 +244,7 @@ function HelperAndroid({ helper, wiring }: { helper: HelperStatus; wiring: FixWi
           <p className="text-muted-foreground text-xs leading-relaxed">{view.startAdb.note}</p>
         </>
       )}
+      {view.update && <OlderHelper feature={view.update} port={helper.env.port} />}
     </section>
   )
 }

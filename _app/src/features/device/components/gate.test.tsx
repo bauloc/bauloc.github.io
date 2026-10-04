@@ -560,6 +560,29 @@ describe('Gate, with the local helper', () => {
     expect(within(section).getByText(/adb kill-server gives them back/)).toBeInTheDocument()
   })
 
+  it('a helper without Start adb server: says it is older than this page, with the command', () => {
+    const status = helper('connected', {
+      health: { ...HEALTH, features: [] },
+      lanes: { ...LANES, android: { status: 'stopped', adb: 'found', startedByHelper: false } },
+    })
+    render(
+      <Gate
+        browser={browserChecks({ ...ENV, webusb: false, browser: 'firefox' })}
+        phone={phoneChecks(NO_PHONE)}
+        wiring={{ on: { 'start-adb': vi.fn() } }}
+        helper={status}
+        choice="android"
+      />,
+    )
+    const section = screen.getByRole('region', { name: 'Through the local helper' })
+    expect(within(section).queryByRole('button', { name: 'Start adb server' })).toBeNull()
+    expect(section).toHaveTextContent(
+      'Your helper is older than this page: it can’t start Google’s adb server yet.',
+    )
+    expect(within(section).getByText(/^curl -fsSL /)).toBeInTheDocument()
+    expect(section).toHaveTextContent('Then reload this page.')
+  })
+
   it('pairs from the card when the helper runs unpaired', () => {
     const pair = vi.fn()
     render(

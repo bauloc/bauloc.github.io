@@ -408,8 +408,11 @@ describe('browsing with dns-sd (macOS)', () => {
       },
     })
     const started = Date.now()
-    const result = await browseWith({ dnsSd, avahiBrowse: null }, { browseMs: 800, resolveMs: 900 })
-    expect(Date.now() - started).toBeLessThan(800 + 2 * 900 + 1_000)
+    const result = await browseWith(
+      { dnsSd, avahiBrowse: null },
+      { browseMs: 1_500, resolveMs: 900 },
+    )
+    expect(Date.now() - started).toBeLessThan(1_500 + 2 * 900 + 1_000)
     expect(result.instances.map((i) => i.instance).sort()).toEqual(
       [REAL_CAST.instance, REAL_PIXEL.instance, TV_REMOTE.instance].sort(),
     )
@@ -425,7 +428,9 @@ describe('browsing with dns-sd (macOS)', () => {
       },
       lookup: { [REAL_PIXEL.host]: { out: REAL_PIXEL.lookup, delay: 0.3 } },
     })
-    const ok = await browseWith({ dnsSd, avahiBrowse: null }, { browseMs: 1_000, resolveMs: 1_500 })
+    // Deadlines well past the 0.3 s delays: a freshly written fake's first exec can wait on
+    // macOS's executable scan (syspolicyd) for most of a second under load.
+    const ok = await browseWith({ dnsSd, avahiBrowse: null }, { browseMs: 2_500, resolveMs: 3_000 })
     expect(ok.instances.map((i) => i.addresses)).toEqual([['192.168.68.114']])
 
     const slow = fakeDnsSd(b, {

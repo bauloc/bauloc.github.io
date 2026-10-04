@@ -2,6 +2,7 @@ import { HelperError, isAbortError, type NetworkTarget } from './helper/client'
 import type { HelperConnection, HelperStatus, VisibilityLike } from './helper/connection'
 import { addressOf, sameTarget, targetOfSerial } from './helper/network'
 import type { NearbyDevice, NearbyKind, NearbyReply } from './helper/protocol'
+import { featureSupport, type FeatureSupport } from './helper/update'
 
 /*
   "On this network" (feature `android.discover`): the Android devices the helper hears
@@ -19,13 +20,13 @@ export const NEARBY_INTERVAL = 30_000
 
 /**
  * Whether the helper can look now: `helper` while it isn't running and paired (the section is
- * then one line pointing at the helper's setup), `old` for a helper without the feature.
+ * then one line pointing at the helper's setup), `older` for a helper downloaded before
+ * discovery shipped (the section says to update it), `off` for one started with --no-android.
  */
 export function nearbyAvailability(
-  status: Pick<HelperStatus, 'phase' | 'pairing' | 'health'>,
-): 'helper' | 'old' | 'ready' {
-  if (status.phase !== 'connected' || status.pairing === null) return 'helper'
-  return status.health?.features.includes('android.discover') ? 'ready' : 'old'
+  status: Pick<HelperStatus, 'phase' | 'pairing' | 'health' | 'lanes'>,
+): FeatureSupport {
+  return featureSupport(status, 'android.discover')
 }
 
 export type NearbyState =
@@ -38,7 +39,7 @@ export type NearbyState =
   | 'blocked'
   /** The helper couldn't look (`message` says why: no network…), or the request failed (`code`). */
   | 'failed'
-  /** The helper is too old to look (no `android.discover`). */
+  /** The helper is older than discovery (no `android.discover`, or no such route). */
   | 'unsupported'
 
 export interface NearbySnapshot {

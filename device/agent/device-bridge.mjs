@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Device Lab helper 1.0.0 (bauloc-device-bridge)
+ * Device Lab helper 1.1.0 (bauloc-device-bridge)
  *
  * Device Lab (https://bauloc.github.io/device/) shows identifiers, screenshots and logs for
  * the phones plugged into this Mac. Android works straight from Chrome over WebUSB. macOS
@@ -114,7 +114,7 @@ if (tooOld) {
 /** What answers on 127.0.0.1: the page checks `health.name` before it trusts anything else. */
 const NAME = "bauloc-device-bridge";
 /** Semver of this file. The page shows it and compares it with the published file. */
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 /**
  * The wire protocol's integer major. Within a major only additions are allowed (fields,
  * codes, endpoints, `features`); the page accepts DVC_MIN_AGENT ≤ PROTOCOL ≤ DVC_MAX_AGENT.

@@ -4,6 +4,7 @@ import type { Os } from '../preflight/types'
 import type { HelperPhase, HelperStatus, PairResult } from './connection'
 import { localPageUrl } from './env'
 import { DEFAULT_PORT, type HelperDevice } from './protocol'
+import { featureSupport, type GatedFeature, type HelperUpdate } from './update'
 
 /*
   What the page says about the local helper, phase by phase (spec §6.8): the header chip, the
@@ -96,11 +97,26 @@ const openLocal = (status: HelperStatus): HelperActionView => ({
   href: localPageUrl(status.env.port),
 })
 
+/** What a published helper newer than the running one is, in one sentence. */
+export function updateSentence(update: HelperUpdate): string {
+  return update.kind === 'newer'
+    ? `Helper ${update.version} is out; this one is ${update.running}.`
+    : `A newer build of helper ${update.version} is out.`
+}
+
+/** How to update a running helper, after the command is copied. */
+const UPDATE_STEPS = 'Press Ctrl+C in its window, run the command, then reload this page.'
+
 /**
  * The header chip, next to the WebUSB one: two chips keep "the helper isn't running" and "the
- * helper runs, with no devices" from looking alike. `devices` are the helper's own rows.
+ * helper runs, with no devices" from looking alike. `devices` are the helper's own rows;
+ * `update` (helperUpdate) adds "update available" to a connected helper's chip.
  */
-export function helperChip(status: HelperStatus, devices: readonly HelperDevice[]): HelperChipView {
+export function helperChip(
+  status: HelperStatus,
+  devices: readonly HelperDevice[],
+  update: HelperUpdate | null = null,
+): HelperChipView {
   const port = String(status.env.port)
   switch (status.phase) {
     case 'off':
@@ -190,6 +206,17 @@ export function helperChip(status: HelperStatus, devices: readonly HelperDevice[
       }
     case 'connected': {
       const ready = devices.filter((d) => d.state === 'ready').length
+      if (update) {
+        return {
+          tone: 'warn',
+          text:
+            devices.length === 0
+              ? 'Helper ready · update available'
+              : `${String(ready)}/${String(devices.length)} ready via helper · update available`,
+          action: CHECK,
+          tooltip: `${updateSentence(update)} The Environment check has the command.`,
+        }
+      }
       if (devices.length === 0) {
         return {
           tone: 'ok',
@@ -419,6 +446,8 @@ export interface HelperAndroidView {
   readonly command: string | null
   /** Start adb server, with its note; only when the helper can start one. */
   readonly startAdb: { readonly label: string; readonly note: string } | null
+  /** A helper older than the feature it would need here: the update notice for it. */
+  readonly update?: GatedFeature
 }
 
 /**
@@ -437,15 +466,18 @@ export function helperAndroid(status: HelperStatus): HelperAndroidView | null {
     }
   }
   if (android.status === 'stopped') {
+    const support = featureSupport(status, 'android.start-server')
     return {
       sentence: 'The helper reaches Android through Google’s adb server, which isn’t running.',
       command: null,
-      startAdb: status.health?.features.includes('android.start-server')
-        ? {
-            label: 'Start adb server',
-            note: 'While it runs, Chrome’s WebUSB can’t use Android phones on this Mac; adb kill-server gives them back.',
-          }
-        : null,
+      startAdb:
+        support === 'ready'
+          ? {
+              label: 'Start adb server',
+              note: 'While it runs, Chrome’s WebUSB can’t use Android phones on this Mac; adb kill-server gives them back.',
+            }
+          : null,
+      ...(support === 'older' ? { update: 'android.start-server' as const } : {}),
     }
   }
   if (android.status === 'error') {
@@ -480,12 +512,28 @@ export function clockTime(ms: number): string {
 
 /**
  * The strip shown once devices are listed (the Gate is gone), and only when the tester showed
- * they want the helper in this page view. Null otherwise.
+ * they want the helper in this page view. Null otherwise. `update` (helperUpdate): a connected
+ * helper that a newer published one should replace.
  */
-export function helperNotice(status: HelperStatus): HelperNoticeView | null {
+export function helperNotice(
+  status: HelperStatus,
+  update: HelperUpdate | null = null,
+): HelperNoticeView | null {
   if (!status.intent) return null
   const port = String(status.env.port)
   switch (status.phase) {
+    case 'connected':
+      return update
+        ? {
+            tone: 'warn',
+            text: `Helper update available. ${updateSentence(update)} ${UPDATE_STEPS}`,
+            action: {
+              action: 'copy-command',
+              label: 'Copy command',
+              command: downloadCommand(status.env.port),
+            },
+          }
+        : null
     case 'stale':
       return {
         tone: 'warn',

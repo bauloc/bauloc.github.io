@@ -1,3 +1,4 @@
+import type { GatedFeature } from '../helper/update'
 import type { Tone } from '../model'
 import type { BrowserName, CheckGroup, CheckStatus, Fix, FixedCheckId } from './types'
 
@@ -229,6 +230,13 @@ export function bundletoolCommand(fileName?: string): string {
   return bundle && output
     ? `bundletool build-apks --bundle=${bundle} --output=${output} --mode=universal`
     : 'bundletool build-apks --bundle=app.aab --output=app.apks --mode=universal'
+}
+
+/** What each gated feature lets the page do, to finish "it can’t … yet". */
+const OLDER_CAN: Readonly<Record<GatedFeature, string>> = {
+  'android.discover': 'look for devices on this network',
+  'android.connect': 'connect to devices over Wi‑Fi',
+  'android.start-server': 'start Google’s adb server',
 }
 
 /** The sentences, by check. Functions fill in what the check knows. */
@@ -468,6 +476,16 @@ export const COPY = {
     differs: 'This helper differs from the published file.',
     unchecked: 'Couldn’t read the published helper, so this wasn’t compared.',
   },
+  /**
+   * A feature this page would use, missing from a helper downloaded before the feature shipped
+   * (helper/update.ts featureSupport). Said where the feature would be: `sentence`, the
+   * download command, then `then`.
+   */
+  older: {
+    sentence: (feature: GatedFeature) =>
+      `Your helper is older than this page: it can’t ${OLDER_CAN[feature]} yet. Update it: press Ctrl+C in its window, then run:`,
+    then: 'Then reload this page.',
+  },
   tools: {
     notConnected:
       'This Mac’s tools aren’t checked yet; start the helper to check Xcode, adb and the rest.',
@@ -485,8 +503,6 @@ export const COPY = {
     helperOff:
       'Browsers can’t open network connections to a TV or a phone, so Wi‑Fi devices go through the local helper on this computer. Start it and pair this page.',
     helperUnpaired: 'The helper is running, but this page isn’t paired with it yet.',
-    helperOld:
-      'This helper can’t connect to Wi‑Fi devices. Download it again; the command replaces it.',
     adbUnchecked: 'Checked once the helper is connected.',
     adbOk: 'Running. The helper reaches Wi‑Fi devices through it.',
     adbStopped: 'Google’s adb server isn’t running, and Wi‑Fi devices go through it.',
@@ -567,8 +583,6 @@ export const COPY = {
   nearby: {
     helperOff:
       'To list the TVs and phones on this network, start the local helper and pair this page.',
-    helperOld:
-      'This helper can’t look for devices on the network. Download it again; the command replaces it.',
     empty: 'No Android device on this network has debugging turned on.',
     /** Heard, but every one is in the list already. */
     allListed: 'Every device found on this network is connected.',
