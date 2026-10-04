@@ -15,10 +15,13 @@ import { PlatformBadge, StateDot } from './status'
 function DeviceRow({
   device,
   selected,
+  activity,
   onSelect,
 }: {
   device: Device
   selected: boolean
+  /** Work running on it, in words ("Shop: Sending · 42%"). */
+  activity?: string
   onSelect: () => void
 }) {
   const meta = STATE_META[device.state]
@@ -58,6 +61,12 @@ function DeviceRow({
             {hint.title}
           </span>
         )}
+        {activity && (
+          <span className="text-muted-foreground mt-2 flex min-w-0 items-center gap-1.5 text-xs">
+            <StateDot tone="busy" />
+            <span className="truncate">{activity}</span>
+          </span>
+        )}
       </button>
     </li>
   )
@@ -83,6 +92,7 @@ export function DeviceList({
   selectedId,
   canAdd,
   filterRef,
+  activity,
   onSelect,
   onAdd,
   onRefresh,
@@ -92,6 +102,8 @@ export function DeviceList({
   canAdd: boolean
   /** The filter box, for the / shortcut. */
   filterRef?: Ref<HTMLInputElement>
+  /** Per device id, the work running on it: an install's phase, so it shows from any row. */
+  activity?: ReadonlyMap<string, string>
   onSelect: (id: string) => void
   onAdd: () => void
   onRefresh: () => Promise<void>
@@ -189,6 +201,7 @@ export function DeviceList({
               key={d.id}
               device={d}
               selected={d.id === selectedId}
+              activity={activity?.get(d.id)}
               onSelect={() => {
                 onSelect(d.id)
               }}

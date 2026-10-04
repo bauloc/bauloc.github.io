@@ -4,9 +4,12 @@ import type {
   AdbDaemonWebUsbDeviceManager,
 } from '@yume-chan/adb-daemon-webusb'
 
-import { normalizeDevice, type Device, type DeviceState } from '../model'
+import { MIN_INSTALL_SDK, normalizeDevice, type Device, type DeviceState } from '../model'
+import { parseOs } from '../preflight/env'
+import { USB_ACCESS_DENIED, type Os } from '../preflight/types'
 import { DETAIL_COMMANDS, androidDetail, extractPng } from './android'
 import type { Backend } from './backend'
+import { createAndroidOps } from './webusb-ops'
 
 /*
   WebUSB: the ADB protocol straight from the browser, via ya-webadb ("Tango", MIT). No helper,
@@ -30,7 +33,9 @@ import type { Backend } from './backend'
      Without that, a Retry pressed while the phone still asks to allow USB debugging left two
      readers on the one IN endpoint, and the phone never got past "authorizing".
 
-  The library is imported lazily, so a browser without WebUSB never downloads it.
+  The library is imported lazily, so a browser without WebUSB never downloads it. The Android
+  operations (installs, apps, images) live in webusb-ops.ts, over the session's Adb, and load
+  their own code on first use.
 */
 
 /** On Android 11+ the phone's "Allow USB debugging?" prompt shows this name. */
@@ -50,7 +55,33 @@ interface Session {
   attempt: number
   state: DeviceState
   blockers: string[]
-  props: { model: string; brand: string; release: string }
+  props: AndroidProps
+}
+
+/** What connect reads, in one round of getprop. */
+interface AndroidProps {
+  model: string
+  manufacturer: string
+  brand: string
+  release: string
+  /** ro.build.version.sdk; null when unreadable. Gates installs (MIN_INSTALL_SDK). */
+  sdk: number | null
+  abis: string[]
+}
+
+const NO_PROPS: AndroidProps = {
+  model: '',
+  manufacturer: '',
+  brand: '',
+  release: '',
+  sdk: null,
+  abis: [],
+}
+
+/** `37` → 37; anything else (empty, garbage) → null. */
+export function parseSdk(value: string): number | null {
+  const v = value.trim()
+  return /^\d{1,3}$/.test(v) && Number(v) > 0 ? Number(v) : null
 }
 
 type Tango = Awaited<ReturnType<typeof loadTango>>
@@ -89,6 +120,36 @@ export function classifyUsbError(error: unknown): { state: DeviceState; blockers
     return { state: 'held', blockers: ['WEBUSB_CLAIM_FAILED'] }
   }
   return { state: 'offline', blockers: ['WEBUSB_CLAIM_FAILED'] }
+}
+
+/**
+ * classifyUsbError, told which OS the browser runs on. On Linux and Windows a SecurityError
+ * from open() is the system's refusal (no udev rules, a maker's driver on the interface), not
+ * another program: it gets its own blocker, USB_ACCESS_DENIED, with the system's fix. The state
+ * stays `held`, which is sticky, so the page doesn't retry a refusal every few seconds.
+ * classifyUsbError itself keeps the legacy answers (parity.json).
+ *
+ * A failed claimInterface stays ADB_SERVER_HOLDING everywhere, Windows included, though there
+ * Chrome opens the composite device fine and only the claim meets a maker's driver on the ADB
+ * interface. Nothing in the error tells that from a running adb, so the checklist's notHeld row
+ * names both on Windows rather than this guessing one.
+ */
+export function classifyUsbErrorFor(
+  error: unknown,
+  os: Os,
+): { state: DeviceState; blockers: string[] } {
+  const c = classifyUsbError(error)
+  const denied = c.state === 'held' && c.blockers.includes('WEBUSB_CLAIM_FAILED')
+  if (denied && (os === 'linux' || os === 'windows')) {
+    return { state: 'held', blockers: [USB_ACCESS_DENIED] }
+  }
+  return c
+}
+
+/** The OS the browser runs on, for classifyUsbErrorFor. */
+function browserOs(): Os {
+  const nav = navigator as Navigator & { userAgentData?: { platform?: string } }
+  return parseOs(nav.userAgentData?.platform, nav.platform, nav.userAgent)
 }
 
 export function createWebUsbBackend(): Backend {
@@ -152,7 +213,7 @@ export function createWebUsbBackend(): Backend {
         attempt: 0,
         state: 'connecting',
         blockers: [],
-        props: { model: '', brand: '', release: '' },
+        props: NO_PROPS,
       }
       sessions.set(id, s)
     } else {
@@ -167,6 +228,7 @@ export function createWebUsbBackend(): Backend {
    */
   async function release(s: Session): Promise<void> {
     s.attempt++
+    ops.reset(s.id)
     const adb = s.adb
     s.adb = null
     if (adb) await Promise.resolve(adb.close()).catch(() => undefined)
@@ -212,14 +274,30 @@ export function createWebUsbBackend(): Backend {
       const adb = new t.Adb(transport)
       s.adb = adb
 
-      // Cheap identity for the list row; the full dump waits for detail().
-      const [model, brand, release] = await Promise.all([
-        adb.getProp('ro.product.model').catch(() => ''),
-        adb.getProp('ro.product.manufacturer').catch(() => ''),
-        adb.getProp('ro.build.version.release').catch(() => ''),
-      ])
+      // Cheap identity for the list row, and what gates the Android features; the full dump
+      // waits for detail().
+      const [model, manufacturer, brand, release, sdk, abilist] = await Promise.all(
+        [
+          'ro.product.model',
+          'ro.product.manufacturer',
+          'ro.product.brand',
+          'ro.build.version.release',
+          'ro.build.version.sdk',
+          'ro.product.cpu.abilist',
+        ].map((key) => adb.getProp(key).catch(() => '')),
+      )
       if (superseded()) return // whatever superseded it closed this session
-      s.props = { model, brand, release }
+      s.props = {
+        model: model ?? '',
+        manufacturer: manufacturer ?? '',
+        brand: brand ?? '',
+        release: release ?? '',
+        sdk: parseSdk(sdk ?? ''),
+        abis: (abilist ?? '')
+          .split(',')
+          .map((abi) => abi.trim())
+          .filter(Boolean),
+      }
 
       // A device can vanish mid-session (cable, reboot, sleep): reflect it rather than
       // leaving a stale "Ready".
@@ -232,13 +310,15 @@ export function createWebUsbBackend(): Backend {
         },
       )
       setState(s, 'ready')
+      // An install the last connection left half-done (a pulled cable) is dropped now.
+      void ops.abandonLeftovers(s.id).catch(() => undefined)
     } catch (error) {
       if (superseded()) return
       // ya-webadb keeps the connection open after a failed authenticate, and its stream keeps a
       // transfer pending on the IN endpoint. Close the device, or the next attempt would share
       // that endpoint with a reader nobody owns.
       await s.device.raw.close().catch(() => undefined)
-      const c = classifyUsbError(error)
+      const c = classifyUsbErrorFor(error, browserOs())
       console.warn(`[device] WebUSB connect failed for ${s.id}`, error)
       setState(s, c.state, c.blockers)
     } finally {
@@ -303,6 +383,18 @@ export function createWebUsbBackend(): Backend {
     return adb
   }
 
+  const ops = createAndroidOps((id) => {
+    const s = sessions.get(id)
+    const adb = s?.adb
+    if (!s || !adb) throw new Error('DEVICE_NOT_READY')
+    return {
+      adb,
+      serial: s.serial,
+      sdk: s.props.sdk,
+      alive: () => s.adb === adb && sessions.get(id) === s,
+    }
+  })
+
   return {
     kind: 'webusb',
     label: 'WebUSB',
@@ -345,8 +437,10 @@ export function createWebUsbBackend(): Backend {
     },
 
     list(): Device[] {
-      return Array.from(sessions.values(), (s) =>
-        normalizeDevice({
+      return Array.from(sessions.values(), (s) => {
+        const connected = !!s.adb
+        const { sdk } = s.props
+        return normalizeDevice({
           id: s.id,
           backend: 'webusb',
           platform: 'android',
@@ -357,13 +451,26 @@ export function createWebUsbBackend(): Backend {
           osVersion: s.props.release,
           blockers: s.blockers,
           capabilities: {
-            screenshot: !!s.adb,
-            identifiers: !!s.adb,
-            install: !!s.adb,
-            logs: !!s.adb,
+            screenshot: connected,
+            identifiers: connected,
+            install: connected && sdk !== null && sdk >= MIN_INSTALL_SDK,
+            logs: connected,
+            apps: connected,
+            images: connected,
           },
-        }),
-      )
+          ...(connected
+            ? {
+                android: {
+                  sdk,
+                  release: s.props.release,
+                  manufacturer: s.props.manufacturer,
+                  brand: s.props.brand,
+                  abis: s.props.abis,
+                },
+              }
+            : {}),
+        })
+      })
     },
 
     // USER GESTURE ONLY — the spec rejects requestDevice without transient activation.
@@ -427,6 +534,17 @@ export function createWebUsbBackend(): Backend {
     },
 
     refresh: sync,
+
+    install: ops.install,
+    apps: ops.apps,
+    app: ops.app,
+    appAction: ops.appAction,
+    images: ops.images,
+    thumbnail: ops.thumbnail,
+    pull: ops.pull,
+    deviceSpec: ops.deviceSpec,
+    installFacts: ops.installFacts,
+    appBadge: ops.appBadge,
 
     async forget(id) {
       const s = sessions.get(id)
