@@ -14,6 +14,7 @@ import type {
   AndroidConnectResult,
   AndroidDisconnectResult,
   AndroidLane,
+  AndroidNearbyResult,
   AndroidPairResult,
   BridgeOptions,
   DoctorReport,
@@ -204,6 +205,7 @@ const ROUTES: Readonly<Record<string, 'GET' | 'POST'>> = {
   '/api/android/connect': 'POST',
   '/api/android/pair': 'POST',
   '/api/android/disconnect': 'POST',
+  '/api/android/nearby': 'GET',
 }
 
 const DEVICE_ROUTE = /^\/api\/devices\/([^/]*)\/(detail|screenshot|retry|logs)$/
@@ -450,6 +452,7 @@ export function createApi(deps: ApiDeps): Api {
       if (pathname === '/api/android/connect') return connectNetwork(req, res, headers)
       if (pathname === '/api/android/pair') return pairNetwork(req, res, headers)
       if (pathname === '/api/android/disconnect') return disconnectNetwork(req, res, headers)
+      if (pathname === '/api/android/nearby') return nearby(res, search, headers)
       return startAdbServer(res, headers)
     }
     const match = DEVICE_ROUTE.exec(pathname)
@@ -659,6 +662,22 @@ export function createApi(deps: ApiDeps): Api {
       const { message } = await android.disconnectNetwork(serial, op.signal)
       const reply: AndroidDisconnectResult = { result: 'disconnected', serial, message }
       sendJson(res, 200, reply, headers)
+    } finally {
+      op.dispose()
+    }
+  }
+
+  /**
+   * GET /api/android/nearby[?refresh=1]: the Android devices advertising adb on the local
+   * network (§4.8). Read-only: nothing is connected, paired or started.
+   */
+  async function nearby(res: ServerResponse, search: string, headers: Headers): Promise<void> {
+    const android = androidLane()
+    const refresh = new URLSearchParams(search).get('refresh') === '1'
+    const op = operation(res)
+    try {
+      const result: AndroidNearbyResult = await android.nearby(refresh, op.signal)
+      sendJson(res, 200, result, headers)
     } finally {
       op.dispose()
     }

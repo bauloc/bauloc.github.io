@@ -1,5 +1,5 @@
 import { ChevronDown, Wifi } from 'lucide-react'
-import { useRef, useState, type KeyboardEvent } from 'react'
+import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -298,30 +298,33 @@ function BrowserStepBody({
 /** A section of the platform card below its steps, ruled off like the other ones. */
 const SECTION = 'border-t pt-5'
 
-/** The helper-only path for Android: a TV or phone on the network, in the Android card. */
-function WifiSection({ onWifi }: { onWifi: () => void }) {
+/**
+ * The helper-only path for Android: a TV or phone on the network, in the Android card, with what
+ * the helper found on the network (NearbySection) right under it once it can look.
+ */
+function WifiSection({ onWifi, nearby }: { onWifi: () => void; nearby?: ReactNode }) {
   return (
-    <section
-      aria-labelledby="gate-wifi-title"
-      className={cn(SECTION, 'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between')}
-    >
-      <div className="min-w-0 space-y-0.5">
-        <h3 id="gate-wifi-title" className="text-sm leading-6 font-medium">
-          Phone or TV on Wi‑Fi?
-          <span className="text-muted-foreground hidden font-normal sm:inline">
-            {' '}
-            Through the helper
-          </span>
-        </h3>
-        <p className="text-muted-foreground max-w-[52ch] text-sm leading-relaxed">
-          {/* On a phone the tag line moves down here, rather than breaking the heading. */}
-          <span className="sm:hidden">Through the helper: </span>
-          An Android TV, or a phone across the room, with no cable.
-        </p>
+    <section aria-labelledby="gate-wifi-title" className={cn(SECTION, 'space-y-3')}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 space-y-0.5">
+          <h3 id="gate-wifi-title" className="text-sm leading-6 font-medium">
+            Phone or TV on Wi‑Fi?
+            <span className="text-muted-foreground hidden font-normal sm:inline">
+              {' '}
+              Through the helper
+            </span>
+          </h3>
+          <p className="text-muted-foreground max-w-[52ch] text-sm leading-relaxed">
+            {/* On a phone the tag line moves down here, rather than breaking the heading. */}
+            <span className="sm:hidden">Through the helper: </span>
+            An Android TV, or a phone across the room, with no cable.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={onWifi} className="self-start sm:self-center">
+          <Wifi /> Network device (Wi‑Fi)…
+        </Button>
       </div>
-      <Button variant="outline" size="sm" onClick={onWifi} className="self-start sm:self-center">
-        <Wifi /> Network device (Wi‑Fi)…
-      </Button>
+      {nearby}
     </section>
   )
 }
@@ -338,6 +341,7 @@ function AndroidSetup({
   os,
   helper,
   onWifi,
+  nearby,
 }: {
   browser: readonly CheckItem[]
   phone: readonly CheckItem[]
@@ -345,6 +349,8 @@ function AndroidSetup({
   os?: Os
   helper: HelperStatus
   onWifi?: () => void
+  /** What the helper found on the network, shown in the Wi‑Fi section. */
+  nearby?: ReactNode
 }) {
   const webusb = browser.some((item) => item.id === 'browser.webusb' && item.status === 'ok')
   const browserBlocked = worst(browser) === 'blocking'
@@ -436,7 +442,7 @@ function AndroidSetup({
         </details>
       )}
 
-      {onWifi && <WifiSection onWifi={onWifi} />}
+      {onWifi && <WifiSection onWifi={onWifi} nearby={nearby} />}
     </div>
   )
 }
@@ -543,6 +549,7 @@ export function Gate({
   onWifi,
   choice,
   onChoose,
+  nearby,
 }: {
   /** browserChecks(env). */
   browser: readonly CheckItem[]
@@ -573,6 +580,11 @@ export function Gate({
   choice?: GatePlatform | null
   /** The tester chose a platform: the page remembers it. */
   onChoose?: (platform: GatePlatform) => void
+  /**
+   * "On this network" (NearbySection), once the helper can look: with nothing plugged in, a TV
+   * across the room is often the device the tester came for.
+   */
+  nearby?: ReactNode
 }) {
   const [own, setOwn] = useState<GatePlatform | null>(null)
   const chosen = choice === undefined ? own : choice
@@ -624,6 +636,7 @@ export function Gate({
                   onWifi()
                 })
               }
+              nearby={nearby}
             />
           ) : (
             <IosSetup status={helper} on={helperOn} os={os} checklist={checklist} wiring={wiring} />

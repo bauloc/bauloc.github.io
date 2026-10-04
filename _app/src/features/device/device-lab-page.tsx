@@ -26,6 +26,7 @@ import { aboutRows, DoctorDialog } from './components/doctor-dialog'
 import { Gate, readGatePlatform, saveGatePlatform, type GatePlatform } from './components/gate'
 import { HelperChip, type HelperHandlers } from './components/helper-chip'
 import { HelperNotice } from './components/helper-notice'
+import { NearbySection } from './components/nearby-list'
 import { deviceCheck } from './components/hint-card'
 import { PairDialog } from './components/pair-dialog'
 import {
@@ -45,7 +46,7 @@ import {
   type HelperPhase,
 } from './helper/connection'
 import { resolveHelperEnv } from './helper/env'
-import { targetOfSerial } from './helper/network'
+import { sameTarget, targetOfSerial } from './helper/network'
 import { readPendingPair, takePairFragment } from './helper/pair-fragment'
 import type { DoctorReport } from './helper/protocol'
 import { helperAnnouncement, pairError, rememberNote } from './helper/status'
@@ -80,6 +81,7 @@ import {
   type DeviceLabSnapshot,
   type Job,
 } from './store'
+import { createNearby, nearbyAvailability, nearbyRows, type NearbyRow } from './nearby'
 import { createWifi } from './wifi'
 
 // The tabs' code (and media.ts, the badge reader) loads with the tab, never with the page.
@@ -313,6 +315,8 @@ function installActions(lab: DeviceLab, backend: Backend, id: string): InstallAc
 export function DeviceLabPage() {
   const [{ lab, helper }] = useState(createLabAndHelper)
   const [wifi] = useState(() => createWifi({ connection: helper }))
+  // What advertises debugging on the network: looked for while the list shows it, never connected.
+  const [nearby] = useState(() => createNearby({ connection: helper }))
   // Logs outlive their console: a device that drops says so in its log, and resumes (§7.8).
   const [logs] = useState(() =>
     createLogSessions({
@@ -328,6 +332,7 @@ export function DeviceLabPage() {
   )
   const snap = useDeviceLabSnapshot(lab)
   const wifiSnap = useSyncExternalStore(wifi.subscribe, wifi.getSnapshot, wifi.getSnapshot)
+  const nearbySnap = useSyncExternalStore(nearby.subscribe, nearby.getSnapshot, nearby.getSnapshot)
   const waitingLogId = useSyncExternalStore(logs.subscribe, logs.waitingId, logs.waitingId)
   const status = useSyncExternalStore(helper.subscribeStatus, helper.getStatus, helper.getStatus)
   const helperDevices = useSyncExternalStore(
@@ -355,6 +360,8 @@ export function DeviceLabPage() {
   const [tab, setTab] = useState<DetailTab>('overview')
   const [installs, setInstalls] = useState<Installs>({})
   const [wifiOpen, setWifiOpen] = useState(false)
+  /** A found device the Wi‑Fi dialog was opened for: it fills its fields in, once per seq. */
+  const [wifiPick, setWifiPick] = useState<{ seq: number; row: NearbyRow } | null>(null)
   const [now, setNow] = useState(Date.now)
   const filterRef = useRef<HTMLInputElement>(null)
   const webusb = lab.backends.some((b) => b.kind === 'webusb' && b.isAvailable())
@@ -693,6 +700,17 @@ export function DeviceLabPage() {
   const openWifi = () => {
     setWifiOpen(true)
   }
+  const openWifiFor = (row: NearbyRow) => {
+    setWifiPick((p) => ({ seq: (p?.seq ?? 0) + 1, row }))
+    setWifiOpen(true)
+  }
+  // A found device's Connect: the Wi‑Fi dialog's own connect, shown there (Allow comes next).
+  // Only ever on this click.
+  const connectNearby = (row: NearbyRow) => {
+    if (row.action.kind !== 'connect' || wifiSnap.attempt?.state === 'running') return
+    openWifiFor(row)
+    void wifi.connect(row.action.target)
+  }
 
   // Only ever on the tester's click, like every Wi‑Fi operation.
   const disconnectWifi = (serial: string) => {
@@ -902,6 +920,29 @@ export function DeviceLabPage() {
       />
     ) : null
 
+  // "On this network": what isn't listed already, and the one whose connect runs now.
+  const nearbyFound = nearbyRows(nearbySnap.devices, snap.devices)
+  const running = wifiSnap.attempt?.state === 'running' ? wifiSnap.attempt : null
+  const nearbyConnecting =
+    running?.kind === 'connect'
+      ? (nearbyFound.find(
+          (r) => r.action.kind === 'connect' && sameTarget(r.action.target, running),
+        )?.key ?? null)
+      : null
+  const nearbySection = (
+    <NearbySection
+      status={status}
+      snapshot={nearbySnap}
+      rows={nearbyFound}
+      connecting={running ? (nearbyConnecting ?? '') : null}
+      onWatch={nearby.watch}
+      onRefresh={nearby.refresh}
+      onConnect={connectNearby}
+      onPair={openWifiFor}
+      onHelper={openWifi}
+    />
+  )
+
   // The Wi‑Fi rows, in the Environment check, once Wi‑Fi is in play.
   const wifiDevice =
     snap.devices.find((d) => d.id === wifiSnap.attempt?.serial) ??
@@ -995,6 +1036,7 @@ export function DeviceLabPage() {
                 setGatePlatform(platform)
                 saveGatePlatform(platform)
               }}
+              nearby={nearbyAvailability(status) === 'helper' ? undefined : nearbySection}
             />
           ) : (
             <>
@@ -1017,6 +1059,7 @@ export function DeviceLabPage() {
                     onAddWifi={openWifi}
                     onRefresh={() => lab.refresh()}
                   />
+                  <div className="mt-6">{nearbySection}</div>
                 </div>
                 <DeviceDetailPane
                   device={selected}
@@ -1239,6 +1282,8 @@ export function DeviceLabPage() {
           lab.select(id)
           setWifiOpen(false)
         }}
+        nearby={{ snapshot: nearbySnap, rows: nearbyFound, onWatch: nearby.watch }}
+        pick={wifiPick}
       />
       <PairDialog
         key={pair.key}

@@ -1616,6 +1616,21 @@ function wifiLocalNetworkRow(a: WifiAttempt, helper: HelperProbe): CheckItem {
   return row('wifi.localNetwork', 'wifi', 'blocking', failure.sentence, fixes, failure.detail)
 }
 
+/**
+ * "On this network" when the helper's mDNS socket was refused: this computer can't reach the
+ * local network, for the causes a blocked connect has (§4.7), with the same ways out. `detail`
+ * is what the system said (EHOSTUNREACH…), when the helper passed it on.
+ */
+export function nearbyBlockedCheck(helper: HelperProbe, detail = ''): CheckItem {
+  const mac = helper.health?.platform?.startsWith('darwin') ?? true
+  const command = helper.env.devOrigin ? DEV_COMMAND : startCommand(helper.env.port)
+  const vpn: Fix = { label: 'VPN', path: COPY.nearby.blockedVpn }
+  const fixes = mac
+    ? [vpn, { label: 'macOS', path: COPY.wifi.blockedMacCommand }, copyCommand(command)]
+    : [vpn]
+  return row('wifi.localNetwork', 'wifi', 'blocking', COPY.nearby.blocked, fixes, detail)
+}
+
 function wifiAuthRow(device: WifiInput['device']): CheckItem {
   const id = 'wifi.authorized'
   if (!device) return row(id, 'wifi', 'unchecked', COPY.wifi.authUnchecked)

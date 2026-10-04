@@ -1,5 +1,5 @@
 import { ChevronDown, Loader2, Unplug, Wifi, X } from 'lucide-react'
-import { useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -29,13 +29,20 @@ import {
   type RecentDevice,
 } from '../helper/network'
 import { STATE_META, type Device } from '../model'
-import { ALLOW_DEBUGGING, wifiChecks, wifiHelperReady } from '../preflight/checks'
+import { nearbyAvailability, type NearbyRow, type NearbySnapshot } from '../nearby'
+import {
+  ALLOW_DEBUGGING,
+  nearbyBlockedCheck,
+  wifiChecks,
+  wifiHelperReady,
+} from '../preflight/checks'
 import { COPY, FIX, STATUS_META } from '../preflight/copy'
 import type { CheckItem, Os } from '../preflight/types'
 import type { WifiSnapshot } from '../wifi'
 import { PathFix, RowBody, StatusWord, type FixWiring } from './checklist'
 import { HelperCardBody } from './helper-card'
 import type { HelperHandlers } from './helper-chip'
+import { NearbySummary } from './nearby-list'
 import { TONE_SURFACE } from './status'
 
 /*
@@ -126,6 +133,66 @@ const fieldProps = (id: string, error: string | null, hint: boolean) => ({
   'aria-invalid': error !== null || undefined,
   'aria-describedby': error ? `${id}-error` : hint ? `${id}-hint` : undefined,
 })
+
+/**
+ * What the helper heard on the network, not connected yet: a click fills the form in (the
+ * address and port, or the pairing fields), and connecting is still the form's button.
+ */
+function FoundList({
+  rows,
+  looking,
+  picked,
+  onPick,
+}: {
+  rows: readonly NearbyRow[]
+  looking: boolean
+  picked: string | null
+  onPick: (row: NearbyRow) => void
+}) {
+  const headingId = `${useId()}-found`
+  const hintId = `${headingId}-hint`
+  return (
+    <section aria-labelledby={headingId} aria-describedby={hintId} className="space-y-2">
+      <div className="flex items-baseline gap-2">
+        <h3 id={headingId} className="text-sm font-medium">
+          Found on this network
+        </h3>
+        {looking && (
+          <Loader2
+            aria-label="Looking…"
+            className="text-muted-foreground size-3.5 animate-spin self-center"
+          />
+        )}
+      </div>
+      <p id={hintId} className="text-muted-foreground text-xs leading-relaxed">
+        {COPY.nearby.pickHint}
+      </p>
+      <ul className="divide-y rounded-lg border">
+        {rows.map((row) => (
+          <li key={row.key}>
+            <button
+              type="button"
+              aria-pressed={picked === row.key}
+              onClick={() => {
+                onPick(row)
+              }}
+              className={cn(
+                'hover:bg-accent/50 flex w-full items-center gap-2 px-3 py-2 text-left transition-colors',
+                'focus-visible:ring-ring/50 outline-none focus-visible:ring-[3px] focus-visible:ring-inset',
+                'aria-pressed:bg-accent/60 first:rounded-t-lg last:rounded-b-lg',
+              )}
+            >
+              <NearbySummary row={row} />
+              <span className="text-muted-foreground shrink-0 text-xs font-medium">
+                {row.action.kind === 'pair' ? 'Pair' : 'Use'}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
 
 /** The remembered devices: one click to connect again, one to forget. */
 function RecentList({
@@ -229,6 +296,8 @@ export function WifiDialog({
   onForget,
   onShow,
   os,
+  nearby,
+  pick = null,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -248,6 +317,20 @@ export function WifiDialog({
   onShow: (id: string) => void
   /** The system this page runs on: how to get Node.js, and where to type the command. */
   os?: Os
+  /**
+   * "Found on this network" (nearby.ts): what the helper heard, not connected yet, and
+   * nearby.watch, which looks while the dialog is open.
+   */
+  nearby?: {
+    readonly snapshot: NearbySnapshot
+    readonly rows: readonly NearbyRow[]
+    readonly onWatch: () => () => void
+  }
+  /**
+   * A found device the page opened the dialog for (its Connect or Pair…): its fields filled
+   * in, once per `seq`.
+   */
+  pick?: { readonly seq: number; readonly row: NearbyRow } | null
 }) {
   const uid = useId()
   const opener = useRef<HTMLElement | null>(null)
@@ -260,6 +343,62 @@ export function WifiDialog({
   const [pairOpen, setPairOpen] = useState(false)
   /** After a pairing, the connect port is the one the device shows: 5555 would be a guess. */
   const [portRequired, setPortRequired] = useState(false)
+  /** The found device the fields came from, and the connect address it advertised. */
+  const [picked, setPicked] = useState<{ key: string; connect: NetworkTarget | null } | null>(null)
+  const [pickSeq, setPickSeq] = useState(0)
+  /**
+   * Where focus goes when the dialog opens for the page's Pair…: the code, or the pairing
+   * port the phone shows. Not the first control, which is often another found device.
+   */
+  const [pickFocus, setPickFocus] = useState<'code' | 'pairAddress' | null>(null)
+  const codeRef = useRef<HTMLInputElement>(null)
+  const pairAddressRef = useRef<HTMLInputElement>(null)
+
+  /** Fills the form from a found device: connect's fields, or pairing's (opened). */
+  const fill = (row: NearbyRow) => {
+    setErrors({})
+    if (row.action.kind === 'connect') {
+      const { target } = row.action
+      setPicked({ key: row.key, connect: target })
+      setHost(target.host)
+      setPort(String(target.port))
+      setPortRequired(false)
+      return
+    }
+    const { connect, pair: pairing, host: deviceHost } = row.action
+    setPicked({ key: row.key, connect })
+    setHost(connect?.host ?? deviceHost)
+    setPort(connect ? String(connect.port) : '')
+    setPortRequired(connect === null)
+    setPairAddress(pairing ? addressOf(pairing) : deviceHost)
+    setPairOpen(true)
+  }
+
+  // The page's Connect or Pair… on a found device: adjusted during render, not in an effect,
+  // so the first frame of the dialog already shows that device.
+  if (pick && pick.seq !== pickSeq) {
+    setPickSeq(pick.seq)
+    fill(pick.row)
+    const { action } = pick.row
+    setPickFocus(action.kind === 'pair' ? (action.pair ? 'code' : 'pairAddress') : null)
+  }
+
+  // A pick while the dialog is already open: no open auto-focus will run, so move it here.
+  useEffect(() => {
+    if (!open || !pickFocus) return
+    const frame = requestAnimationFrame(() => {
+      ;(pickFocus === 'code' ? codeRef : pairAddressRef).current?.focus()
+      setPickFocus(null)
+    })
+    return () => {
+      cancelAnimationFrame(frame)
+    }
+  }, [open, pickFocus])
+
+  const ready = wifiHelperReady(status)
+  const watching = open && nearby !== undefined && nearbyAvailability(status) === 'ready'
+  const onWatch = nearby?.onWatch
+  useEffect(() => (watching && onWatch ? onWatch() : undefined), [watching, onWatch])
 
   const { attempt } = wifi
   const running = attempt?.state === 'running'
@@ -272,7 +411,6 @@ export function WifiDialog({
   const localRow = rowOf('wifi.localNetwork')
   const reachRow = rowOf('wifi.reachable')
   const authRow = rowOf('wifi.authorized')
-  const ready = wifiHelperReady(status)
   const paired = status.phase === 'connected' && status.pairing !== null
   const ids = {
     host: `${uid}-host`,
@@ -286,6 +424,7 @@ export function WifiDialog({
       // The code is single-use and the tester's: never kept past the dialog.
       setCode('')
       setErrors({})
+      setPickFocus(null)
     }
     onOpenChange(next)
   }
@@ -342,10 +481,12 @@ export function WifiDialog({
     void onPair(target).then((ok) => {
       setCode('')
       if (!ok) return
-      // Connecting is next, on another port: the address is the same, the port isn't.
+      // Connecting is next, on another port: the address is the same, the port isn't. A found
+      // device said which; else it is the one on the Wireless debugging screen.
+      const known = picked?.connect?.host === target.host ? picked.connect : null
       setHost(target.host)
-      setPort('')
-      setPortRequired(true)
+      setPort(known ? String(known.port) : '')
+      setPortRequired(known === null)
       portRef.current?.focus()
     })
   }
@@ -377,8 +518,34 @@ export function WifiDialog({
   } else {
     const showRow = attempt !== null
     const authOk = authRow?.status === 'ok' && device !== null
+    const found = nearby && nearbyAvailability(status) === 'ready' ? nearby : null
+    const foundBlocked =
+      found?.snapshot.state === 'blocked' ? nearbyBlockedCheck(status, found.snapshot.detail) : null
     body = (
       <div className="space-y-5">
+        {foundBlocked && attempt === null && (
+          <ul aria-label="Found on this network" className="space-y-2">
+            <Row item={foundBlocked} />
+          </ul>
+        )}
+        {found && found.rows.length > 0 && (
+          <FoundList
+            rows={found.rows}
+            looking={found.snapshot.busy}
+            picked={picked?.key ?? null}
+            onPick={(row) => {
+              fill(row)
+              // Next, for a pairing: the code, or the pairing port the phone shows. Once the
+              // section has opened.
+              if (row.action.kind === 'pair') {
+                const next = row.action.pair ? codeRef : pairAddressRef
+                requestAnimationFrame(() => {
+                  next.current?.focus()
+                })
+              }
+            }}
+          />
+        )}
         {wifi.recent.length > 0 && (
           <RecentList
             recent={wifi.recent}
@@ -500,6 +667,7 @@ export function WifiDialog({
               >
                 <Input
                   {...fieldProps(ids.pairAddress, fieldError('pairAddress'), false)}
+                  ref={pairAddressRef}
                   name="wifi-pair-address"
                   inputMode="url"
                   placeholder="192.168.1.20:37099"
@@ -514,6 +682,7 @@ export function WifiDialog({
               <Field id={ids.code} label="Pairing code" error={fieldError('code')}>
                 <Input
                   {...fieldProps(ids.code, fieldError('code'), false)}
+                  ref={codeRef}
                   name="wifi-pair-code"
                   inputMode="numeric"
                   autoComplete="one-time-code"
@@ -570,9 +739,15 @@ export function WifiDialog({
     <Dialog open={open} onOpenChange={close}>
       <DialogContent
         className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg [&>*]:min-w-0"
-        onOpenAutoFocus={() => {
+        onOpenAutoFocus={(e) => {
           opener.current =
             document.activeElement instanceof HTMLElement ? document.activeElement : null
+          if (!pickFocus) return
+          const next = (pickFocus === 'code' ? codeRef : pairAddressRef).current
+          setPickFocus(null)
+          if (!next) return
+          e.preventDefault()
+          next.focus()
         }}
         onCloseAutoFocus={(e) => {
           if (!opener.current?.isConnected) return

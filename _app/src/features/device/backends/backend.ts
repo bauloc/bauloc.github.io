@@ -307,6 +307,8 @@ export const DEVICE_ERRORS = {
   ANDROID_PAIR_FAILED: 'Couldn’t pair. Check the code and the pairing port; both change each time.',
   NETWORK_UNSUPPORTED:
     'This helper can’t connect to Wi‑Fi devices. Download it again; the command replaces it.',
+  DISCOVER_UNSUPPORTED:
+    'This helper can’t look for devices on the network. Download it again; the command replaces it.',
   HELPER_TIMEOUT: 'The helper took too long to answer. Try again.',
   // The helper's router: a page newer than the helper, or a bug. Updating the helper is the fix.
   BAD_ID: 'The helper can’t use this device’s id. Refresh the list.',

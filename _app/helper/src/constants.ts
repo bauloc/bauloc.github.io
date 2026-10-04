@@ -64,6 +64,8 @@ export const LIMITS = {
   field: 100,
   /** Upstream responses kept in memory by local mode. */
   upstreamEntries: 300,
+  /** Devices one Wi-Fi scan reports (§4.8). */
+  nearby: 64,
 } as const
 
 /** §1.12 timeouts in milliseconds. Tests pass shorter ones through createBridge(). */
@@ -94,6 +96,9 @@ export const TIMEOUTS: Timeouts = {
   adbStartPoll: 8_000,
   adbNetworkConnect: 20_000,
   adbPair: 15_000,
+  mdnsWindow: 2_000,
+  systemBrowse: 1_500,
+  systemResolve: 1_500,
   doctorCheck: 5_000,
   doctorSlowCheck: 10_000,
   doctorTotal: 12_000,

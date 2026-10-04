@@ -40,6 +40,7 @@ const SECTIONS = /** @type {Record<string, string>} */ ({
   'src/lockdown.ts': '§6 Lockdown client',
   'src/ios-lane.ts': '§7 iOS lane',
   'src/simulator-lane.ts': '§8 Simulator lane',
+  'src/mdns.ts': '§9 mDNS browser',
   'src/android-lane.ts': '§9 Android lane',
   'src/registry.ts': '§10 Device registry',
   'src/auth.ts': '§11 Token, proof and pairing',

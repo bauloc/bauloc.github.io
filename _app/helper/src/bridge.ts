@@ -21,6 +21,7 @@ import { DEFAULT_PORT, LIMITS, NAME, PROTOCOL, SITE, TIMEOUTS, VERSION } from '.
 import { bugText, createApi } from './http'
 import { createIosLane } from './ios-lane'
 import { createLocalMode } from './local-mode'
+import { udpTransport } from './mdns'
 import { collectPreflight, doctorReport, printDoctor } from './preflight'
 import {
   childEnv,
@@ -132,6 +133,9 @@ export function resolveOptions(input: BridgeInput = {}): BridgeOptions {
      * mode ever calls it.
      */
     fetch: input.fetch ?? ((url, init) => fetch(url, init)),
+    mdns: input.mdns ?? udpTransport(),
+    dnsSdPath: input.dnsSdPath ?? '/usr/bin/dns-sd',
+    avahiBrowsePath: input.avahiBrowsePath,
   }
 }
 
@@ -368,6 +372,7 @@ export function createBridge(input: BridgeInput = {}): Bridge {
     const features = [
       lanes.android ? 'android.start-server' : null,
       lanes.android ? 'android.connect' : null,
+      lanes.android ? 'android.discover' : null,
       options.local ? 'local' : null,
       lanes.simulators ? 'simulators' : null,
       options.wifi ? 'wifi' : null,

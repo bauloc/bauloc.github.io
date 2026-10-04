@@ -560,6 +560,33 @@ export const COPY = {
     later:
       'Over Wi‑Fi: details, screenshots and the log. Apps, Images and installing come in a later version; for them now, connect a USB cable in Chrome or Edge.',
   },
+  /**
+   * "On this network": the Android devices the helper heard advertising debugging over mDNS.
+   * Listing is only looking; every connect is still the tester's click.
+   */
+  nearby: {
+    helperOff:
+      'To list the TVs and phones on this network, start the local helper and pair this page.',
+    helperOld:
+      'This helper can’t look for devices on the network. Download it again; the command replaces it.',
+    empty: 'No Android device on this network has debugging turned on.',
+    /** Heard, but every one is in the list already. */
+    allListed: 'Every device found on this network is connected.',
+    emptyStep: 'Turn it on, on the device, then refresh:',
+    /** Heard nothing: the other likely causes, after the steps (§4.8). */
+    emptyOther:
+      'Already on? Check that the device is on the same Wi‑Fi as this computer, and that no VPN (Cloudflare WARP, a work VPN) is on here.',
+    /** The mDNS socket was refused: the same causes as a connect's `blocked` (§4.7). */
+    blocked:
+      'This computer can’t reach the local network, so it can’t look for devices on it. The problem is on this computer, not the TV or phone.',
+    blockedVpn:
+      'Turn off the VPN (Cloudflare WARP, a work VPN), or let it reach the local network, then refresh.',
+    unavailable: 'The helper couldn’t look for devices on this network.',
+    found: (n: number) =>
+      n === 1 ? '1 device found on this network.' : `${String(n)} devices found on this network.`,
+    none: 'No devices found on this network.',
+    pickHint: 'Choose one to fill in its address.',
+  },
   /** Rows about the devices the helper lists (spec §12b, Devices). */
   device: {
     noneIos: 'Plug in an iPhone with a cable and unlock it.',

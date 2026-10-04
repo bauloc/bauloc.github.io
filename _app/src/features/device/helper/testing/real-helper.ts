@@ -75,6 +75,8 @@ export interface LaneScript<K extends LaneName = LaneName> {
   readonly retry?: (id: string, signal: AbortSignal) => Promise<void>
   readonly rescan?: (signal: AbortSignal | undefined) => Promise<void>
   readonly startServer?: (signal: AbortSignal) => Promise<void>
+  /** GET /api/android/nearby's body (the helper's AndroidNearbyResult), sent as it is. */
+  readonly nearby?: (refresh: boolean, signal: AbortSignal) => Promise<unknown>
 }
 
 interface FakeLane {

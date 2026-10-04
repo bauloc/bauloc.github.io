@@ -28,6 +28,7 @@ import {
   type LogMsg,
   type ConnectReply,
   type DisconnectReply,
+  type NearbyReply,
   type PairReply,
   type ScreenshotSource,
   type Snapshot,
@@ -181,6 +182,12 @@ export interface HelperConnection {
   readonly connectNetwork: (target: NetworkTarget) => Promise<ConnectReply>
   readonly pairNetwork: (target: PairTarget) => Promise<PairReply>
   readonly disconnectNetwork: (serial: string) => Promise<DisconnectReply>
+  /**
+   * GET /api/android/nearby, only when the helper lists `android.discover` (else
+   * DISCOVER_UNSUPPORTED, without a request): what advertises debugging on the network. It
+   * only looks; connecting stays the tester's click (connectNetwork, pairNetwork).
+   */
+  readonly nearby: (refresh?: boolean, signal?: AbortSignal) => Promise<NearbyReply>
   readonly api: {
     readonly detail: (id: string, signal?: AbortSignal) => Promise<DetailResponse>
     readonly screenshot: (id: string, signal?: AbortSignal) => Promise<Blob>
@@ -1072,6 +1079,13 @@ export function createHelperConnection(
     pairNetwork: (target) => networkOperation((linked) => client.pairNetwork(target, linked)),
     disconnectNetwork: (serial) =>
       networkOperation((linked) => client.disconnectNetwork(serial, linked)),
+
+    async nearby(refresh = false, s) {
+      if (status.phase === 'connected' && !status.health?.features.includes('android.discover')) {
+        throw new HelperError('DISCOVER_UNSUPPORTED', 'http')
+      }
+      return operation((linked) => client.nearby(refresh, linked), s)
+    },
 
     api: {
       detail: (id, s) => operation((linked) => client.detail(id, linked), s),

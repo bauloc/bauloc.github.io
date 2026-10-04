@@ -14,6 +14,7 @@ import type { ToolOptions, Toolbox } from './tools'
 import type { IosLaneFacts } from './ios-lane'
 import type { AndroidLaneFacts } from './android-lane'
 import type { SimulatorLaneFacts } from './simulator-lane'
+import type { OpenMdnsTransport } from './mdns'
 
 /* ------------------------------------------------------------------ wire: devices --- */
 
@@ -248,6 +249,79 @@ export interface AndroidDisconnectResult {
   message: string
 }
 
+/* ------------------------------------------------- wire: Wi-Fi discovery (§4.8) --- */
+
+/**
+ * How a device on the network offers adb, by the mDNS service it advertises:
+ * - `adb`: `_adb._tcp`, plain Network debugging (a TV, `adb tcpip 5555`): connect to
+ *   host:port directly;
+ * - `wireless`: `_adb-tls-connect._tcp`, Android 11+ Wireless debugging: connect works only
+ *   once this Mac is paired, otherwise the page offers pairing;
+ * - `pairing`: `_adb-tls-pairing._tcp`, a pairing port open right now (the device shows
+ *   "Pair device with pairing code"), for the pair step.
+ */
+export type NearbyKind = 'adb' | 'wireless' | 'pairing'
+
+export interface AndroidNearbyDevice {
+  /** `<kind>:<host:port>`, as networkSerial() writes the address: `adb:192.168.68.101:5555`. */
+  id: string
+  /** An address on the local network only, by the rules of POST /api/android/connect. */
+  host: string
+  port: number
+  kind: NearbyKind
+  /** The mDNS instance name, cleaned: `adb-b120be004010859`, `adb-55090DLAQ0026D-nK25Qn`. */
+  instance: string
+  /**
+   * The device's own name: TXT `given_name=` ("BAULOC Pixel 9"), else Cast's `fn=`, else the
+   * Android TV Remote's instance name, at the same address; '' when none.
+   */
+  name: string
+  /** TXT `name=`, the model ("Pixel 9"), when advertised. */
+  model?: string
+  /** The Android version TXT `api=` stands for ("17" for api=37.1), when advertised and known. */
+  osVersion?: string
+  /** The serial the instance name carries, else TXT `serial=`, when there is one. */
+  serial?: string
+  /** The same address also advertises Android TV Remote or Google Cast. */
+  tv: boolean
+  /** adb lists it already: by this host:port, by its mDNS name, or by its serial (over USB too). */
+  connected: boolean
+  /** The id of its row in /api/devices, when `connected`. */
+  deviceId?: string
+  /**
+   * `wireless` and `pairing` only: adb lists it over the network, which a Wireless-debugging
+   * device allows only once paired. false means "not known to be paired", not "unpaired".
+   */
+  paired?: boolean
+}
+
+/** Why the helper's own scan could not run; adb's own list may still have found devices. */
+export type NearbyFailure = 'blocked' | 'no-network' | 'failed'
+
+/** GET /api/android/nearby[?refresh=1]. */
+export interface AndroidNearbyResult {
+  devices: AndroidNearbyDevice[]
+  /** When the scan these devices come from started (epoch ms). */
+  scannedAt: number
+  error?: {
+    reason: NearbyFailure
+    /** One plain sentence and its fix, for a page with no wording of its own. */
+    message: string
+    /** What the socket said: "send EHOSTUNREACH 224.0.0.251:5353". */
+    detail: string
+  }
+  /**
+   * The helper's own queries could not leave, but the system's resolver (dns-sd, avahi)
+   * looked instead, so the list is complete and there is no `error`. Connecting may still
+   * fail for the same reason; a connect that does says so with its own `blocked` wording.
+   */
+  note?: {
+    reason: NearbyFailure
+    message: string
+    detail: string
+  }
+}
+
 /* ------------------------------------------------------------- wire: preflight (§12c) --- */
 
 export type PreflightStatus = 'ok' | 'warning' | 'blocking' | 'unchecked'
@@ -362,6 +436,12 @@ export interface Timeouts {
    */
   adbNetworkConnect: number
   adbPair: number
+  /** One mDNS scan for devices on the network (§4.8): how long answers are collected. */
+  mdnsWindow: number
+  /** The same scan through the system's daemon (§4.8): how long `dns-sd -B` browses. */
+  systemBrowse: number
+  /** …and how long one `dns-sd -L` or `-G` may take (avahi-browse: browse + resolve). */
+  systemResolve: number
   /** --doctor and /api/doctor */
   doctorCheck: number
   doctorSlowCheck: number
@@ -450,6 +530,12 @@ export interface AndroidLane extends Lane<AndroidLaneFacts> {
     serial: string,
     signal: AbortSignal,
   ) => Promise<Pick<AndroidDisconnectResult, 'message'>>
+  /**
+   * §4.8: the Android devices advertising adb on the local network, read-only. A scan is
+   * cached; `refresh` asks for a new one, which still runs at most one at a time and not
+   * more often than the lane allows.
+   */
+  readonly nearby: (refresh: boolean, signal: AbortSignal) => Promise<AndroidNearbyResult>
 }
 
 export interface LaneSet {
@@ -592,6 +678,18 @@ export interface BridgeOptions {
   resolveTools: (opts: ToolOptions) => Promise<Toolbox>
   /** The fetch local mode uses for the upstream; tests may inject one. */
   fetch: typeof fetch
+  /**
+   * How mDNS queries reach the network (§4.8): a UDP socket by default. Tests always replace
+   * it, so the suite never sends a packet to a real network.
+   */
+  mdns: OpenMdnsTransport
+  /**
+   * The system resolver (§4.8). macOS: dns-sd at this fixed path, /usr/bin/dns-sd. Linux:
+   * avahi-browse at this path, or looked up on PATH (and /usr/bin, /usr/local/bin unless
+   * extraDirs says otherwise) when undefined. A path that is not there turns it off.
+   */
+  dnsSdPath: string
+  avahiBrowsePath: string | undefined
 }
 
 export type BridgeInput = Partial<Omit<BridgeOptions, 'timeouts' | 'lanes'>> & {

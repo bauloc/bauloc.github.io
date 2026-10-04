@@ -58,6 +58,11 @@ export interface FakeAdbServer {
   exec: (serial: string, cmd: string) => ExecAnswer | undefined
   /** Answer track-devices-l with FAIL, as a server without the tracker would. */
   failTrack: boolean
+  /**
+   * What host:mdns:services answers (§4.8): the server's own mDNS list, one
+   * `<instance>\t<service>\t<address>:<port>` line per service, or a FAIL. '' by default.
+   */
+  mdnsServices: string | { fail: string }
   /** Requests never answered (a hung server). */
   readonly hang: Set<string>
   /** Put a device on the fake network (§4.7); it is listed only once something connects. */
@@ -224,6 +229,10 @@ export async function createFakeAdbServer(opts: { port?: number } = {}): Promise
       if (service === 'host:version') return void socket.end(okayWith('0029'))
       if (service === 'host:devices-l') return void socket.end(okayWith(devicesText(all())))
       if (service === 'host:reconnect-offline') return void socket.end(okayWith('done'))
+      if (service === 'host:mdns:services') {
+        const list = fake.mdnsServices
+        return void socket.end(typeof list === 'string' ? okayWith(list) : fail(list.fail))
+      }
       if (service === 'host:track-devices-l') {
         if (fake.failTrack) return void socket.end(fail('unknown host service'))
         trackers.add(socket)
@@ -333,6 +342,7 @@ export async function createFakeAdbServer(opts: { port?: number } = {}): Promise
     },
     exec: () => undefined,
     failTrack: false,
+    mdnsServices: '',
     hang,
     trackers: () => trackers.size,
     streams: () => streams.size,

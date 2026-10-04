@@ -7,6 +7,7 @@ import {
   parseLogMsg,
   parseConnectReply,
   parseDisconnectReply,
+  parseNearby,
   parsePairReply,
   parseRetry,
   parseSnapshot,
@@ -20,10 +21,12 @@ import {
   type LogMsg,
   type ConnectReply,
   type DisconnectReply,
+  type NearbyReply,
   type PairReply,
   type ScreenshotSource,
   type Snapshot,
 } from './protocol'
+import { checkHost } from './network'
 
 /*
   HTTP to the local helper (spec §2): one function per endpoint, each with its own deadline
@@ -118,6 +121,8 @@ export const TIMEOUTS = {
   connectNetwork: 35_000,
   pairNetwork: 25_000,
   disconnectNetwork: 10_000,
+  /** The helper listens to mDNS for a few seconds on a fresh look; a cached answer is instant. */
+  nearby: 12_000,
   /** No message on a log stream for this long: HELPER_STREAM_STALLED. */
   logWatchdog: 45_000,
 } as const
@@ -172,6 +177,12 @@ export interface HelperClient {
   readonly pairNetwork: (target: PairTarget, signal?: AbortSignal) => Promise<PairReply>
   /** `serial`: the network serial the helper lists ("192.168.1.20:5555"). */
   readonly disconnectNetwork: (serial: string, signal?: AbortSignal) => Promise<DisconnectReply>
+  /**
+   * GET /api/android/nearby (feature `android.discover`): the Android devices advertising
+   * debugging on the local network. `refresh`: look again now rather than answer from the
+   * helper's last look. Only local addresses survive (checkHost), whatever the helper sent.
+   */
+  readonly nearby: (refresh: boolean, signal?: AbortSignal) => Promise<NearbyReply>
 }
 
 /** A device on the network, as adb names it: an address or a local name, and a port. */
@@ -560,5 +571,18 @@ export function createHelperClient(
         timeoutMs: TIMEOUTS.disconnectNetwork,
         json: { serial },
       }),
+
+    nearby: (refresh, signal) =>
+      call(
+        refresh ? '/api/android/nearby?refresh=1' : '/api/android/nearby',
+        (value) => parseNearby(value, localHostOf),
+        { signal, timeoutMs: TIMEOUTS.nearby },
+      ),
   }
+}
+
+/** checkHost's normalised host, or null: what parseNearby keeps. */
+const localHostOf = (host: string): string | null => {
+  const checked = checkHost(host)
+  return checked.ok ? checked.host : null
 }

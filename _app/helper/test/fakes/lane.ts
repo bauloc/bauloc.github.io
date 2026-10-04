@@ -12,6 +12,7 @@ import type { SimulatorLaneFacts } from '../../src/simulator-lane'
 import type {
   AndroidConnectResult,
   AndroidLane,
+  AndroidNearbyResult,
   DetailResponse,
   HelperDevice,
   Lane,
@@ -58,6 +59,8 @@ export interface FakeLaneScript<K extends LaneName> {
     signal: AbortSignal,
     ctx: LaneContext,
   ) => Promise<{ message: string }>
+  /** Wi-Fi discovery (§4.8). By default nothing is found on the network. */
+  nearby?: (refresh: boolean, signal: AbortSignal, ctx: LaneContext) => Promise<AndroidNearbyResult>
 }
 
 export interface FakeLane<L extends Lane> {
@@ -152,6 +155,11 @@ function build<K extends LaneName, F>(
           calls.push({ op: 'disconnectNetwork', id: serial })
           if (script.disconnectNetwork) return script.disconnectNetwork(serial, signal, created)
           return Promise.resolve({ message: `disconnected ${serial}` })
+        },
+        nearby(refresh, signal) {
+          calls.push({ op: refresh ? 'nearby refresh' : 'nearby' })
+          if (script.nearby) return script.nearby(refresh, signal, created)
+          return Promise.resolve({ devices: [], scannedAt: created.now() })
         },
         facts,
       }

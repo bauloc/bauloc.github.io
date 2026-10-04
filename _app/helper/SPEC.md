@@ -239,6 +239,8 @@ What was decided while building, and where each one now lives in this document.
 | Logs end with `{reason:'device-gone', code:'DEVICE_DROPPED'}` when a Wi‑Fi device drops mid-stream; the page waits as long as the helper holds the row (120 s) and resumes; a row that leaves the list stops the log at once | A log that silently went back to "Press Start" hid the drop | §2.5, §7.8 |
 | New error codes: `ANDROID_OFF`, `HELPER_STOPPING`, `STREAM_REPLACED`, `BAD_REQUEST`, `DEVICE_DROPPED`, `ANDROID_CONNECT_FAILED`, `ANDROID_PAIR_FAILED`; `INTERNAL` | Cases the design left unnamed | §2.7 |
 | New health feature `android.connect` | The page shows the Wi‑Fi dialog only to a helper that has it | §2.8 |
+| Discovery: `GET /api/android/nearby`, a zero-dependency mDNS browser (`mdns.ts`), `host:mdns:services` on the allowlist, health feature `android.discover`, a `Wi-Fi:` line in the terminal and `--doctor` | Wi‑Fi devices appeared only after a manual connect; the owner asked for every Android device on the network | §4.8 |
+| Discovery also asks the system's resolver (`dns-sd` on macOS, `avahi-browse` on Linux) and reads adbd's TXT (`given_name`, `name`, `serial`, `api`); `blocked` only when no source could look, otherwise a `note` | On the owner's network the dozing Pixel 9 never answered the helper's own queries, while `dns-sd` listed it from mDNSResponder's cache, even from an app without local-network access | §4.8 |
 | `HelperError` is exported from the bundle | The bridge maps only its own class to a code; `helper:fake` builds its errors from it | §1.2 |
 | `createBridge()` defaults to `local: true`; embedders (`helper:fake`, the page's real-helper tests) pass `local: false` | The CLI's default is local mode on | §1.6 |
 | The banner waits, within its 3 s, for the iPhone and simulator lanes to report, and prints `checking…` until they do | It printed "unavailable" for lanes that had not listed anything yet | §1.10 |
@@ -257,7 +259,7 @@ What was decided while building, and where each one now lives in this document.
 **Source**
 
 - `_app/helper/src/*.ts`: one module per file section (§1.2), about 11,800 lines with their comments. `types.ts` holds the shared types and is erased by the bundler.
-- Built-ins only: `node:http`, `net`, `tls`, `crypto`, `child_process`, `fs`, `os`, `path`, `url`, `dns`, `string_decoder`. No npm package reaches the bundle.
+- Built-ins only: `node:http`, `net`, `tls`, `crypto`, `child_process`, `fs`, `os`, `path`, `url`, `dns`, `dgram`, `string_decoder`. No npm package reaches the bundle.
 
 **Bundle** (`helper/build.mjs`, `npm run helper:build`)
 
@@ -306,7 +308,8 @@ The **file §** labels number the regions of the built file. Each module's heade
 | §6 | `lockdown.ts` | Lockdown client: u32-BE + plist channel, `queryType`, `getValue`, `startSession` + TLS + pin check, `startService`, `stopSession`, error mapping | §3.3 |
 | §7 | `ios-lane.ts` | iOS lane: table keyed by UDID, probe pipeline, `deriveIos`, whitelists, devicectl adapter + `classifyDevicectl`, `idevicescreenshot`, syslog_relay + `idevicesyslog`, Wi‑Fi hold, `probeForDoctor` | §3 |
 | §8 | `simulator-lane.ts` | Simulator lane: simctl list/join, screenshot, `log stream`, `SIMCTL_COMMANDS` | §5 |
-| §9 | `android-lane.ts` | Android lane: adb host client, `ADB_HOST_SERVICES` and `assertAdbService`, the Wi‑Fi senders and their checks, `parseDevicesL`, `mapAdbState`, identity cache, detail, screencap, logcat, `startAdbServer` | §4 |
+| §9 | `mdns.ts` | mDNS browser: DNS codec (`parseMessage`, `readName`, `encodeQuery`), `udpTransport()`, `browse()`, `mdnsFailure()`; the system resolver: `systemMdnsTools()`, `systemBrowse()` and the dns-sd/avahi-browse parsers | §4.8 |
+| §9 | `android-lane.ts` | Android lane: adb host client, `ADB_HOST_SERVICES` and `assertAdbService`, the Wi‑Fi senders and their checks, discovery (`scanNearby`, `mergeNearby`, `parseAdbMdnsServices`), `parseDevicesL`, `mapAdbState`, identity cache, detail, screencap, logcat, `startAdbServer` | §4 |
 | §10 | `registry.ts` | Lane rows → `Snapshot {rev, runId, devices, lanes}`, owner lookup, activity clock, transition lines | §1.3, §2.4 |
 | §11 | `auth.ts` | Token (fresh or kept file), `tokenIdOf`, `proofOf`, bearer check, "Page connected" lines | §2.8, §6.5 |
 | §12 | `preflight.ts` | Doctor and preflight: `collectPreflight()`, item wording, `formatChecklist()`, `doctorReport()`, `printDoctor()` | §12 |
@@ -327,7 +330,7 @@ The **file §** labels number the regions of the built file. Each module's heade
   - `MUX_MESSAGES = ['ListDevices','Listen','ReadPairRecord','ReadBUID','Connect']`
   - `DEVICECTL_COMMANDS = [['device','capture','screenshot'], ['device','info','lockState']]` (`lockState` in `--doctor` only)
   - `ADB_EXEC`: the constant strings in §4.3
-  - In their lane modules: `ADB_HOST_SERVICES = ['host:version','host:track-devices-l','host:devices-l','host:reconnect-offline']` (plus `host:transport:<listed serial>`), and `SIMCTL_COMMANDS`.
+  - In their lane modules: `ADB_HOST_SERVICES = ['host:version','host:track-devices-l','host:devices-l','host:reconnect-offline','host:mdns:services']` (plus `host:transport:<listed serial>`), and `SIMCTL_COMMANDS`.
 - Never-sent lists, each asserted by a test that the client refuses it:
   - Lockdown `LOCKDOWN_NEVER`: `Pair`, `Unpair`, `ValidatePair`, `SetValue`, `RemoveValue`, `EnterRecovery`, `Activate`.
   - usbmuxd `MUX_NEVER`: `SavePairRecord`, `DeletePairRecord`.
@@ -505,6 +508,7 @@ It has no side effects until `listen()`. Tests replace everything here, so no re
 | `local` | **true**, as the CLI. Embedders that serve no page (`helper:fake`, the page's real-helper tests) pass `false`. |
 | `timeouts`, `heartbeatMs`, `now`, `log`, `errorLog` | §1.12 / 15000 / `Date.now` / stdout / stderr |
 | `lanes`, `resolveTools`, `fetch`, `selfPath` | the real lane factories (null disables one), the real discovery, global `fetch`, this file |
+| `mdns`, `dnsSdPath`, `avahiBrowsePath` | the UDP transport / `/usr/bin/dns-sd` / undefined (look up `avahi-browse`); tests: `silentMdns()` and a path in the fake bin directory (§4.8) |
 
 It returns `{ listen(): Promise<{port}>, close(): Promise<void>, port, token, tokenId, runId, registry, lanes, options, health(challenge?), preflight({refresh}), toolbox(), doctor(write) }`.
 
@@ -642,7 +646,7 @@ Keep this window open while you test. Ctrl+C stops the helper; the token changes
 - A newly ready Android device is held back up to 1.5 s while its identity is read, so its one arrival line carries the model name. A device that arrives unauthorized has no identity yet, so it is named after its serial until it is allowed.
 - An Android device on the network reads "waiting for "Allow debugging?"" and "not answering over Wi-Fi" instead of the USB wording.
 - "Not answering over Wi-Fi" and its advice ("wake it, or connect it again") are for a device the server still lists but can't reach. A device the tester disconnected (`POST /api/android/disconnect`) gets `Wi-Fi: disconnected …` and its departure line, never that wording: the real-device run printed it right after an intentional Disconnect (§9.7), which reads as a fault.
-- Wi‑Fi actions print `Wi-Fi: connected to …`, `Wi-Fi: could not connect to …`, `Wi-Fi: paired with …`, `Wi-Fi: disconnected …`. The pairing code is never printed: the terminal is pasted into bug reports.
+- Wi‑Fi actions print `Wi-Fi: connected to …`, `Wi-Fi: could not connect to …`, `Wi-Fi: paired with …`, `Wi-Fi: disconnected …`; a scan prints `Wi-Fi: 2 Android devices on this network (…)` or `Wi-Fi: could not look for Android devices on the network: …`, only when it changed (§4.8). The pairing code is never printed: the terminal is pasted into bug reports.
 
 **"Page connected"** prints once per (origin, browser family) on the first authorized request. The family is parsed from the User-Agent (Chrome, Edge, Firefox, Safari; `HeadlessChrome` counts as Chrome).
 
@@ -689,6 +693,7 @@ The pair record is held only in memory, and only the fields the TLS session need
 | simctl | list 10 s; screenshot 20 s (only after a `Booted` check) |
 | adb | connect 1 s; host request 5 s (2 s in the doctor); `exec:` detail 10 s; screencap 20 s; `start-server` reply poll 8 s |
 | adb Wi‑Fi | name lookup 5 s; `host:connect:` 20 s (adb itself waits up to 10 s for the device's handshake, so its answer arrives before our deadline); `host:pair:` 15 s |
+| Discovery | mDNS window 2 s (`mdnsWindow`); system resolver: `dns-sd -B` 1.5 s (`systemBrowse`), each `-L`/`-G` 1.5 s (`systemResolve`), the whole run ≤ browse + 2 × resolve (a killed process is not waited for; SIGKILL 250 ms after SIGTERM), 4 resolves at a time with the adb types and lookups first and the name-only types in at most 1, 128 instances per group (adb, names); scan cached 20 s, `?refresh=1` at most every 3 s, one at a time; 64 devices; packets ≤ 9000 bytes, 256 records each (§4.8) |
 | Doctor | 5 s per check (pymobiledevice3, bundletool and java 10 s); overall 12 s; unfinished → `unchecked`; report cached 30 s |
 | Logs | first byte 10 s, else fallback or `LOGS_UNAVAILABLE`; native silence switch 8 s; lane `hello` within 30 s, else 504; batch ≤ 200 lines, 256 KiB or 100 ms; ping 15 s |
 | Output caps | text 8 MiB; PNG 32 MiB; stderr tail 64 KiB; log line 8 KiB; names 200 characters |
@@ -743,6 +748,7 @@ The pair record is held only in memory, and only the fields the TLS session need
 | `POST /api/android/connect` `{host, port?}` | bearer | `AndroidConnectResult` (§4.7) |
 | `POST /api/android/pair` `{host, port, code}` | bearer | `AndroidPairResult` (§4.7) |
 | `POST /api/android/disconnect` `{serial}` | bearer | `AndroidDisconnectResult` (§4.7) |
+| `GET /api/android/nearby[?refresh=1]` | bearer | `AndroidNearbyResult` (§4.8) |
 | `GET /`, `/device`, `/device/index.html` | Host gate | 302 → `/device/` (query kept) |
 | `GET`/`HEAD /device/` | Host gate | Proxied page with boot script and CSP (§2.9) |
 | `GET`/`HEAD /assets/<name>.<ext>`, `/device/agent/device-bridge.mjs` | Host gate | Proxied, immutable cache |
@@ -1032,6 +1038,7 @@ The registry is the authority on state. An operation error that reveals a new st
 | --- | --- |
 | `android.start-server` | the Android lane runs (not `--no-android`) |
 | `android.connect` | the same: the Wi‑Fi routes of §4.7 exist. The page shows its Wi‑Fi dialog's form only to a helper that lists it, and otherwise says to download the helper again. |
+| `android.discover` | the same: `GET /api/android/nearby` exists (§4.8). |
 | `local` | local mode is on |
 | `simulators` | `--simulators` |
 | `wifi` | `--wifi` (iPhones over Wi‑Fi) |
@@ -1439,7 +1446,7 @@ The first matching row wins. `tools` (Xcode state, libimobiledevice) decides whe
 
 - **Request:** 4 lowercase hex digits of length, then the ASCII payload.
 - **Reply:** `OKAY`, or `FAIL` + 4-hex length + message.
-- Every request passes `assertAdbService()` before a socket opens: `ADB_HOST_SERVICES`, `host:transport:<serial matching ID.android>`, or `exec:<an ADB_EXEC constant>`. The Wi‑Fi services have their own checks (§4.7).
+- Every request passes `assertAdbService()` before a socket opens: `ADB_HOST_SERVICES`, `host:transport:<serial matching ID.android>`, or `exec:<an ADB_EXEC constant>`. The Wi‑Fi services have their own checks (§4.7). `host:mdns:services`, the server's own mDNS list, is read for discovery (§4.8).
 
 | Use | Exchange |
 | --- | --- |
@@ -1663,6 +1670,122 @@ So "No route to host" has its own `reason`, `blocked`: the address can be right 
 **Verified on hardware** (2026-10-04, §9.7): an Android 10 TV with Network debugging on, through the built helper: connect, Allow on the TV, Ready in place, detail, screenshots, logcat and Disconnect.
 
 **Not verified on hardware yet:** pairing with a code, and whether a Wireless-debugging phone that never paired is listed `unauthorized` after "failed to authenticate" (then the page shows the Allow step rather than asking for a code).
+
+### 4.8 Discovery: every Android device on the network
+
+§4.7 reaches a device only once the tester types its address. Discovery lists, read-only, every Android device on the local network that advertises adb, so the page can offer each one with a click: the answer to "have you listed every Android device on the Wi‑Fi?". It never connects, pairs or starts anything: those stay the tester's clicks of §4.7.
+
+**What advertises adb** (DNS-SD, measured with `dns-sd` on 2026-10-04 [V])
+
+| `kind` | Service | Means | Example on the owner's network |
+| --- | --- | --- | --- |
+| `adb` | `_adb._tcp` | Network debugging (a TV, `adb tcpip 5555`): connect to host:port directly | Sony BRAVIA: `adb-b120be004010859` at `Android.local`:5555, 192.168.68.101 |
+| `wireless` | `_adb-tls-connect._tcp` | Android 11+ Wireless debugging: connect works only once paired, otherwise the page offers pairing | Pixel 9: `adb-55090DLAQ0026D-nK25Qn` at `Android_ZDKLKP74.local`:39601, 192.168.68.114 |
+| `pairing` | `_adb-tls-pairing._tcp` | a pairing port open right now ("Pair device with pairing code" is on screen), for the pair step | the same Pixel, while that screen is open |
+
+Two more services are browsed only to name an address: `_androidtvremote2._tcp` (its instance name, "SONY KD-43X8050H") and `_googlecast._tcp` (its TXT `fn=`, the name the owner gave it; it wins over the Remote's). Either one at a device's address also sets `tv`.
+
+**The mDNS browser** (`mdns.ts`, file §9; no dependency, `node:dgram`)
+
+- One udp4 socket on an **ephemeral port**, never 5353, which mDNSResponder or avahi holds. Queries go to 224.0.0.251:5353 once per non-internal IPv4 interface (`setMulticastInterface`), TTL 255. RFC 6762 §6.7 calls this a legacy unicast query: responders answer straight to the asking port, echoing the id. Every question also carries the QU bit (§5.4). Answers with id 0 (multicast-style) are taken too; any other id is dropped.
+- One packet of five PTR questions, sent again halfway through the window. As answers arrive (30 ms debounce): SRV and TXT questions for an instance without an SRV, A and AAAA for an SRV target without an address, each name once, at most 12 questions a packet. Answers and additionals are read alike. A TTL of 0 (a goodbye) removes what it names.
+- **Addresses belong to the answer, not to the host name.** adbd and TV Remote call many devices `Android.local` at once, so an instance takes, in order: the A/AAAA records for its SRV target that came in the same packet as its SRV; else those that came from the address the SRV's packet came from (the transport hands that address over); else that address itself; and only when nothing ties an address to it, every address any answer gave for the target. Two TVs that both say `Android.local` are two devices, each at its own address, whichever answers first.
+- The window is `mdnsWindow`, 2 s; then the socket is closed and what was learnt is returned.
+- **Hostile packets.** Every length, count and pointer is checked against the packet before it is read: at most 9000 bytes and 256 records a packet whatever the counts claim; a compression pointer must point before every place the name was already read from (so no loop exists), at most 32 hops; names at most 255 bytes; label types 01 and 10 refused; a record whose data does not fit its length is skipped, and the first record that overruns the packet ends the reading with the records before it kept. Only class IN; the cache-flush bit is ignored. A PTR counts only when its target is exactly one label under the service asked. What one browse keeps is capped too: 256 instances, 512 names, 8 addresses a host, 32 TXT strings.
+- **Transport seam.** `BridgeOptions.mdns` (an `OpenMdnsTransport`) is the UDP socket by default. Every isolated test bridge gets `silentMdns()` (`harness.ts`), and the suite's fake network (`fakes/mdns.ts`) answers with real packets, so no test sends a packet to a real network.
+
+**The system resolver** (`mdns.ts`, `systemBrowse()`, file §9) [V, 2026-10-04]
+
+Measured on the owner's network: the Pixel 9 (Android 17, Wireless debugging on) answered neither the helper's queries nor a standard multicast query from port 5353, in four scans (it announces itself when Wireless debugging starts, then dozes). mDNSResponder still had it: `dns-sd -B _adb-tls-connect._tcp local.` listed `adb-55090DLAQ0026D-nK25Qn`, `-L` gave `Android_GWZJSA15.local.:43141` and its TXT, `-G v4` gave 192.168.68.114, and all of it worked from VS Code, an app macOS keeps off the local network, because the daemon does the networking. So the same browse is also asked of the system's daemon, and the helper's own browser stays for Windows and for whatever the daemon lacks.
+
+- **Which tool** (`systemMdnsTools`): macOS: `/usr/bin/dns-sd` at that fixed path (`BridgeOptions.dnsSdPath`), never looked up on PATH. Linux: `avahi-browse` (avahi-utils) from `BridgeOptions.avahiBrowsePath`, or, when that is undefined, the first absolute PATH entry or extra directory (`/usr/bin`, `/usr/local/bin` unless `extraDirs` is given) that has it. Elsewhere, or when it is not installed: nothing.
+- **How** (every process through the bridge's `streamTool`: absolute path, no shell, its own process group, tracked for shutdown; read-only: browse, resolve and address lookups, never a register):
+  - dns-sd, all five types at once: `dns-sd -B <type> local.` for `systemBrowse` (1.5 s; dns-sd never exits by itself, so it is killed). Each instance it adds is resolved at once with `dns-sd -L <instance> <type> local.`, then its host with `dns-sd -G v4 <host>` (each host once per scan), at most 4 such processes at a time, each killed as soon as it answered (150 ms later, for its TXT line or a second address) or after `systemResolve` (1.5 s). A `Rmv` drops the instance.
+    - **The adb devices first.** macOS keeps listing a Cast or TV Remote service whose device has gone to sleep, and its `-L` never answers, so each such entry holds a slot for the whole 1.5 s [V: the owner's BRAVIA, switched off, still listed under `_androidtvremote2._tcp`]. The resolves of the adb types (`_adb`, `_adb-tls-connect`, `_adb-tls-pairing`) and every `-G` lookup go before any queued name-only resolve (`_googlecast`, `_androidtvremote2`), and the name-only ones hold at most one slot in four (`nameSlots`), so a dozen sleeping Chromecasts never delay the phone.
+    - **A hard deadline.** The whole run is cut at `systemBrowse + 2 × systemResolve`. A process is never waited for once it is killed: the slot and the run move on at once, and the runner SIGKILLs the group 250 ms later if it ignored SIGTERM (it stays tracked for shutdown meanwhile).
+  - avahi-browse, all five types at once: `avahi-browse -r -p -t -k <type>`, which resolves by itself and exits once its cache is dumped; killed after `systemBrowse + systemResolve`. IPv4 answers only.
+- **Formats** (each line matched exactly; anything else is ignored):
+  - `-B`: `21:00:20.680  Add        2  14 local.               _adb-tls-connect._tcp. adb-55090DLAQ0026D-nK25Qn`: the instance is the rest of the line, raw (spaces included); only domain `local.` and the type asked.
+  - `-L`: `21:00:43.125  adb-55090DLAQ0026D-nK25Qn._adb-tls-connect._tcp.local. can be reached at Android_GWZJSA15.local.:43141 (interface 14)` (an optional ` Flags: N` after it), the full name in presentation form (`SONY\032KD-43X8050H`, `\.`, `\\`; its first label must be the instance asked about), then, when the TXT is not empty, one line starting with a space: ` given_name=BAULOC\ Pixel\ 9 serial=55090DLAQ0026D v=2.1 api=37.1 name=Pixel\ 9` (dns-sd's ShowTXTRecord: shell metacharacters and spaces after one backslash, a backslash written as four, bytes below 0x20 as `\\xHH`).
+  - `-G v4`: `21:00:50.987  Add  40000002      14  Android_GWZJSA15.local.                192.168.68.114                               120`: an IPv4 address for the host asked; a negative answer (`No Such Record`) does not match.
+  - avahi: `+;wlan0;IPv4;<name>;<type>;local`, `-;…` and `=;…;local;<host>;<address>;<port>;"k=v" "k=v"`; the name escaped by `avahi_escape_label` (`\032`, `\.`), found up to `;<type>;local` (a name may hold a `;`); TXT strings in double quotes with `\"`, `\\` and `\DDD`.
+- **Untrusted output.** Lines are cleaned (escapes and control characters) and capped as every tool's are; an instance must be 1–63 bytes, a host a `.local` name; neither may start with `-` (never passed as an option); an answer for another instance, another domain or another type is ignored; only IPv4; at most 128 instances per group (the adb types; the name-only types: neither crowds out the other), 32 TXT strings, 8 addresses a host. avahi-browse keeps the same two caps. When two instances of the same type point at one host (`Android.local` on two TVs), a lookup of that name answers for whichever device spoke first, so those instances get no address from this source (the helper's own browser ties addresses to the packet and still finds them).
+- **Looked or not.** dns-sd looked when a browse ran until it was stopped or found something; it did not when every browse exited at once (no daemon: `DNSServiceBrowse failed -65563`). avahi-browse looked when it printed a browse line or exited 0; `Daemon not running` (exit 1) is not looking. The reason is kept (`dns-sd exited with code 1: …`). Tests point `dnsSdPath` into the fake bin directory (`harness.ts`), so the real tool never runs in the suite.
+- What it finds is a `ServiceInstance` like the helper's own browse, so naming, local-address rules and merging are the same for both.
+
+**adbd's TXT** (`adbTxtDetails`): adbd 13+ advertises Wireless debugging with `given_name=` (the name the owner gave the phone, "BAULOC Pixel 9"), `name=` (the model, "Pixel 9"), `serial=` and `api=` (`37.1`: SDK level 37 → Android 17; levels 21–32 by Android's table, 33 and up as level − 20, beyond 60 not shown). Cleaned like every name; a serial outside `[A-Za-z0-9._-]{1,64}` is dropped.
+
+**Merging the sources** (`android-lane.ts`, `scanNearby`, `uniqueServices` and `mergeNearby`)
+
+- Three sources at once: the helper's own browse, the system resolver, and, when the lane knows a running server, `host:mdns:services` (on `ADB_HOST_SERVICES`, read-only; `<instance>\t<service>\t<address>:<port>` per line, a trailing dot on the type tolerated). No server: no adb request at all, and never a server started for this. They merge in that order; for each service the first source's entry wins and later duplicates fill in what it lacks (a TXT name, model, serial or version).
+- **A device only the daemon knows is still offered.** It may be dozing: connecting wakes it, or fails with the usual §4.7 reasons.
+- **Only local addresses are offered**, by the rules of `parseNetworkHost` (§4.7): private, link-local and carrier-grade NAT IPv4, unique-local IPv6. Never a name (adbd advertises `Android.local` on many devices at once), never public, loopback or multicast, and never link-local IPv6, which adb could not reach without the interface the answer came in on. An instance without such an address and a valid port is dropped.
+- Each service appears once: by `kind` and `host:port`, by `kind` and instance, and by `kind` and serial (the instance's, else TXT `serial=`: Wireless debugging renames its instance each time it is turned on, and adb may still list the old one at an old port; a phone's `wireless` and `pairing` entries are different kinds and both stay). The serial counts only on the **same host**, or when one of the two entries comes from adb's own list (which may keep an old address as well): two cheap TV boxes at different addresses often share one `ro.serialno`. A junk serial (`0123456789ABCDEF`, `0000000000000000`, `unknown`, empty) never counts, neither here nor for matching a listed row. Ordered by address (IPv4 numerically), then `adb`, `wireless`, `pairing`; at most 64 (`LIMITS.nearby`).
+- Compared with what adb lists **now** (the tracker's rows at answer time, not at scan time, so a device the tester just connected shows `connected` from the cached scan). A listed row matches by this `host:port`, by its mDNS serial (`<instance>._adb-tls-connect._tcp`, or the same serial inside one), for `wireless` and `pairing` by a network row on the same host (the pairing port is not the connect port), and lastly by the instance's serial over USB.
+  - `connected`: a row matched; `deviceId` names it.
+  - `paired` (`wireless` and `pairing` only): a **network** row matched. adb lists a Wireless-debugging device over the network only once this Mac is paired with it (and adb connects a paired one it discovers by itself). `false` means "not known to be paired": adb does not tell which keys it has paired.
+  - `serial`: what adbd's instance name carries, `adb-<serial>` or `adb-<serial>-<6 characters>`, else TXT `serial=`.
+  - `name`: TXT `given_name=` (the device's own name), else Cast's `fn=`, else the Remote's instance name at the same address, else `''`. `model`: TXT `name=`. `osVersion`: the Android version of TXT `api=`.
+
+**`GET /api/android/nearby[?refresh=1]`** (bearer; the §2.1 pipeline; `--no-android` → 409 `ANDROID_OFF`)
+
+```ts
+interface AndroidNearbyResult {
+  devices: AndroidNearbyDevice[]
+  scannedAt: number // when the scan these come from started
+  error?: { reason: 'blocked' | 'no-network' | 'failed'; message: string; detail: string }
+  // the helper's own queries could not leave but the system resolver looked: no error
+  note?: { reason: 'blocked' | 'no-network' | 'failed'; message: string; detail: string }
+}
+interface AndroidNearbyDevice {
+  id: string // `${kind}:${networkSerial(host, port)}`: 'adb:192.168.68.101:5555'
+  host: string
+  port: number
+  kind: 'adb' | 'wireless' | 'pairing'
+  instance: string // cleaned, 100 characters at most
+  name: string // TXT given_name=, else Cast fn=, else the Remote's instance name, else ''
+  model?: string // TXT name=: 'Pixel 9'
+  osVersion?: string // the Android version of TXT api=: '17'
+  serial?: string
+  tv: boolean
+  connected: boolean
+  deviceId?: string // the /api/devices row, when connected
+  paired?: boolean // wireless and pairing only
+}
+```
+
+- A scan is cached 20 s (`nearbyCacheMs`); a GET within that answers the cached scan, merged afresh. `?refresh=1` starts a new one only 3 s (`nearbyGapMs`) after the last one started. At most one scan runs: a second request joins it. A scan runs on the helper's own signal, never a request's, so a page that leaves does not cut short the scan another request waits for.
+- Health advertises `android.discover` with the Android lane.
+
+**When the scan cannot run** [V, 2026-10-04: from VS Code's terminal, `send EHOSTUNREACH 224.0.0.251:5353` at once]
+
+| `reason` | The socket said | `message` |
+| --- | --- | --- |
+| `blocked` | `EHOSTUNREACH` or `EPERM`/`EACCES`, on the first send | "Could not look for devices on the network." + the §4.7 `blocked` sentence (a VPN such as Cloudflare WARP; on a Mac, start the helper from Terminal.app and choose Allow) |
+| `no-network` | `ENETDOWN` (no interface has an IPv4 address), `ENETUNREACH`, `EADDRNOTAVAIL` | "… this computer is not connected to one. Turn on Wi-Fi, or plug in a network cable, on the same network as the device." |
+| `failed` | anything else | "Could not look for devices on the network." |
+
+A multicast query fails only when it left on no interface (the first interface's error); one interface refusing while another sends is not a failure.
+
+**`error` only when no source could look**: the helper's queries could not leave **and** the system resolver did not look (none on this computer, no daemon, a tool that fails at once). adb's own list does not count: whether its mDNS works cannot be checked from here. Such a scan still answers 200 with whatever adb's list found, and `error` beside it. When the resolver ran and said why it could not look, `error.detail` carries both: `send EHOSTUNREACH 224.0.0.251:5353; dns-sd exited with code 1: DNSServiceBrowse failed -65563`. When the resolver looked although the helper's queries could not leave, the list is complete: no `error`, and `note` (same `reason` and `detail`, `message` "Looked through this computer's own resolver: the helper's own queries could not reach the network. Connecting may be refused for the same reason; if it is, the helper says how to fix it."). The `blocked` wording and its fixes then wait for a connect that actually fails (§4.7). A scan that sent but heard nothing is not an error: the page's empty state names the likely causes (debugging off, another network, a VPN that drops answers).
+
+**Terminal and `--doctor`**
+
+- After a scan, the terminal prints one line, only when it differs from the last one printed: `Wi-Fi: 2 Android devices on this network (1 TV, 1 with Wireless debugging), 1 already connected` (one device per address; a TV is any device with Remote or Cast), or `Wi-Fi: no Android device on this network advertises Network or Wireless debugging`. A blocked scan prints `Wi-Fi: could not look for Android devices on the network: no route to host, so this computer can't reach the local network` (`not permitted` for EPERM) and the same two indented fixes as a blocked connect (§4.7, `blockedLines`), the macOS one only on a Mac. When the system resolver failed too, one more indented line says why: `  The system resolver could not look either: dns-sd exited with code 1: DNSServiceBrowse failed -65563` (the `no route to host` / `not permitted` cause is read from the socket's words only).
+- With a `note`, the summary is preceded by one quiet line, not the blocked fixes: `Wi-Fi: looked through dns-sd; the helper's own mDNS queries could not leave (send EHOSTUNREACH 224.0.0.251:5353), so connecting may be refused too`.
+- `--doctor` runs one scan after the adb server's lines, with or without a server, and prints the same line, then one line per service: `SONY KD-43X8050H · 192.168.68.101:5555 · Network debugging · not connected`, `BAULOC Pixel 9 · 192.168.68.114:43141 · Wireless debugging · Android 17 · not connected` (the name, else the model, else the instance; `listed as <serial>` when adb lists it). A blocked scan prints its lines, and the summary only when adb's own list found something; a `note` prints its line.
+
+**The page** (`nearby.ts`, `components/nearby-list.tsx`, the Wi‑Fi dialog)
+
+- `HelperConnection.nearby(refresh)` asks only when health lists `android.discover`; otherwise it throws `DISCOVER_UNSUPPORTED` without a request ("This helper can't look for devices on the network. Download it again; the command replaces it."). Page deadline 12 s (`TIMEOUTS.nearby`: the helper's 2 s window, plus a scan it may be waiting on).
+- `parseNearby` checks every host again with `checkHost` (`helper/network.ts`), so only private, link-local or CGNAT addresses ever reach a button; it strips control and direction characters from names, drops repeated ids and keeps 64. Optional `model` and `hostname` are read when a helper sends them.
+- `nearby.ts` looks when something first shows the list (the section, the dialog's pick list), then every 30 s while the tab is visible and something still shows it; never while hidden. Refresh sends `?refresh=1` and announces how it ended, once. A blocked or failed reply keeps the devices adb listed.
+- `nearbyRows`: one row per device (by serial, else by address), leaving out what is listed already: `connected`, the same serial (a cable too), an adb mDNS serial with the same instance, or the same `host:port`. Named by friendly name, else model, else serial, else address. One action: **Connect** for Network debugging, or Wireless debugging known to be paired; otherwise **Pair…**, with the same device's `pairing` entry as the pairing address when its pairing screen is open (never a guessed port) and its `wireless` port kept for the connect after pairing.
+- **"On this network"**, under the device list (and in the Gate's Android card when nothing is plugged in): rows with a TV or phone icon, the address, a "Network debugging" / "Wireless debugging" badge and "Pairing screen open". Connect opens the Wi‑Fi dialog filled in and runs its connect (the device then asks "Allow debugging?"); Pair… opens it filled in, with focus on the pairing code (or the pairing address when the pairing screen isn't open). States: helper not running (one line, "Set up the helper"), helper too old (the download command), Looking…, nothing found (how to turn on Network or Wireless debugging; same Wi‑Fi, no VPN), everything found already connected (only after a look that ran), blocked (the `wifi.localNetwork` row "This computer reaches the local network" with the VPN and macOS fixes, the start command and the socket's detail), failed (the helper's sentence).
+- **The Wi‑Fi dialog** shows "Found on this network" above the address fields; choosing one only fills the fields, and a blocked look is shown before anything is tried.
+- Nothing found is ever connected or paired by itself: every Connect and Pair… is the tester's click.
+
+**Not verified on hardware yet:** a scan from Terminal.app on the owner's network (the TV and the Pixel above are fixtures built from `dns-sd`'s view of them), and how each device answers a legacy unicast query.
 
 ---
 
@@ -2033,6 +2156,7 @@ All paths are under `_app/src/features/device/` unless noted.
 | `backends/ios.ts` (+ test) | `iosDetail(facts, connectionLabel)`, `simulatorDetail(facts)`, `fmtDecimalBytes()`, `fmtEcid()`, `iosModelName(modelId)` |
 | `backends/ios-models.json` | `{"iPhone13,3":"iPhone 12 Pro", …}` (182 entries) |
 | `wifi.ts` (+ test) | Android over Wi‑Fi as state: the last attempt, the Recent list, Disconnect in flight (§4.7) |
+| `nearby.ts` (+ test), `components/nearby-list.tsx` (+ test) | "On this network": looking, the rows to offer, the section (§4.8) |
 | `log-sessions.ts` (+ test) | Device logs kept apart from the console that shows them; drops waited out and resumed (§7.8) |
 | `components/helper-chip.tsx`, `helper-card.tsx`, `helper-notice.tsx`, `pair-dialog.tsx`, `wifi-dialog.tsx` (+ tests) | §6.8, §4.7 |
 | `components/log-level.ts` | `logLevel(line)` (§7.8) |
@@ -2440,7 +2564,7 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
 **Layout**
 
 - `_app/helper/test/*.test.ts`, run by `helper/vitest.config.ts`: node environment, `pool: 'forks'` (the tests spawn real fake tools and send signals, and the helper installs a process-wide `exit` hook, so each file gets its own process).
-- Files: `util`, `process`, `cli`, `auth`, `registry`, `http`, `operations`, `logs`, `local-mode`, `lifecycle`, `banner`, `build`, `context` (core); `ios-codec`, `ios-clients`, `ios-lane`, `ios-screenshot`, `ios-logs` (iOS); `android`, `simulators`; `tools`, `preflight`; and the opt-in `android-real`, `simulators-real`.
+- Files: `util`, `process`, `cli`, `auth`, `registry`, `http`, `operations`, `logs`, `local-mode`, `lifecycle`, `banner`, `build`, `context` (core); `ios-codec`, `ios-clients`, `ios-lane`, `ios-screenshot`, `ios-logs` (iOS); `android`, `mdns`, `nearby`, `system-resolver`, `simulators`; `tools`, `preflight`; and the opt-in `android-real`, `simulators-real`.
 - Every test builds its bridge with `createBridge({port: 0, searchPath: fakeBin, extraDirs: [], usbmuxdSocket, adbPort, upstream, xcodeSelectPath, plistBuddyPath, javaHomePath, applicationsDir, coreDeviceDir, coreSimulatorDir, home, open: false, timeouts: short})`, or a fixed Toolbox, so no real tool can leak in.
 - `test/build.test.ts` checks the built file: shebang and header first, the Node 18 denylist, the exports.
 
@@ -2455,6 +2579,8 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
   - Server-side TLS with `requestCert: true`. Session `GetValue` includes IMEI, `PhoneNumber` and a `UniqueChipID` above 2^64−2^53. Domains, amfi, and syslog_relay on a service port (NUL-framed text, inner newlines).
 - **`certs.ts`**: at suite start, `/usr/bin/openssl` (LibreSSL 3.3.6 [V]) builds two RSA-2048 SHA-1 chains: **empty-name** (`-subj "/"`, like real records [V]) and **named**. The client must connect with both. TLS tests skip when openssl is missing. No private key is committed.
 - **`adb-server.ts`**: TCP on port 0: `host:version`, `track-devices-l` (the test pushes lists: unauthorized, offline, recovery, `no permissions (…)`, emulator, `ip:port`, mDNS serial), `devices-l`, transport + the `ADB_EXEC` commands from fixtures, screencap (warning + PNG + trailing text), endless logcat, `reconnect-offline`, `FAIL` cases, and the network side: `addNetworkDevice`, `connectAnswer`, `accept`, `refuse`, `drop`, `shield()`; a TV that has not allowed this Mac answers "failed to authenticate to X" and is listed `unauthorized`, as adb 36 does.
+- **`mdns.ts`**: a fake local network for the mDNS browser, no socket: `fakeMdnsNetwork()` answers each query with real DNS packets (name compression; legacy-unicast style with the query's id, its question and TTL ≤ 10 s, or multicast style with id 0, cache-flush bits and NSEC); `braviaTv()` and `pixel9()` are the two devices measured on 2026-10-04; `sendError`/`openError` play a blocked or absent network; `silentMdns()` is every isolated bridge's network. `adb-server.ts` answers `host:mdns:services` with `mdnsServices`.
+- **`dns-sd.ts`**: a fake `dns-sd` and a fake `avahi-browse` written into the bin directory (`fakeDnsSd`, `fakeAvahiBrowse`), answering by argument from fixtures, optionally after a delay, then running on as the real dns-sd does (or exiting with a code and stderr). `REAL_PIXEL` and `REAL_CAST` are byte for byte what the real dns-sd printed on the owner's Mac on 2026-10-04; `browseOutput`, `resolveOutput`, `lookupOutput` write the same formats.
 - **`upstream.ts`**: gzip-encoding HTTP server with ETag/304; `/device/` has an inline theme script **and** an inline script with attributes; `/assets/x.js`, `/assets/i.svg`.
 - **`lane.ts`**, **`devices.ts`**: scriptable fake lanes and rows, also used by `helper:fake` and the page's real-helper tests.
 
@@ -2467,6 +2593,8 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
 | core | Loopback-only (LAN IP refused); Host 421 via raw `http.request` (Node `fetch` drops a custom Host [V]); Origin 403 for unknown, `null`, `http://bauloc.github.io` and `https://bauloc.github.io.evil.example`, with no ACAO; `--dev` origins only with the flag; Fetch Metadata 403 plus the navigation exception; preflight (with and without the PNA header); health has `tokenId` but never the token; **proof** equals a reference HMAC and changes with the port; challenge validation; 401 variants (missing, short, wrong, wrong scheme) readable with CORS; 413 (large, chunked, malformed length); `upgrade` destroyed; ids (`--help`, `-u`, `..`, `%2e%2e`, `a b`, malformed `%`, unlisted UDID, IPv6 serial); `rev`/`runId`; stream caps (4th → 429; same device → `replaced`); ping cadence; back-pressure pause and resume; client abort reaps group and grandchild; local mode (boot before the first script, CSP hashes cover every inline script, no copied encoding, correct length, **token absent from HTML**, assets immutable plus `sandbox` CSP, redirects, traversal → 302, favicon 404, offline last-good copy); `--keep-token` (0600 created; group-readable, symlink and foreign owner refused; `--new-token`); port-in-use messages (our helper vs another server); root refusal; SIGINT → `end:shutdown`, groups dead, exit 0, second signal 130; `--verbose` never prints Authorization or queries; "Page connected" wording; banner waits for lanes; Node-18 API denylist; BigInt replacer |
 | ios | Plist round trip (BigInt, data, date, real); `Attached` → `ready` within 500 ms; no record → `untrusted`; record appears via the 3 s `ReadPairRecord` poll → `ready`; `Paired` → re-probe; `InvalidHostID` → `untrusted`; TLS reset → `untrusted`; `PasswordProtected` on `StartSession` → `locked`; AFU (`PasswordProtected: true` in session) → `ready`, `locked: true` in detail; Developer Mode false → blocker + `screenshot:false`; iOS 15 → `developerMode: null`, no amfi request; **whitelists** (no IMEI, PhoneNumber, WiFiAddress, DieID, BasebandSerialNumber in any response); `UniqueChipID` as a decimal string; **TLS succeeds on both certificate chains with the §3.3 options, and a synchronous throw is caught** → `ideviceinfo` fallback or plaintext + `TOOL_MISSING`; pin mismatch ends the session; devicectl success plus every `classifyDevicectl` case; **wrapper never executed** (first-launch mismatch → `XCODE_SETUP_REQUIRED` and the real binary never spawned); `idevicescreenshot` and `screenshotr` → `IOS_DDI_REQUIRED`; nothing applies → `XCODE_REQUIRED`/`TOOL_MISSING`; syslog_relay framing, batching, `device-gone` on detach, abort closes the service socket within 100 ms; 8 s silence → `idevicesyslog` with a notice; Wi‑Fi entry ignored without `--wifi`; with it: 2 s for a new entry, none for a returning one, 120 s hold, a cut link before or after `Detached` keeps a ready row ready, a dropped log ends `DEVICE_DROPPED`, "real rhythm" replays of the measured presence; usbmuxd restart → reconnect and resync; non-phone `DeviceClass` ignored; allowlists (sending `Pair` throws) |
 | android | No server → `stopped`, **no adb process spawned at startup**; tracker rows and the state map; identity cache per `transport_id`; a listed phone turning ready changes in place; detail outputs byte-equal to the fixtures; screencap PNG extraction; logcat stream and abort closes the socket; `FAIL` mapping; `reconnect-offline` on Retry; server dies → rows cleared, `ADB_SERVER_STOPPED`; start-server spawns exactly `['start-server']` with ignored stdio, untracked, and waits for `host:version`; `ADB_START_FAILED` after 8 s; `ADB_EXEC` contains only constants; `ADB_HOST_NEVER` refused both ways; Wi‑Fi: host, port and code parsers, adb's reply texts, connect → Allow → ready with detail, screenshot and logs, every failure `reason`, pair, disconnect (mDNS and loopback refused), IPv6, 400 before anything is sent, names resolved (loopback and public answers refused), `BUSY`, server stopped, `--no-android`, a TV that leaves (socket hung and socket closed) |
+| discovery | Codec: the TV's answer written byte by byte, QU queries, escaped labels, RFC 5952 addresses, hostile names (pointer loops, forward pointers, overruns, reserved labels, 256 bytes), counts not trusted, every truncation and 6,000 corrupted packets without a throw; browse: TV and Pixel complete, follow-up SRV/TXT/A for a PTR alone, multicast answers taken and foreign ids dropped, PTR shape, goodbyes, `max`, abort, each errno → `blocked`/`no-network`/`failed`; the real UDP transport against a responder on 127.0.0.1, ENETDOWN and EADDRNOTAVAIL sending nothing; only local addresses offered; Cast name before Remote name; adb's list parsed; connected/paired/deviceId by address, mDNS name, same host and USB serial; dedupe, order, cap; terminal and doctor lines; the endpoint: shape, no server → no adb request, cache/gap/one-at-a-time, merged with adb's list as it is now, blocked with adb's finds and printed once, bearer/Origin/405, `?refresh=1` to the lane, `ANDROID_OFF`, `android.discover` |
+| system resolver | dns-sd's `-B`/`-L`/TXT/`-G` lines from the owner's Mac and hostile ones (headers, junk, wrong domain or type, ports out of range, bad escapes, `No Such Record`, IPv6); presentation names (`\032`, `\.`, UTF-8); avahi's `+`/`-`/`=` lines, a `;` in a name, quoted TXT; TXT details and API → Android version; browsing the owner's network through a fake dns-sd (the exact argv, each host looked up once, every process gone afterwards); a resolve that never answers and a lookup past its deadline cut off; 16 Cast entries whose `-L` never answers, with and without a cap of 4, while the Pixel still resolves; a dns-sd that ignores SIGTERM ending the run on its deadline and freeing its slot; avahi's per-group cap; slow answers inside it kept; `Rmv`; options, oversized names, foreign answers and non-`.local` hosts never passed on; two devices on `Android.local` get no address; caps; a dns-sd that fails at once did not look, a missing one never runs, a silent one looked; abort; avahi: IPv4 only, no daemon, hanging, removal; which tool per platform; merging: blocked + resolver looked → `note` and no `error`, no resolver → `blocked` as before, each source's finds once, TXT names filled in, dedupe by serial (same host, or adb's list), two boxes sharing a serial or a junk one kept apart, local-address rules and cap; both sources failed → the resolver's words in `error.detail`, the terminal and `--doctor`; the endpoint and `--doctor` with dns-sd while the helper's queries are blocked |
 | simulators | List join; filter iOS runtimes; screenshot refused when not Booted (no hang); `-` never used; compact log header and stderr dropped; grandchild reaped on abort; first-launch gate (CoreSimulator older) → `unavailable` |
 | tools, preflight | §12e matrix |
 

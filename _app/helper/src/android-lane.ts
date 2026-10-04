@@ -3,22 +3,36 @@ import dns from 'node:dns/promises'
 import net, { type Socket } from 'node:net'
 import { ADB_DETAIL, ADB_EXEC, ID, INSTALL, LIMITS } from './constants'
 import type { Toolbox } from './tools'
+import {
+  browse,
+  systemBrowse,
+  systemMdnsTools,
+  type OpenMdnsTransport,
+  type ServiceInstance,
+  type SystemBrowseResult,
+} from './mdns'
 import type {
   AndroidLane,
+  AndroidNearbyDevice,
+  AndroidNearbyResult,
   Connection,
   DetailOutputs,
   HelperDevice,
   HelperState,
   LaneContext,
+  NearbyFailure,
+  NearbyKind,
   Timeouts,
 } from './types'
 import {
   HelperError,
   abortError,
+  aborted,
   clean,
   errorText,
   extractPng,
   linkSignals,
+  plural,
   seconds,
   singleFlight,
   sleep,
@@ -53,12 +67,17 @@ import {
 
 /* ------------------------------------------------------------ the allowlist (T11) --- */
 
-/** The host services the client may send, besides `host:transport:<serial>`. */
+/**
+ * The host services the client may send, besides `host:transport:<serial>`. All read-only
+ * except `host:reconnect-offline`, which resets transports the server already has.
+ * `host:mdns:services` is the server's own mDNS list (`adb mdns services`), read for §4.8.
+ */
 export const ADB_HOST_SERVICES = [
   'host:version',
   'host:track-devices-l',
   'host:devices-l',
   'host:reconnect-offline',
+  'host:mdns:services',
 ] as const
 
 /**
@@ -541,8 +560,17 @@ export function networkFailureLines(
   platform: NodeJS.Platform,
 ): string[] {
   if (error.extra.reason !== 'blocked') return [head]
+  return blockedLines(head, 'no route to host', platform)
+}
+
+/**
+ * `head`, what the socket said (`cause`), and the two likely culprits with their fixes, each
+ * on an indented line: shared by a connect or pairing that was refused at once (§4.7) and a
+ * scan whose queries could not leave (§4.8).
+ */
+export function blockedLines(head: string, cause: string, platform: NodeJS.Platform): string[] {
   return [
-    `${head}: no route to host, so this computer can't reach the local network`,
+    `${head}: ${cause}, so this computer can't reach the local network`,
     '  If a VPN is on (Cloudflare WARP, a Tailscale exit node, a work VPN), turn it off or allow local network access in it',
     ...(platform === 'darwin'
       ? [
@@ -639,6 +667,8 @@ export interface AdbClient {
    */
   readonly execStream: (serial: string, cmd: string, signal: AbortSignal) => Promise<Socket>
   readonly reconnectOffline: (signal?: AbortSignal) => Promise<void>
+  /** `host:mdns:services`: the server's own mDNS list, as text (§4.8). */
+  readonly mdnsServices: (signal?: AbortSignal) => Promise<string>
   /**
    * §4.7, on an explicit click only. Each sends one exact string (assertConnectService,
    * assertPairService, assertDisconnectService) and returns adb's text, whether it came with
@@ -912,6 +942,8 @@ export function createAdbClient(opts: AdbClientOptions): AdbClient {
       )
     },
 
+    mdnsServices: (signal) => query('host:mdns:services', signal),
+
     connectNetwork: (host, port, o) =>
       hostText(`host:connect:${networkSerial(host, port)}`, assertConnectService, o),
 
@@ -1058,6 +1090,552 @@ export function androidRow(entry: DevicesLRow, identity: AdbIdentity | null): He
   }
 }
 
+/* ------------------------------------------------------ Wi-Fi: discovery (§4.8) --- */
+
+/**
+ * Which Android devices on this network offer adb, before anything connects to them: the
+ * answer to "have you listed every Android device on the Wi-Fi?". adb lists only what it is
+ * connected to, so the helper asks the network itself (mdns.ts, read-only queries) and adds
+ * what the adb server found on its own (`host:mdns:services`), then marks each one adb
+ * already lists. It never connects, pairs or starts a server for this: the page offers those
+ * as the tester's own clicks (§4.7).
+ *
+ * What is offered goes through the same rules as POST /api/android/connect: an address on
+ * the local network (parseNetworkHost), never a name (adbd advertises `Android.local` on
+ * many devices at once), never public or loopback, and never a link-local IPv6 address,
+ * which adb could not reach without the interface the answer came in on.
+ */
+
+/** The services that offer adb, by the kind the page shows (§4.8). */
+export const ADB_SERVICES: Readonly<Record<NearbyKind, string>> = {
+  adb: '_adb._tcp.local',
+  wireless: '_adb-tls-connect._tcp.local',
+  pairing: '_adb-tls-pairing._tcp.local',
+}
+
+/**
+ * Browsed only to put a name on an address: Android TV Remote's instance name is the TV's
+ * name ("SONY KD-43X8050H"), and Cast's TXT `fn=` is the name the owner gave it.
+ */
+export const NAME_SERVICES = {
+  remote: '_androidtvremote2._tcp.local',
+  cast: '_googlecast._tcp.local',
+} as const
+
+/** Everything one scan asks for. */
+export const NEARBY_SERVICES: readonly string[] = [
+  ...Object.values(ADB_SERVICES),
+  NAME_SERVICES.remote,
+  NAME_SERVICES.cast,
+]
+
+/** One adb service found on the network, before it is compared with what adb lists. */
+export interface FoundService {
+  kind: NearbyKind
+  host: string
+  port: number
+  instance: string
+  /** From its TXT record, when it has one (adbd 13+): `given_name=`, `name=`, `serial=`, `api=`. */
+  name?: string
+  model?: string
+  serial?: string
+  osVersion?: string
+  /** From adb's own mDNS list (`host:mdns:services`), which may still hold an old address. */
+  fromAdb?: true
+}
+
+/** A name for an address, and whether a TV service (Remote or Cast) is there. */
+export interface NearbyName {
+  name: string
+  tv: boolean
+}
+
+const KIND_OF_SERVICE = new Map<string, NearbyKind>(
+  (Object.entries(ADB_SERVICES) as Array<[NearbyKind, string]>).map(([kind, s]) => [s, kind]),
+)
+
+/** `_adb-tls-connect._tcp`, with or without `.local` and a trailing dot, as a kind. */
+function kindOfService(service: string): NearbyKind | undefined {
+  let name = service.trim().toLowerCase().replace(/\.$/, '')
+  if (!name.endsWith('.local')) name += '.local'
+  return KIND_OF_SERVICE.get(name)
+}
+
+/**
+ * An address a device may be offered at: an IP address parseNetworkHost takes, minus
+ * link-local IPv6 (no zone travels in an mDNS answer). Normalised, or null.
+ */
+export function offerableAddress(address: string): string | null {
+  if (!IPV4.test(address) && !net.isIPv6(address)) return null
+  if (/^fe[89ab]/i.test(address)) return null
+  try {
+    return parseNetworkHost(address)
+  } catch {
+    return null
+  }
+}
+
+const validPort = (port: number | null): port is number =>
+  port !== null && Number.isInteger(port) && port >= 1 && port <= 65535
+
+const cleanInstance = (instance: string): string => clean(instance, LIMITS.field).trim()
+
+const nameOf = (service: string): string => service.toLowerCase().replace(/\.$/, '')
+
+/** Android's version names by API level, before the version became the level minus 20 (33 → 13). */
+const ANDROID_RELEASE: Readonly<Record<number, string>> = {
+  21: '5.0',
+  22: '5.1',
+  23: '6.0',
+  24: '7.0',
+  25: '7.1',
+  26: '8.0',
+  27: '8.1',
+  28: '9',
+  29: '10',
+  30: '11',
+  31: '12',
+  32: '12L',
+}
+
+/** TXT `api=37.1` (adbd's SDK level and minor) as the Android version: "17". */
+export function androidVersionOfApi(api: string): string | undefined {
+  const m = /^(\d{2})(?:\.\d{1,3})?$/.exec(api.trim())
+  const level = Number(m?.[1])
+  if (!m || level < 21 || level > 60) return undefined
+  return ANDROID_RELEASE[level] ?? String(level - 20)
+}
+
+/**
+ * What an adb service's TXT says about the device. adbd 13+ advertises Wireless debugging
+ * with `given_name=BAULOC Pixel 9 serial=55090DLAQ0026D v=2.1 api=37.1 name=Pixel 9`: the
+ * name its owner gave it, the serial, and the model.
+ */
+export function adbTxtDetails(
+  txt: readonly string[],
+): Pick<FoundService, 'name' | 'model' | 'serial' | 'osVersion'> {
+  const value = (key: string): string => {
+    const entry = txt.find((t) => t.slice(0, key.length + 1).toLowerCase() === `${key}=`)
+    return entry === undefined ? '' : clean(entry.slice(key.length + 1), LIMITS.name).trim()
+  }
+  const name = value('given_name')
+  const model = value('name')
+  const serial = value('serial')
+  const osVersion = androidVersionOfApi(value('api'))
+  return {
+    ...(name ? { name } : {}),
+    ...(model ? { model } : {}),
+    ...(/^[A-Za-z0-9._-]{1,64}$/.test(serial) ? { serial } : {}),
+    ...(osVersion ? { osVersion } : {}),
+  }
+}
+
+/** The adb services a browse found, with an address to offer, and names by address. */
+export function nearbyFromBrowse(instances: readonly ServiceInstance[]): {
+  found: FoundService[]
+  names: Map<string, NearbyName>
+} {
+  const found: FoundService[] = []
+  const names = new Map<string, NearbyName>()
+  for (const entry of instances) {
+    const service = nameOf(entry.service)
+    if (service === NAME_SERVICES.cast || service === NAME_SERVICES.remote) {
+      const fn = entry.txt.find((t) => /^fn=/i.test(t))?.slice(3)
+      const name = clean(service === NAME_SERVICES.cast ? (fn ?? '') : entry.instance, LIMITS.name)
+      for (const address of entry.addresses) {
+        const host = offerableAddress(address)
+        if (!host) continue
+        const known = names.get(host)?.name ?? ''
+        /** Cast's fn= is the owner's own name for it: it wins over the Remote's model name. */
+        const better = !known || (service === NAME_SERVICES.cast && !!name.trim())
+        names.set(host, { name: better ? name.trim() : known, tv: true })
+      }
+      continue
+    }
+    const kind = KIND_OF_SERVICE.get(service)
+    const instance = cleanInstance(entry.instance)
+    const host = entry.addresses.map(offerableAddress).find((a): a is string => a !== null)
+    if (!kind || !instance || !host || !validPort(entry.port)) continue
+    found.push({ kind, host, port: entry.port, instance, ...adbTxtDetails(entry.txt) })
+  }
+  return { found, names }
+}
+
+/**
+ * `adb mdns services` as the server sends it, after OKAY and the length: one service per
+ * line, `<instance>\t<service type>\t<address>:<port>` (adb 30–36; some versions end the
+ * type with a dot). Only the adb services, at an address offerableAddress() takes.
+ */
+export function parseAdbMdnsServices(text: string): FoundService[] {
+  const found: FoundService[] = []
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (!line || /^List of/i.test(line)) continue
+    const tabbed = line.split('\t')
+    const parts = tabbed.length >= 3 ? tabbed : line.split(/\s+/)
+    const instance = cleanInstance(parts[0] ?? '')
+    const kind = kindOfService(parts[1] ?? '')
+    const match = /^(\[[^\]]+\]|[^\s[\]]+):(\d{1,5})$/.exec((parts[parts.length - 1] ?? '').trim())
+    if (!kind || !instance || parts.length < 3 || !match?.[1] || !match[2]) continue
+    const raw6 = match[1].startsWith('[') ? match[1].slice(1, -1) : match[1]
+    const host = offerableAddress(raw6)
+    const port = Number(match[2])
+    if (host && validPort(port)) found.push({ kind, host, port, instance, fromAdb: true })
+  }
+  return found
+}
+
+/**
+ * The serial an adb instance name carries: adbd names its services `adb-<ro.serialno>`,
+ * with `-<6 random characters>` for Wireless debugging (`adb-55090DLAQ0026D-nK25Qn`).
+ */
+export function serialOfInstance(instance: string): string | undefined {
+  return /^adb-([A-Za-z0-9]{4,64})(?:-[A-Za-z0-9]{6})?$/.exec(instance)?.[1]
+}
+
+/**
+ * Serials many devices share, so they tell nothing apart: the placeholder ro.serialno cheap
+ * TV boxes ship with, and what a build without one reports.
+ */
+const JUNK_SERIALS: ReadonlySet<string> = new Set([
+  '0123456789abcdef',
+  '0000000000000000',
+  'unknown',
+])
+
+/** A serial that names one device (lower case), else undefined. */
+function distinctSerial(serial: string | undefined): string | undefined {
+  const key = serial?.trim().toLowerCase()
+  return key && !JUNK_SERIALS.has(key) ? key : undefined
+}
+
+/** The instance in an mDNS serial adb lists (`adb-…._adb-tls-connect._tcp`), else null. */
+function instanceOfSerial(serial: string): string | null {
+  return /^(.+?)\._adb(?:-tls-connect)?\._tcp\.?$/i.exec(serial)?.[1] ?? null
+}
+
+/** The host of a `host:port` network serial (IPv6 without its brackets), else null. */
+function hostOfSerial(serial: string): string | null {
+  const match = /^(\[[^\]]+\]|[^:[\]]+):\d{1,5}$/.exec(serial)
+  if (!match?.[1]) return null
+  return match[1].startsWith('[') ? match[1].slice(1, -1).toLowerCase() : match[1].toLowerCase()
+}
+
+const KIND_ORDER: Record<NearbyKind, number> = { adb: 0, wireless: 1, pairing: 2 }
+
+/** IPv4 by number, then IPv6 as text: the order a tester reads a network in. */
+function hostOrder(host: string): string {
+  if (!IPV4.test(host)) return `1${host}`
+  return `0${host
+    .split('.')
+    .map((n) => n.padStart(3, '0'))
+    .join('.')}`
+}
+
+/**
+ * Each service once, the first source's entry winning: by kind and address, by kind and
+ * instance, and by kind and serial (Wireless debugging renames its instance each time it is
+ * turned on, and adb may still list the old one). The serial counts only on the same host,
+ * or when one of the two comes from adb's own list (which may keep an old address too):
+ * two cheap TV boxes at different addresses may share one ro.serialno, and a junk serial
+ * (`0123456789ABCDEF`, `unknown`) never counts. What a later duplicate adds (a TXT name the
+ * first source lacked) fills in what the first one left empty.
+ */
+export function uniqueServices(found: readonly FoundService[]): FoundService[] {
+  const out: FoundService[] = []
+  const byKey = new Map<string, FoundService>()
+  /** kind#serial → the first entry with it from any source / from adb's list. */
+  const anySerial = new Map<string, FoundService>()
+  const adbSerial = new Map<string, FoundService>()
+  for (const f of found) {
+    const serial = distinctSerial(serialOfInstance(f.instance) ?? f.serial)
+    const wide = serial ? `${f.kind}#${serial}` : null
+    const keys = [
+      `${f.kind}@${networkSerial(f.host, f.port)}`,
+      `${f.kind}|${f.instance.toLowerCase()}`,
+      ...(wide ? [`${wide}@${f.host.toLowerCase()}`] : []),
+    ]
+    const kept =
+      keys.map((key) => byKey.get(key)).find((k) => k !== undefined) ??
+      (wide ? (f.fromAdb ? anySerial : adbSerial).get(wide) : undefined)
+    const entry = kept ?? { ...f }
+    if (kept) {
+      kept.name ||= f.name
+      kept.model ||= f.model
+      kept.serial ||= f.serial
+      kept.osVersion ||= f.osVersion
+    } else out.push(entry)
+    for (const key of keys) if (!byKey.has(key)) byKey.set(key, entry)
+    if (wide && !anySerial.has(wide)) anySerial.set(wide, entry)
+    if (wide && f.fromAdb && !adbSerial.has(wide)) adbSerial.set(wide, entry)
+  }
+  /** `||=` may have written `undefined` or '' into an optional field. */
+  for (const f of out) {
+    for (const key of ['name', 'model', 'serial', 'osVersion'] as const) if (!f[key]) delete f[key]
+    delete f.fromAdb
+  }
+  return out
+}
+
+/**
+ * What the page gets: each found service once (uniqueServices), named, and compared with
+ * the rows adb lists now. A row matches by this host:port, by its mDNS name, by the serial
+ * (a phone on a cable is "connected" too, and its row is named), or, for Wireless debugging,
+ * by a network row on the same host (the pairing port is not the connect port). Ordered by
+ * address, at most `max`.
+ */
+export function mergeNearby(
+  found: readonly FoundService[],
+  names: ReadonlyMap<string, NearbyName>,
+  listed: readonly DevicesLRow[],
+  max: number = LIMITS.nearby,
+): AndroidNearbyDevice[] {
+  const rows = listed.filter((row) => ID.android.test(row.serial))
+  const out: AndroidNearbyDevice[] = []
+  for (const f of uniqueServices(found)) {
+    const address = networkSerial(f.host, f.port)
+    const id = `${f.kind}:${address}`
+    const serial = serialOfInstance(f.instance) ?? f.serial
+    /** A junk serial (shared by many boxes) never matches a row. */
+    const matchSerial = distinctSerial(serial) ? serial : undefined
+    const network = rows.filter((row) => adbConnection(row.serial) === 'network')
+    const mdnsMatch = (row: DevicesLRow): boolean => {
+      const instance = instanceOfSerial(row.serial)
+      if (!instance) return false
+      return (
+        instance.toLowerCase() === f.instance.toLowerCase() ||
+        (!!matchSerial && serialOfInstance(instance) === matchSerial)
+      )
+    }
+    const overNetwork =
+      network.find((row) => row.serial === address) ??
+      network.find(mdnsMatch) ??
+      (f.kind === 'adb' ? undefined : network.find((row) => hostOfSerial(row.serial) === f.host))
+    const row =
+      overNetwork ?? (matchSerial ? rows.find((r) => r.serial === matchSerial) : undefined)
+    const named = names.get(f.host)
+    out.push({
+      id,
+      host: f.host,
+      port: f.port,
+      kind: f.kind,
+      instance: f.instance,
+      /** The device's own name (TXT given_name) first: Cast's fn= is for a TV without one. */
+      name: f.name || (named?.name ?? ''),
+      ...(f.model ? { model: f.model } : {}),
+      ...(f.osVersion ? { osVersion: f.osVersion } : {}),
+      ...(serial ? { serial } : {}),
+      tv: named?.tv ?? false,
+      connected: !!row,
+      ...(row ? { deviceId: row.serial } : {}),
+      ...(f.kind === 'adb' ? {} : { paired: !!overNetwork }),
+    })
+  }
+  out.sort(
+    (a, b) =>
+      hostOrder(a.host).localeCompare(hostOrder(b.host)) ||
+      KIND_ORDER[a.kind] - KIND_ORDER[b.kind] ||
+      a.port - b.port,
+  )
+  return out.slice(0, max)
+}
+
+/** The page's wording for a scan that could not run, when it has none of its own. */
+const NEARBY_MESSAGE: Record<NearbyFailure, string> = {
+  blocked: `Could not look for devices on the network. ${NETWORK_HINT.blocked}`,
+  'no-network':
+    'Could not look for devices on the network: this computer is not connected to one. Turn on Wi-Fi, or plug in a network cable, on the same network as the device.',
+  failed: 'Could not look for devices on the network.',
+}
+
+/** The page's wording for a scan the system resolver did instead of the helper's own queries. */
+const NEARBY_NOTE =
+  "Looked through this computer's own resolver: the helper's own queries could not reach the network. Connecting may be refused for the same reason; if it is, the helper says how to fix it."
+
+/** One scan: the network's answers and adb's own list, as found. */
+export interface NearbyScan {
+  startedAt: number
+  found: FoundService[]
+  names: Map<string, NearbyName>
+  error?: AndroidNearbyResult['error']
+  note?: AndroidNearbyResult['note']
+  /** The system resolver's tool, when it looked: for --doctor. */
+  system: SystemBrowseResult['tool'] | null
+  /**
+   * Why the system resolver could not look either, beside an `error` ("dns-sd exited with
+   * code 1: DNSServiceBrowse failed -65563"); `error.detail` ends with it too.
+   */
+  systemDetail?: string
+}
+
+export interface ScanOptions {
+  open: OpenMdnsTransport
+  windowMs: number
+  signal?: AbortSignal
+  now: () => number
+  /** `host:mdns:services` when a server runs, else ''. Never starts one. */
+  adbList: () => Promise<string>
+  /** The system resolver's browse (mdns.ts systemBrowse()); absent: none. */
+  system?: (signal?: AbortSignal) => Promise<SystemBrowseResult>
+}
+
+const NO_SYSTEM: SystemBrowseResult = { tool: null, looked: false, instances: [] }
+
+/**
+ * Three sources at once: the helper's own queries (mdns.ts), the system's resolver
+ * (mdns.ts systemBrowse(): dns-sd, avahi-browse) and adb's own mDNS list, merged in that order
+ * (mergeNearby keeps the first of each service and fills in names from the others).
+ *
+ * `error` only when no source could look: neither the helper's queries left nor the system
+ * resolver reached its daemon. adb's list does not count: whether its own mDNS works says
+ * nothing that can be checked from here. When the resolver looked although the helper's
+ * queries could not leave, the scan is complete and `note` says that connecting may still be
+ * refused; a connect that is says so itself, with the `blocked` wording (§4.7).
+ */
+export async function scanNearby(o: ScanOptions): Promise<NearbyScan> {
+  const startedAt = o.now()
+  const [browsed, system, adbText] = await Promise.all([
+    browse({
+      services: NEARBY_SERVICES,
+      open: o.open,
+      windowMs: o.windowMs,
+      signal: o.signal,
+    }),
+    (o.system?.(o.signal) ?? Promise.resolve(NO_SYSTEM)).catch(() => NO_SYSTEM),
+    o.adbList().catch(() => ''),
+  ])
+  const { found, names } = nearbyFromBrowse([...browsed.instances, ...system.instances])
+  const failure = browsed.failure
+  const said = failure
+    ? {
+        reason: failure.reason,
+        message: system.looked ? NEARBY_NOTE : NEARBY_MESSAGE[failure.reason],
+        detail: failure.detail,
+      }
+    : null
+  /** Both sources failed: the resolver's own words go beside the socket's. */
+  const systemDetail = said && !system.looked && system.detail ? system.detail : undefined
+  return {
+    startedAt,
+    found: [...found, ...parseAdbMdnsServices(adbText)],
+    names,
+    system: system.looked ? system.tool : null,
+    ...(said && !system.looked
+      ? {
+          error: systemDetail ? { ...said, detail: `${said.detail}; ${systemDetail}` } : said,
+        }
+      : {}),
+    ...(systemDetail ? { systemDetail } : {}),
+    ...(said && system.looked ? { note: said } : {}),
+  }
+}
+
+/** The system resolver for a lane: the tool this computer has, through the bridge's runner. */
+export function systemResolver(
+  ctx: Pick<LaneContext, 'options' | 'streamTool' | 'timeouts'>,
+): (signal?: AbortSignal) => Promise<SystemBrowseResult> {
+  return (signal) =>
+    systemBrowse({
+      services: NEARBY_SERVICES,
+      tools: systemMdnsTools(ctx.options),
+      streamTool: ctx.streamTool,
+      browseMs: ctx.timeouts.systemBrowse,
+      resolveMs: ctx.timeouts.systemResolve,
+      signal,
+    })
+}
+
+/** The terminal's one line for what a scan found: one device per address. */
+export function nearbySummary(devices: readonly AndroidNearbyDevice[]): string {
+  const hosts = new Map<string, { tv: boolean; wireless: boolean; connected: boolean }>()
+  for (const d of devices) {
+    const entry = hosts.get(d.host) ?? { tv: false, wireless: false, connected: false }
+    entry.tv ||= d.tv
+    entry.wireless ||= d.kind !== 'adb'
+    entry.connected ||= d.connected
+    hosts.set(d.host, entry)
+  }
+  if (!hosts.size) {
+    return 'Wi-Fi: no Android device on this network advertises Network or Wireless debugging'
+  }
+  const all = [...hosts.values()]
+  const tvs = all.filter((h) => h.tv).length
+  const wireless = all.filter((h) => !h.tv && h.wireless).length
+  const network = all.length - tvs - wireless
+  const parts = [
+    tvs ? plural(tvs, 'TV') : '',
+    wireless ? `${String(wireless)} with Wireless debugging` : '',
+    network ? `${String(network)} with Network debugging` : '',
+  ].filter(Boolean)
+  const connected = all.filter((h) => h.connected).length
+  return `Wi-Fi: ${plural(hosts.size, 'Android device')} on this network (${parts.join(', ')})${
+    connected ? `, ${String(connected)} already connected` : ''
+  }`
+}
+
+const KIND_LABEL: Record<NearbyKind, string> = {
+  adb: 'Network debugging',
+  wireless: 'Wireless debugging',
+  pairing: 'pairing screen open',
+}
+
+/** --doctor: one indented line per found service. */
+export function nearbyLines(devices: readonly AndroidNearbyDevice[]): string[] {
+  return devices.map((d) =>
+    clean(
+      `  ${[
+        d.name || d.model || d.instance,
+        networkSerial(d.host, d.port),
+        KIND_LABEL[d.kind],
+        ...(d.osVersion ? [`Android ${d.osVersion}`] : []),
+        d.connected ? `listed as ${String(d.deviceId)}` : 'not connected',
+      ].join(' · ')}`,
+      300,
+    ),
+  )
+}
+
+/**
+ * The terminal's line when the system resolver looked although the helper's own queries could
+ * not leave: not an error, and not the blocked wording, which waits for a connect that fails.
+ */
+export function nearbyNoteLine(
+  note: NonNullable<AndroidNearbyResult['note']>,
+  tool: SystemBrowseResult['tool'] | null,
+): string {
+  return clean(
+    `Wi-Fi: looked through ${tool ?? 'the system resolver'}; the helper's own mDNS queries could not leave (${note.detail}), so connecting may be refused too`,
+    300,
+  )
+}
+
+/**
+ * The terminal lines for a scan that could not run: `blocked` names its causes and fixes.
+ * `systemDetail` (NearbyScan): why the system resolver could not look either, on its own line.
+ */
+export function nearbyFailureLines(
+  error: NonNullable<AndroidNearbyResult['error']>,
+  platform: NodeJS.Platform,
+  systemDetail?: string,
+): string[] {
+  const head = 'Wi-Fi: could not look for Android devices on the network'
+  /** What the socket said, without the resolver's words that scanNearby appended. */
+  const tail = systemDetail ? `; ${systemDetail}` : ''
+  const socket =
+    tail && error.detail.endsWith(tail) ? error.detail.slice(0, -tail.length) : error.detail
+  const resolver = systemDetail
+    ? [clean(`  The system resolver could not look either: ${systemDetail}`, 300)]
+    : []
+  if (error.reason === 'blocked') {
+    const cause = /EPERM|EACCES/.test(socket) ? 'not permitted' : 'no route to host'
+    return [...blockedLines(head, cause, platform), ...resolver]
+  }
+  if (error.reason === 'no-network') {
+    return [`${head}: this computer is not on a network`, ...resolver]
+  }
+  return [`${head}: ${socket}`, ...resolver]
+}
+
 /* ---------------------------------------------------------------- starting a server --- */
 
 export interface StartServerOptions {
@@ -1148,6 +1726,10 @@ export interface AndroidCadence {
   lookupMs: number
   /** How long a device the tester disconnected may stay listed `offline`, unshown. */
   leavingMs: number
+  /** How long a Wi-Fi scan (§4.8) answers GET /api/android/nearby without ?refresh=1. */
+  nearbyCacheMs: number
+  /** ?refresh=1 starts a new scan only this long after the last one started. */
+  nearbyGapMs: number
 }
 
 export const ANDROID_CADENCE: AndroidCadence = {
@@ -1159,6 +1741,8 @@ export const ANDROID_CADENCE: AndroidCadence = {
   startPollMs: 250,
   lookupMs: 5_000,
   leavingMs: 10_000,
+  nearbyCacheMs: 20_000,
+  nearbyGapMs: 3_000,
 }
 
 /** What a test swaps in: the cadence, and how names resolve. */
@@ -1212,6 +1796,10 @@ export function createAndroidLane(ctx: LaneContext, options: AndroidLaneOptions 
    */
   const leaving = new Map<string, number>()
   let leavingTimer: NodeJS.Timeout | undefined
+
+  /** The last Wi-Fi scan (§4.8), and the terminal lines last printed for one. */
+  let lastScan: NearbyScan | null = null
+  let scanReported = ''
 
   /** Called after every list the lane takes in: open streams watch their device's state. */
   const watchers = new Set<() => void>()
@@ -1533,6 +2121,41 @@ export function createAndroidLane(ctx: LaneContext, options: AndroidLaneOptions 
     }
   }
 
+  /**
+   * One scan at a time (a second caller joins it). Never a request's signal: a page that
+   * leaves must not cut short the scan another request is waiting for.
+   */
+  const scanNow = (): Promise<NearbyScan> =>
+    flights.run('nearby', async () => {
+      const scan = await scanNearby({
+        open: ctx.options.mdns,
+        windowMs: timeouts.mdnsWindow,
+        signal: ctx.signal,
+        now: ctx.now,
+        adbList: () => (running ? client.mdnsServices(ctx.signal) : Promise.resolve('')),
+        system: systemResolver(ctx),
+      })
+      if (!stopped) lastScan = scan
+      return scan
+    })
+
+  /** The scan's lines in the terminal, when they differ from the last ones printed. */
+  const reportScan = (result: AndroidNearbyResult, scan: NearbyScan): void => {
+    const lines = result.error
+      ? [
+          ...nearbyFailureLines(result.error, ctx.options.platform, scan.systemDetail),
+          ...(result.devices.length ? [nearbySummary(result.devices)] : []),
+        ]
+      : [
+          ...(result.note ? [nearbyNoteLine(result.note, scan.system)] : []),
+          nearbySummary(result.devices),
+        ]
+    const key = lines.join('\n')
+    if (key === scanReported) return
+    scanReported = key
+    for (const line of lines) ctx.log(line)
+  }
+
   return {
     name: 'android',
 
@@ -1804,6 +2427,26 @@ export function createAndroidLane(ctx: LaneContext, options: AndroidLaneOptions 
       return outcome
     },
 
+    async nearby(refresh, signal) {
+      const age = lastScan ? ctx.now() - lastScan.startedAt : Infinity
+      const stale = age >= pace.nearbyCacheMs || (refresh && age >= pace.nearbyGapMs)
+      if (flights.has('nearby') || stale) {
+        await Promise.race([scanNow(), aborted(signal)])
+        if (signal.aborted) throw abortError()
+      }
+      const scan = lastScan
+      if (!scan) throw abortError()
+      /** Compared with what adb lists now, not when the scan ran: a connect shows at once. */
+      const result: AndroidNearbyResult = {
+        devices: mergeNearby(scan.found, scan.names, entries),
+        scannedAt: scan.startedAt,
+        ...(scan.error ? { error: scan.error } : {}),
+        ...(scan.note ? { note: scan.note } : {}),
+      }
+      reportScan(result, scan)
+      return result
+    },
+
     async startServer(signal) {
       await loadTools()
       const adb = toolbox?.adb?.path
@@ -1837,22 +2480,47 @@ export function createAndroidLane(ctx: LaneContext, options: AndroidLaneOptions 
       const deadline = linkSignals([ctx.signal], timeouts.doctorTotal)
       /** Its own client: closing it must never touch a running lane's tracker. */
       const doctor = createAdbClient({ port, timeouts })
+      let rows: DevicesLRow[] = []
+      let server = false
       try {
         const version = await doctor.version(deadline.signal).catch((error: unknown) => error)
         if (version === null) {
           write(`Android: no adb server on ${where} (the doctor never starts one)`)
-          return
-        }
-        if (typeof version !== 'number') {
+        } else if (typeof version !== 'number') {
           write(`Android: something on ${where} answers, but not as an adb server`)
-          return
+        } else {
+          server = true
+          write(`Android: adb server on ${where}, protocol ${String(version)}`)
+          rows = parseDevicesL(await doctor.devicesL(deadline.signal))
+          write(`Android: ${String(rows.length)} device(s) listed by the adb server`)
+          for (const row of rows) {
+            const props = Object.entries(row.props).map(([key, value]) => `${key}:${value}`)
+            write(clean(`  ${[row.serial, row.state, ...props].join(' · ')}`, 300))
+          }
         }
-        write(`Android: adb server on ${where}, protocol ${String(version)}`)
-        const rows = parseDevicesL(await doctor.devicesL(deadline.signal))
-        write(`Android: ${String(rows.length)} device(s) listed by the adb server`)
-        for (const row of rows) {
-          const props = Object.entries(row.props).map(([key, value]) => `${key}:${value}`)
-          write(clean(`  ${[row.serial, row.state, ...props].join(' · ')}`, 300))
+        /** §4.8: what advertises adb on the network, with or without a server. */
+        const scan = await scanNearby({
+          open: ctx.options.mdns,
+          windowMs: timeouts.mdnsWindow,
+          signal: deadline.signal,
+          now: ctx.now,
+          adbList: () => (server ? doctor.mdnsServices(deadline.signal) : Promise.resolve('')),
+          system: systemResolver(ctx),
+        })
+        const devices = mergeNearby(scan.found, scan.names, rows)
+        if (scan.error) {
+          for (const line of nearbyFailureLines(
+            scan.error,
+            ctx.options.platform,
+            scan.systemDetail,
+          )) {
+            write(line)
+          }
+        }
+        if (scan.note) write(nearbyNoteLine(scan.note, scan.system))
+        if (!scan.error || devices.length) {
+          write(nearbySummary(devices))
+          for (const line of nearbyLines(devices)) write(line)
         }
       } finally {
         deadline.dispose()
