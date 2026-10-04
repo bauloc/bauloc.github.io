@@ -1,0 +1,41 @@
+{
+  /*
+    The Device Lab helper: TypeScript in helper/src, bundled by helper/build.mjs into ONE
+    plain file, ../device/agent/device-bridge.mjs, that testers run with Node 18 or newer.
+
+    It runs in Node, never in a browser, so it gets Node's types and no DOM. The library is
+    ES2022 on purpose: Node 18 has all of it, so an API from a later edition (toSorted,
+    Object.groupBy, Promise.withResolvers) fails here, before the denylist test on the
+    built file even runs. Node-only APIs newer than 18 (AbortSignal.any, fs.glob) are typed
+    by @types/node, which is why that test exists as well.
+
+    `bundler` resolution because rolldown and vitest resolve the extensionless imports;
+    nothing here is emitted by tsc.
+  */
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "noEmit": true,
+    "skipLibCheck": true,
+    // helper/build.mjs is plain JS (it runs before anything is compiled) with JSDoc types;
+    // the tests import its checks, so it is type-checked like the rest.
+    "allowJs": true,
+    "checkJs": true,
+    "resolveJsonModule": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "useDefineForClassFields": true,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "include": ["helper/src", "helper/test", "helper/vitest.config.ts", "helper/build.mjs"]
+}

@@ -1,0 +1,51 @@
+{
+  "runtimes": [
+    {
+      "isAvailable": true,
+      "version": "17.0",
+      "isInternal": false,
+      "buildversion": "21A328",
+      "supportedArchitectures": ["x86_64", "arm64"],
+      "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-17-0",
+      "platform": "iOS",
+      "bundlePath": "/Library/Developer/CoreSimulator/Volumes/iOS_21A328/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 17.0.simruntime",
+      "runtimeRoot": "/Library/Developer/CoreSimulator/Volumes/iOS_21A328/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 17.0.simruntime/Contents/Resources/RuntimeRoot",
+      "lastUsage": {
+        "arm64": "2026-10-03T16:07:56Z",
+        "x86_64": "0001-01-01T00:00:00Z"
+      },
+      "name": "iOS 17.0"
+    },
+    {
+      "isAvailable": true,
+      "version": "18.0",
+      "isInternal": false,
+      "buildversion": "22A3351",
+      "supportedArchitectures": ["x86_64", "arm64"],
+      "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-18-0",
+      "platform": "iOS",
+      "bundlePath": "/Library/Developer/CoreSimulator/Volumes/iOS_22A3351/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 18.0.simruntime",
+      "runtimeRoot": "/Library/Developer/CoreSimulator/Volumes/iOS_22A3351/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 18.0.simruntime/Contents/Resources/RuntimeRoot",
+      "lastUsage": {
+        "arm64": "2026-10-03T16:18:51Z",
+        "x86_64": "0001-01-01T00:00:00Z"
+      },
+      "name": "iOS 18.0"
+    },
+    {
+      "isAvailable": true,
+      "version": "27.0",
+      "isInternal": false,
+      "buildversion": "24A434",
+      "supportedArchitectures": ["arm64"],
+      "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+      "platform": "iOS",
+      "bundlePath": "/private/var/run/com.apple.security.cryptexd/mnt/com.apple.iPhoneOS.SimulatorRuntime-v24.1.434.0.s1uUcD/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 27.0.simruntime",
+      "runtimeRoot": "/private/var/run/com.apple.security.cryptexd/mnt/com.apple.iPhoneOS.SimulatorRuntime-v24.1.434.0.s1uUcD/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 27.0.simruntime/Contents/Resources/RuntimeRoot",
+      "lastUsage": {
+        "arm64": "2026-10-03T16:27:52Z"
+      },
+      "name": "iOS 27.0"
+    }
+  ]
+}

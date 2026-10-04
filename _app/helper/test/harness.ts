@@ -1,0 +1,367 @@
+/*
+  Shared test plumbing for every helper suite (core, and the lane suites):
+
+  - startBridge(): a listening bridge whose every path, port and tool points at a private
+    temporary tree, so nothing real (usbmuxd, adb, Xcode, bauloc.github.io) is ever reached;
+    closed after each test file.
+  - request() / openStream(): raw node:http, because Node's fetch silently replaces a custom
+    Host header [V], which would make the DNS-rebinding tests pass without testing anything.
+  - until(), tinyPng(), freePort(), tempDir(): the small things every suite needs.
+
+  Lane suites run their REAL lane through the bridge by passing its factory and pointing the
+  lane's endpoints at their fakes, for example:
+    startBridge({ lanes: { ios: createIosLane }, usbmuxdSocket: fakeMux.path,
+                  resolveTools: () => Promise.resolve(toolbox((t) => { t.xcode.state = 'ready' })) })
+  Every lane is off unless a test turns it on, and nothing else is ever reachable.
+*/
+import http, { type IncomingHttpHeaders } from 'node:http'
+import { mkdtempSync, rmSync } from 'node:fs'
+import net, { type AddressInfo } from 'node:net'
+import os from 'node:os'
+import path from 'node:path'
+import { deflateSync } from 'node:zlib'
+import { afterAll } from 'vitest'
+import { createBridge, type Bridge } from '../src/bridge'
+import { emptyToolbox, type Toolbox } from '../src/tools'
+import type { BridgeInput, LogMsg, Timeouts } from '../src/types'
+import { createFakeBin, type FakeBin } from './fakes/bin'
+
+const cleanups: Array<() => unknown> = []
+afterAll(async () => {
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
+})
+
+/** Run `cleanup` after the test file (bridges, servers, folders). */
+export function onCleanup(cleanup: () => unknown): void {
+  cleanups.push(cleanup)
+}
+
+/** A private directory, removed after the test file. */
+export function tempDir(prefix = 'helper-test-'): string {
+  const dir = mkdtempSync(path.join(os.tmpdir(), prefix))
+  cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
+  return dir
+}
+
+/** A port nothing listens on (bound, read, released). */
+export async function freePort(): Promise<number> {
+  const server = net.createServer()
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address() as AddressInfo
+  await new Promise<void>((resolve) => server.close(() => resolve()))
+  return port
+}
+
+/** A Toolbox with nothing found, changed by `patch`: what `resolveTools` returns in lane tests. */
+export function toolbox(patch: (t: Toolbox) => void = () => undefined): Toolbox {
+  const t = emptyToolbox(Date.now())
+  patch(t)
+  return t
+}
+
+/** Timeouts short enough for a test, long enough not to flake. */
+export const SHORT: Partial<Timeouts> = {
+  killGrace: 300,
+  rescan: 500,
+  retry: 500,
+  logHello: 1_000,
+  logBatch: 20,
+  banner: 500,
+  portProbe: 500,
+  upstream: 2_000,
+  htmlRevalidate: 60_000,
+  toolsCache: 30_000,
+  doctorCache: 30_000,
+}
+
+/** Polls `check` until it is truthy; fails after `timeoutMs`. */
+export async function until(
+  check: () => boolean | Promise<boolean>,
+  timeoutMs = 3_000,
+  what = 'condition',
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    if (await check()) return
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}.`)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+}
+
+const crcTable = Array.from({ length: 256 }, (_, n) => {
+  let c = n
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+  return c >>> 0
+})
+function crc32(bytes: Buffer): number {
+  let c = 0xffffffff
+  for (const byte of bytes) c = (crcTable[(c ^ byte) & 0xff] ?? 0) ^ (c >>> 8)
+  return (c ^ 0xffffffff) >>> 0
+}
+function chunk(type: string, data: Buffer): Buffer {
+  const length = Buffer.alloc(4)
+  length.writeUInt32BE(data.length)
+  const body = Buffer.concat([Buffer.from(type, 'latin1'), data])
+  const crc = Buffer.alloc(4)
+  crc.writeUInt32BE(crc32(body))
+  return Buffer.concat([length, body, crc])
+}
+
+/** A valid 1×1 PNG (signature, IHDR, IDAT, IEND): what every fake screenshot returns. */
+export function tinyPng(): Buffer {
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(1, 0)
+  header.writeUInt32BE(1, 4)
+  header[8] = 8 // bit depth
+  header[9] = 2 // RGB
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', header),
+    chunk('IDAT', deflateSync(Buffer.from([0, 0xff, 0x80, 0x00]))),
+    chunk('IEND', Buffer.alloc(0)),
+  ])
+}
+
+export interface Started {
+  readonly bridge: Bridge
+  readonly port: number
+  readonly token: string
+  /** Terminal lines the bridge printed (timestamps included). */
+  readonly logs: string[]
+  /** stderr lines (bugs). */
+  readonly errors: string[]
+  readonly bin: FakeBin
+  readonly home: string
+  /** Authorization plus an allowed Origin, as the hosted page sends them. */
+  readonly auth: Record<string, string>
+}
+
+export interface Isolation {
+  /** createBridge options that keep everything real out of reach. */
+  readonly input: BridgeInput
+  readonly bin: FakeBin
+  readonly home: string
+  readonly logs: string[]
+  readonly errors: string[]
+}
+
+/**
+ * Options under which nothing real can be reached: an empty fake PATH, a usbmuxd socket and
+ * an adb port nobody serves, a closed upstream, private home and temp folders, no lanes
+ * unless the test adds fakes, and short timeouts. `input` wins over every default.
+ */
+export async function isolation(input: BridgeInput = {}): Promise<Isolation> {
+  const root = tempDir()
+  const bin = createFakeBin(root)
+  const home = mkdtempSync(path.join(root, 'home-'))
+  const tmpDir = mkdtempSync(path.join(root, 'tmp-'))
+  const closed = await freePort()
+  const logs: string[] = []
+  const errors: string[] = []
+  const fake = (name: string): string => path.join(root, 'nowhere', name)
+  return {
+    bin,
+    home,
+    logs,
+    errors,
+    input: {
+      port: 0,
+      open: false,
+      searchPath: bin.dir,
+      extraDirs: [],
+      usbmuxdSocket: fake('usbmuxd'),
+      adbPort: closed,
+      upstream: `http://127.0.0.1:${String(closed)}`,
+      xcodeSelectPath: fake('xcode-select'),
+      plistBuddyPath: fake('PlistBuddy'),
+      javaHomePath: fake('java_home'),
+      openPath: fake('open'),
+      swVersPath: fake('sw_vers'),
+      applicationsDir: fake('Applications'),
+      coreDeviceDir: fake('CoreDevice.framework'),
+      coreSimulatorDir: fake('CoreSimulator.framework'),
+      systemVersionPlist: fake('SystemVersion.plist'),
+      home,
+      tmpDir,
+      heartbeatMs: 1_000,
+      log: (line) => logs.push(line),
+      errorLog: (line) => errors.push(line),
+      env: { PATH: bin.dir, HOME: home },
+      ...input,
+      timeouts: { ...SHORT, ...input.timeouts },
+      lanes: { ios: null, android: null, simulators: null, ...input.lanes },
+    },
+  }
+}
+
+/** A listening bridge under isolation(), closed after the test file. */
+export async function startBridge(input: BridgeInput = {}): Promise<Started> {
+  const { input: options, bin, home: homeDir, logs, errors } = await isolation(input)
+  const bridge = createBridge(options)
+  const { port } = await bridge.listen()
+  cleanups.push(() => bridge.close())
+  return {
+    bridge,
+    port,
+    token: bridge.token,
+    logs,
+    errors,
+    bin,
+    home: homeDir,
+    auth: { Authorization: `Bearer ${bridge.token}`, Origin: 'https://bauloc.github.io' },
+  }
+}
+
+export interface Reply {
+  status: number
+  headers: IncomingHttpHeaders
+  body: Buffer
+  text: string
+  json: <T = unknown>() => T
+}
+
+export interface RequestOptions {
+  method?: string
+  path: string
+  headers?: Record<string, string>
+  /** Defaults to 127.0.0.1:<port>; set it to test the Host gate. */
+  host?: string
+  body?: string | Buffer
+}
+
+/** One request on its own connection, with exactly the headers given. */
+export function request(port: number, opts: RequestOptions): Promise<Reply> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        method: opts.method ?? 'GET',
+        path: opts.path,
+        agent: false,
+        headers: { Host: opts.host ?? `127.0.0.1:${String(port)}`, ...opts.headers },
+      },
+      (res) => {
+        const chunks: Buffer[] = []
+        res.on('data', (data: Buffer) => chunks.push(data))
+        res.on('end', () => {
+          const body = Buffer.concat(chunks)
+          const text = body.toString('utf8')
+          resolve({
+            status: res.statusCode ?? 0,
+            headers: res.headers,
+            body,
+            text,
+            json: <T>() => JSON.parse(text) as T,
+          })
+        })
+        res.on('error', reject)
+      },
+    )
+    req.on('error', reject)
+    req.end(opts.body)
+  })
+}
+
+export interface Stream {
+  readonly status: number
+  readonly headers: IncomingHttpHeaders
+  readonly messages: LogMsg[]
+  /** The first message (already received or still to come) that matches. */
+  readonly waitFor: (match: (message: LogMsg) => boolean, timeoutMs?: number) => Promise<LogMsg>
+  /** Leave without reading the rest: the helper sees the client go. */
+  readonly abort: () => void
+  readonly pause: () => void
+  readonly resume: () => void
+  /** Resolves when the response ends or the connection closes. */
+  readonly closed: Promise<void>
+}
+
+/** A log stream (NDJSON), or the JSON error the helper answered instead. */
+export function openStream(
+  port: number,
+  path: string,
+  headers: Record<string, string>,
+): Promise<Stream | Reply> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        path,
+        agent: false,
+        headers: { Host: `127.0.0.1:${String(port)}`, ...headers },
+      },
+      (res) => {
+        if (res.statusCode !== 200) {
+          const chunks: Buffer[] = []
+          res.on('data', (data: Buffer) => chunks.push(data))
+          res.on('end', () => {
+            const text = Buffer.concat(chunks).toString('utf8')
+            resolve({
+              status: res.statusCode ?? 0,
+              headers: res.headers,
+              body: Buffer.from(text),
+              text,
+              json: <T>() => JSON.parse(text) as T,
+            })
+          })
+          return
+        }
+        const messages: LogMsg[] = []
+        const waiters: Array<() => void> = []
+        let carry = ''
+        res.setEncoding('utf8')
+        res.on('data', (data: string) => {
+          carry += data
+          let nl = carry.indexOf('\n')
+          while (nl >= 0) {
+            const line = carry.slice(0, nl)
+            carry = carry.slice(nl + 1)
+            if (line) messages.push(JSON.parse(line) as LogMsg)
+            nl = carry.indexOf('\n')
+          }
+          for (const wake of waiters.splice(0)) wake()
+        })
+        const closed = new Promise<void>((done) => {
+          res.on('end', () => done())
+          res.on('close', () => done())
+          res.on('error', () => done())
+        })
+        resolve({
+          status: 200,
+          headers: res.headers,
+          messages,
+          waitFor(match, timeoutMs = 3_000) {
+            return new Promise<LogMsg>((found, fail) => {
+              const deadline = setTimeout(
+                () => fail(new Error(`No matching message in ${JSON.stringify(messages)}`)),
+                timeoutMs,
+              )
+              const check = (): void => {
+                const hit = messages.find(match)
+                if (hit) {
+                  clearTimeout(deadline)
+                  found(hit)
+                } else waiters.push(check)
+              }
+              check()
+            })
+          },
+          abort: () => req.destroy(),
+          pause: () => res.pause(),
+          resume: () => res.resume(),
+          closed,
+        })
+      },
+    )
+    req.on('error', (error) => {
+      if ((error as NodeJS.ErrnoException).code !== 'ECONNRESET') reject(error)
+    })
+    req.end()
+  })
+}
+
+export function isStream(value: Stream | Reply): value is Stream {
+  return 'messages' in value
+}

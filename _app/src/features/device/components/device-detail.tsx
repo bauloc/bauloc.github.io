@@ -8,6 +8,7 @@ import {
   RotateCcw,
   TriangleAlert,
   Unplug,
+  Wifi,
 } from 'lucide-react'
 import { Component, Suspense, type ReactNode } from 'react'
 import { toast } from 'sonner'
@@ -29,9 +30,10 @@ import {
 } from '../model'
 import { COPY } from '../preflight/copy'
 import { isStaleBuildError } from '../preflight/env'
+import type { Lanes } from '../helper/protocol'
 import type { CheckItem } from '../preflight/types'
 import type { DetailState, Shot } from '../store'
-import type { FixWiring } from './checklist'
+import { InlineChecklist, type FixWiring } from './checklist'
 import { HintCard } from './hint-card'
 import { Screenshots } from './screenshots'
 import { PlatformBadge, StateDot } from './status'
@@ -73,6 +75,57 @@ function DetailGroup({ title, fields }: { title: string; fields: Record<string, 
         </dl>
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * What takes a device's screenshots, for the Take Screenshot tooltip: the helper's tool for
+ * its rows (from its lanes), the browser itself for WebUSB. Null when nothing is known.
+ */
+export function screenshotVia(
+  device: Pick<Device, 'backend' | 'platform' | 'connection'>,
+  lanes: Lanes | null,
+): string | null {
+  if (device.backend === 'webusb') return 'WebUSB'
+  if (device.backend !== 'agent') return null
+  if (device.platform === 'android') return 'Google’s adb server'
+  if (device.connection === 'simulator') return 'simctl'
+  return lanes?.ios.screenshots === 'devicectl' ? 'Xcode’s devicectl' : null
+}
+
+/** Take Screenshot's tooltip: what it does, or why it can't. */
+export function screenshotTitle(
+  device: Pick<Device, 'state' | 'capabilities'>,
+  via: string | null,
+): string {
+  if (device.state !== 'ready') return 'The device is not ready'
+  if (!device.capabilities.screenshot) {
+    return 'Screenshots are unavailable for this device — see the note above.'
+  }
+  return via ? `Take a screenshot (S) · through ${via}` : 'Take a screenshot (S)'
+}
+
+/**
+ * Over Wi‑Fi, an Android device gets details, screenshots and its log through the helper; Apps,
+ * Images and installs run over WebUSB, so they come later. Said plainly, so the missing tabs
+ * and Install button don't read as broken.
+ */
+export function WifiNote({
+  device,
+}: {
+  device: Pick<Device, 'platform' | 'connection' | 'backend'>
+}) {
+  if (
+    device.platform !== 'android' ||
+    device.connection !== 'network' ||
+    device.backend !== 'agent'
+  )
+    return null
+  return (
+    <p className="text-muted-foreground flex items-start gap-2 rounded-xl border px-3 py-2.5 text-sm leading-relaxed">
+      <Wifi aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+      <span>{COPY.wifi.later}</span>
+    </p>
   )
 }
 
@@ -194,16 +247,20 @@ function LazyTab({
 export function DeviceDetailPane({
   device,
   goneId,
+  goneAction,
   detail,
   shots,
   zoom,
   capturing,
   retrying,
   check = null,
+  inline = [],
+  captureVia = null,
   wiring,
   tab,
   actions,
   jobs,
+  note,
   log,
   apps,
   images,
@@ -219,6 +276,8 @@ export function DeviceDetailPane({
   device: Device | null
   /** The id of a selected device that has since disconnected. */
   goneId: string | null
+  /** What to do about the gone device, under its words: Connect again, for a Wi‑Fi one. */
+  goneAction?: ReactNode
   detail: DetailState
   shots: readonly Shot[]
   zoom: number
@@ -227,6 +286,13 @@ export function DeviceDetailPane({
   retrying: boolean
   /** hint-card's deviceCheck(): a phone row that says more than the hint. */
   check?: CheckItem | null
+  /**
+   * checks.ts inlineChecks(): the helper's row for the tool this device's blocker needs
+   * (Xcode, libimobiledevice), shown under the hint card. OK rows are left out.
+   */
+  inline?: readonly CheckItem[]
+  /** screenshotVia(): what takes the screenshot, for the button's tooltip. */
+  captureVia?: string | null
   /** The checklist's actions, for the hint card. */
   wiring?: FixWiring
   /** The open tab; one the device doesn't offer falls back to Overview. */
@@ -235,6 +301,8 @@ export function DeviceDetailPane({
   actions?: ReactNode
   /** The jobs strip, under the header. */
   jobs?: ReactNode
+  /** A quiet note under the jobs: what this connection offers (WifiNote). */
+  note?: ReactNode
   /** The log console, at the end of Overview. */
   log?: ReactNode
   /** The Apps tab's content; lazy, so it loads with the tab. */
@@ -251,23 +319,28 @@ export function DeviceDetailPane({
   onClearShots: () => void
 }) {
   if (!device) {
-    return (
-      <section
-        aria-label="Device detail"
-        className="text-muted-foreground flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed p-8 text-center text-sm"
-      >
+    const empty = (
+      <div className="text-muted-foreground flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed p-8 text-center text-sm">
         {goneId ? (
           <>
             <Unplug className="mb-3 size-8 opacity-70" />
             <p className="text-foreground font-medium">That device disconnected</p>
             <p className="mt-1 max-w-sm">
-              <span className="font-mono">{goneId}</span> is no longer attached. Reconnect the cable
-              and it will reappear in the list.
+              <span className="font-mono wrap-anywhere">{goneId}</span> is no longer connected. Plug
+              it back in, or reconnect it over Wi‑Fi, and it will reappear in the list.
             </p>
+            {goneAction && <div className="mt-4">{goneAction}</div>}
           </>
         ) : (
           <p>Select a device to see its identifiers and take screenshots.</p>
         )}
+      </div>
+    )
+    // A log that was running waits for the device here, and says so (log-sessions.ts).
+    return (
+      <section aria-label="Device detail" className="flex min-w-0 flex-col gap-4">
+        {empty}
+        {goneId && log}
       </section>
     )
   }
@@ -279,6 +352,16 @@ export function DeviceDetailPane({
     detail.status === 'ready' && detail.deviceId === device.id ? detail.detail : null
   const tabs = detailTabs(device)
   const open = tabs.includes(tab) ? tab : 'overview'
+  const inlineId = `inline-check-${device.id}`
+  const shown = inline.filter((item) => item.status !== 'ok')
+  // A ready device that can't take screenshots: the button stays focusable, so its tooltip and
+  // the note it points at can be reached by keyboard too.
+  const noShots = ready && !device.capabilities.screenshot
+  // The inline rows' Retry is this device's, never the checklist phone's.
+  const inlineWiring: FixWiring = {
+    ...wiring,
+    on: { ...wiring?.on, retry: onRetry, doctor: onDoctor },
+  }
 
   const overview = (
     <>
@@ -317,6 +400,8 @@ export function DeviceDetailPane({
           zoom={zoom}
           capturing={capturing}
           canCapture={device.capabilities.screenshot === true}
+          captureTitle={screenshotTitle(device, captureVia)}
+          captureDescribedBy={noShots && shown.length > 0 ? inlineId : undefined}
           onCapture={onCapture}
           onZoom={onZoom}
           onClear={onClearShots}
@@ -339,12 +424,13 @@ export function DeviceDetailPane({
           {/* Busy is aria-disabled, not disabled: a control that disables itself under the
               keyboard drops focus to <body>. */}
           <Button
-            disabled={!ready || !device.capabilities.screenshot}
-            aria-disabled={capturing}
+            disabled={!ready}
+            aria-disabled={capturing || noShots || undefined}
+            aria-describedby={noShots && shown.length > 0 ? inlineId : undefined}
             className="aria-disabled:opacity-50"
-            title={ready ? 'Take a screenshot (S)' : 'The device is not ready'}
+            title={screenshotTitle(device, captureVia)}
             onClick={() => {
-              if (!capturing) onCapture()
+              if (!capturing && !noShots) onCapture()
             }}
           >
             {capturing ? <Loader2 className="animate-spin" /> : <Camera />}
@@ -386,7 +472,18 @@ export function DeviceDetailPane({
         />
       )}
 
+      {/* The helper's rows can carry long paths: let them break anywhere. */}
+      {shown.length > 0 && (
+        <InlineChecklist
+          id={inlineId}
+          items={shown}
+          wiring={inlineWiring}
+          className="wrap-anywhere"
+        />
+      )}
+
       {jobs}
+      {note}
 
       {/* Always a Tabs, even with Overview alone, so the tree under it (the log) never remounts
           when Apps and Images come and go with the connection. */}

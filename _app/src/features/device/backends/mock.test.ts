@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { InstallPlan } from './archive/plan'
-import { createMockBackend, MOCK_RECONNECT_MS, MOCK_UNPLUGGED_MS } from './mock'
+import { createMockBackend, MOCK_FIXTURES, MOCK_RECONNECT_MS, MOCK_UNPLUGGED_MS } from './mock'
 
 const PIXEL = '55090DLAQ0026D'
 
@@ -84,20 +84,72 @@ describe('mock lane, -disconnect', () => {
   })
 })
 
-describe('mock lane, fixtures', () => {
-  it('shows a made-up iPhone: the page is public, so no real phone’s ids are in it', async () => {
-    const lane = createMockBackend()
-    const iphone = lane.list().find((d) => d.platform === 'ios' && d.state === 'ready')
-    expect(iphone?.id).toBe('00008101-000A1B2C3D4E5F02')
-    expect(iphone?.name).toBe('Ngọc’s iPhone 12 Pro')
+describe('mock lane, the iPhone', () => {
+  const IPHONE = '00008101-000A1B2C3D4E5F02'
 
-    const detail = await lane.detail(iphone?.id ?? '')
-    expect(detail.identity).toMatchObject({
-      'Device name': 'Ngọc’s iPhone 12 Pro',
-      Serial: 'F2LX0EXAMPLE',
-      Identifier: '00008101-000A1B2C3D4E5F02',
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('is what the helper reports on a Mac without Xcode: ready, logs, no screenshots', () => {
+    const lane = createMockBackend()
+    expect(lane.list().find((d) => d.id === IPHONE)).toMatchObject({
+      platform: 'ios',
+      state: 'ready',
+      osVersion: '27.0',
+      blockers: ['XCODE_REQUIRED'],
+      capabilities: { screenshot: false, identifiers: true, logs: true },
     })
-    // Apple's format all the same: twelve capitals and digits.
-    expect(detail.identity.Serial).toMatch(/^[A-Z0-9]{12}$/)
+  })
+
+  it('gives its Apple devices made-up UDIDs, so none can shadow a real phone’s row', () => {
+    // A real UDID's second half is the chip's ECID; these spell out a counting pattern instead.
+    const apple = MOCK_FIXTURES.filter((f) => f.platform === 'ios').map((f) => f.id)
+    expect(apple.length).toBeGreaterThan(0)
+    for (const id of apple) expect(id).toMatch(/^0000\d{4}-000A1B2C3D4E5F0\d$/)
+  })
+
+  it('refuses a screenshot with the blocker’s code, and keeps it across Retry', async () => {
+    const lane = createMockBackend()
+    const shot = expect(lane.screenshot(IPHONE)).rejects.toThrow('XCODE_REQUIRED')
+    await vi.advanceTimersByTimeAsync(500)
+    await shot
+    const retry = lane.retry?.(IPHONE)
+    await vi.advanceTimersByTimeAsync(600)
+    await retry
+    expect(lane.list().find((d) => d.id === IPHONE)?.blockers).toEqual(['XCODE_REQUIRED'])
+  })
+
+  it('reads its detail through the helper’s iOS formatter', async () => {
+    const lane = createMockBackend()
+    const detail = lane.detail(IPHONE)
+    await vi.advanceTimersByTimeAsync(400)
+    expect(await detail).toMatchObject({
+      platform: 'ios',
+      identity: {
+        Model: 'iPhone 12 Pro',
+        // Made up, like the UDID: a published bundle carries the mock.
+        'Device name': 'Ngọc’s iPhone 12 Pro',
+        Serial: 'F2LZZ0FAKE01',
+        Identifier: IPHONE,
+        ECID: '0x000A1B2C3D4E5F02',
+      },
+      hardware: { Capacity: '256 GB' },
+      status: { Connection: 'USB (mock)' },
+    })
+  })
+
+  it('streams syslog lines', async () => {
+    const lane = createMockBackend()
+    const controller = new AbortController()
+    const lines: string[] = []
+    const done = lane.logs?.(IPHONE, (l) => lines.push(...l), controller.signal)
+    expect(lines[0]).toMatch(/ <Notice>: mock event #0$/)
+    controller.abort()
+    await vi.advanceTimersByTimeAsync(700)
+    await done
   })
 })

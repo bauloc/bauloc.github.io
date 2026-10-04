@@ -1,10 +1,12 @@
-import type { BrowserEnv, BrowserName, LnaPermission, Os } from './types'
+import { HELPER_URL } from '../helper/status'
+import type { BrowserEnv, BrowserName, LnaPermission, Os, PublishedHelper } from './types'
 
 /*
   The browser, read once into a plain object (BrowserEnv) that checks.ts takes as input, so
   every path of the checklist can run in Vitest's node environment. Reading is all this does:
   nothing is requested or probed. The Local Network Access permission is QUERIED, which never
-  prompts — only a request to 127.0.0.1 would, and none is made here.
+  prompts — only a request to 127.0.0.1 would, and none is made here. The one request this file
+  makes goes to bauloc.github.io, for the published helper file (readPublishedHelper).
 */
 
 /** The globals the reader touches, injectable for tests. */
@@ -209,5 +211,45 @@ export function onStaleBuild(
   target.addEventListener('vite:preloadError', handle)
   return () => {
     target.removeEventListener('vite:preloadError', handle)
+  }
+}
+
+/* ---------------------------------------------------------------- *
+ * The published helper (spec §12b `helper.update`)
+ * ---------------------------------------------------------------- */
+
+/** The built helper's version line; its banner and /api/health read the same constant. */
+export const HELPER_VERSION_LINE = /^const VERSION = "([^"]+)";$/m
+
+/** How long the Environment check waits for the published file before saying it couldn't. */
+const PUBLISHED_TIMEOUT_MS = 10_000
+
+const toHex = (bytes: ArrayBuffer) =>
+  Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('')
+
+/**
+ * The helper file as published on bauloc.github.io: its VERSION and SHA-256, to compare with
+ * /api/health's. Null when it can't be read (offline, not deployed yet: it 404s until then, or
+ * a file without the version line). Never rejects. The request carries nothing of this page:
+ * no credentials, no referrer.
+ */
+export async function readPublishedHelper(
+  fetchImpl: typeof fetch = fetch,
+  url: string = HELPER_URL,
+): Promise<PublishedHelper | null> {
+  try {
+    const response = await fetchImpl(url, {
+      cache: 'no-store',
+      credentials: 'omit',
+      referrerPolicy: 'no-referrer',
+      signal: AbortSignal.timeout(PUBLISHED_TIMEOUT_MS),
+    })
+    if (!response.ok) return null
+    const bytes = await response.arrayBuffer()
+    const version = HELPER_VERSION_LINE.exec(new TextDecoder().decode(bytes))?.[1]
+    if (!version || version.length > 40) return null
+    return { version, sha256: toHex(await crypto.subtle.digest('SHA-256', bytes)) }
+  } catch {
+    return null
   }
 }

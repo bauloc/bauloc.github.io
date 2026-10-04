@@ -89,7 +89,10 @@ export function HintCard({
 }) {
   const content = hintContent(hint, check)
   if (!content) return null
-  const tone = STATE_META[device.state].tone
+  // A hint is always something to act on: on a ready device (Xcode missing, Developer Mode
+  // off) it is a warning, as the list row's amber rule shows it, never the green of "all good".
+  const stateTone = STATE_META[device.state].tone
+  const tone = stateTone === 'ok' ? 'warn' : stateTone
   const { commands, paths, buttons } = splitFixes(content.fixes)
   // Retry and the environment check are this card's own; the rest go through the wiring.
   const own: FixWiring = {

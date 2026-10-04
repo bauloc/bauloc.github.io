@@ -1,0 +1,32 @@
+{
+  "error" : {
+    "code" : 2,
+    "domain" : "ArgumentParserInternal.ExitCode",
+    "userInfo" : {
+
+    }
+  },
+  "info" : {
+    "arguments" : [
+      "devicectl",
+      "device",
+      "info",
+      "displays",
+      "--device",
+      "A1AED6E5-7DDB-4536-AE22-CA4C1D6B8D9E",
+      "--stream",
+      "--timeout",
+      "5",
+      "--json-output",
+      "sim-stream-timeout.json"
+    ],
+    "commandType" : "devicectl.device.info.displays",
+    "details" : "Exceeded command timeout",
+    "environment" : {
+
+    },
+    "jsonVersion" : 5,
+    "outcome" : "timeout",
+    "version" : "642.16"
+  }
+}
