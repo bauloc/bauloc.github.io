@@ -677,7 +677,12 @@ describe('InstallDialog', () => {
     const confirm = await screen.findByRole('alertdialog', { name: 'Replace Probe on Pixel 9?' })
     expect(confirm).toHaveTextContent('deletes its data on the phone')
     expect(actions.uninstall).not.toHaveBeenCalled()
-    fireEvent.click(within(confirm).getByRole('button', { name: 'Uninstall and install' }))
+    const go = within(confirm).getByRole('button', { name: 'Uninstall and install' })
+    // Red, not the primary colour: asChild joins the variant's classes with its own unmerged,
+    // so a bg-destructive passed as a class lost to the default variant's bg-primary.
+    expect(go.className).toMatch(/\bbg-destructive\b/)
+    expect(go.className).not.toMatch(/\bbg-primary\b/)
+    fireEvent.click(go)
 
     expect(await screen.findByText('Installed Probe 1.4.0 (812) on Pixel 9.')).toBeInTheDocument()
     expect(actions.uninstall).toHaveBeenCalledWith('com.example.probe')

@@ -4,7 +4,15 @@ import type { AndroidFacts } from '../model'
 import type { ImageRow } from './android/media'
 import { classifyPmOutput } from './android/pm-output'
 import type { InstallPlan } from './archive/plan'
-import { INSTALL_TRIGGERS, createMockAndroid, installTrigger, newestFirst } from './mock-android'
+import {
+  INSTALL_TRIGGERS,
+  MAX_SYNTHETIC_APPS,
+  createMockAndroid,
+  installTrigger,
+  newestFirst,
+  syntheticApps,
+  syntheticCount,
+} from './mock-android'
 
 /*
   The mock lane's install triggers: each file name asks for one outcome, and each outcome is
@@ -149,5 +157,62 @@ describe('the mock lane over time', () => {
       row('4', null, 300),
     ].sort(newestFirst)
     expect(sorted.map((r) => r.id)).toEqual(['4', '3', '2', '1'])
+  })
+})
+
+describe('&apps=<n>: synthetic apps for a long list', () => {
+  it('reads only a whole number as a count, capped, and anything else as none', () => {
+    expect(syntheticCount('300')).toBe(300)
+    expect(syntheticCount('0')).toBe(0)
+    expect(syntheticCount('')).toBe(0)
+    expect(syntheticCount('failed')).toBe(0)
+    expect(syntheticCount('-5')).toBe(0)
+    expect(syntheticCount('2.5')).toBe(0)
+    expect(syntheticCount('99999')).toBe(MAX_SYNTHETIC_APPS)
+  })
+
+  it('makes the same distinct, labelled user apps every time, with every icon kind', () => {
+    const apps = syntheticApps(400)
+    expect(apps).toEqual(syntheticApps(400))
+    expect(new Set(apps.map((a) => a.packageName)).size).toBe(400)
+    expect(new Set(apps.map((a) => a.label)).size).toBe(400)
+    expect(apps.every((a) => !a.system && a.packageName.startsWith('com.example.synthetic.'))).toBe(
+      true,
+    )
+    expect(new Set(apps.map((a) => a.icon))).toEqual(new Set(['bitmap', 'adaptive', null]))
+  })
+
+  it('adds them to the list only when the page asks, leaving the plain fixtures as they are', async () => {
+    vi.useFakeTimers()
+    const list = async (search: string) => {
+      // The same clock for each list, so the fixtures' dates compare equal.
+      vi.setSystemTime(Date.UTC(2026, 9, 4, 9, 0))
+      vi.stubGlobal('location', { search })
+      const ops = createMockAndroid({
+        isReady: () => true,
+        facts: () => ({
+          sdk: 37,
+          release: '17',
+          manufacturer: 'Google',
+          brand: 'google',
+          abis: ['arm64-v8a'],
+        }),
+        disconnect: () => undefined,
+      })
+      const work = ops.apps('d', 'all').catch((error: unknown) => error as Error)
+      await vi.advanceTimersByTimeAsync(1000)
+      return work
+    }
+    try {
+      const plain = await list('?mock=1')
+      const long = await list('?mock=1&apps=300')
+      if (!Array.isArray(plain) || !Array.isArray(long)) throw new Error('the list failed')
+      expect(long).toHaveLength(plain.length + 300)
+      expect(long.slice(0, plain.length)).toEqual(plain)
+      expect(await list('?mock=1&apps=failed')).toBeInstanceOf(Error)
+    } finally {
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    }
   })
 })

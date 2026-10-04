@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from '@testing-library/react'
+import '@testing-library/jest-dom/vitest'
+
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { toast } from 'sonner'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
@@ -150,5 +152,73 @@ describe('DeviceLabPage, files dropped outside the drop zone', () => {
     const over = fileDrag('dragover')
     window.dispatchEvent(over)
     expect(over.defaultPrevented).toBe(false)
+  })
+})
+
+describe('DeviceLabPage, the S, R and / shortcuts', () => {
+  beforeAll(() => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    }))
+    window.history.replaceState(null, '', '/device/?mock=1')
+  })
+
+  afterAll(() => {
+    window.history.replaceState(null, '', '/device/')
+    vi.unstubAllGlobals()
+  })
+
+  afterEach(() => {
+    act(() => {
+      toast.dismiss()
+    })
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  it('leaves letters to a menu that has focus: there they are its typeahead', async () => {
+    render(<DeviceLabPage />)
+    act(() => {
+      screen.getByRole('button', { name: /Pixel 9/ }).click()
+    })
+    fireEvent.mouseDown(await screen.findByRole('tab', { name: /Apps/ }))
+    const more = await screen.findAllByRole(
+      'button',
+      { name: /^More actions for / },
+      { timeout: 4000 },
+    )
+    fireEvent.keyDown(more[0]!, { key: 'Enter' })
+    const menu = await screen.findByRole('menu')
+    const item = within(menu).getAllByRole('menuitem')[0]!
+    item.focus()
+
+    // The Screenshots card's button, the one S presses.
+    const shoot = document.querySelector('[aria-keyshortcuts="S"]')
+    const filter = screen.getByRole('searchbox', { name: 'Filter devices' })
+    const clicks = vi.spyOn(HTMLButtonElement.prototype, 'click')
+    for (const key of ['s', 'S', 'r', 'R', '/']) fireEvent.keyDown(item, { key })
+    expect(shoot).toHaveAttribute('aria-disabled', 'false')
+    expect(clicks).not.toHaveBeenCalled()
+    expect(filter).not.toHaveFocus()
+    expect(screen.getByRole('menu')).toBe(menu)
+
+    // Outside the menu they are the page's again.
+    fireEvent.keyDown(menu, { key: 'Escape' })
+    await waitFor(() => {
+      expect(screen.queryByRole('menu')).toBeNull()
+    })
+    fireEvent.keyDown(document.body, { key: 'r' })
+    expect(clicks.mock.contexts).toContain(document.querySelector('[data-device-refresh]'))
+    fireEvent.keyDown(document.body, { key: 's' })
+    expect(shoot).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.keyDown(document.body, { key: '/' })
+    expect(filter).toHaveFocus()
   })
 })

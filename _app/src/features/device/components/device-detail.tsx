@@ -311,7 +311,17 @@ export function DeviceDetailPane({
         </div>
       )}
 
-      {ready && <Screenshots shots={shots} zoom={zoom} onZoom={onZoom} onClear={onClearShots} />}
+      {ready && (
+        <Screenshots
+          shots={shots}
+          zoom={zoom}
+          capturing={capturing}
+          canCapture={device.capabilities.screenshot === true}
+          onCapture={onCapture}
+          onZoom={onZoom}
+          onClear={onClearShots}
+        />
+      )}
       {log}
     </>
   )

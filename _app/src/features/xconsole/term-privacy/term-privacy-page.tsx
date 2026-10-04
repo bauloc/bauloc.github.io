@@ -264,8 +264,9 @@ export function TermPrivacyPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
+            {/* The variant, not a class: asChild joins the classes unmerged, so bg-primary won. */}
             <AlertDialogAction
-              className="bg-destructive hover:bg-destructive/90 text-white"
+              variant="destructive"
               onClick={() => {
                 if (deleting) void confirmDelete(deleting)
               }}

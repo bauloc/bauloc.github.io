@@ -11,7 +11,15 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-react'
-import { useEffect, useEffectEvent, useState } from 'react'
+import {
+  useEffect,
+  useEffectEvent,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react'
 
 import { CopyButton } from '@/components/copy-button'
 import {
@@ -36,9 +44,11 @@ import {
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/cn'
+import { useHeldWhileClosing } from '@/lib/use-held-while-closing'
 
 import { installerName } from '../backends/android/packages'
 import type { IconImage } from '../backends/archive/apk-badge'
+import { apkFileName } from '../backends/archive/xapk'
 import {
   deviceErrorMessage,
   type AppAction,
@@ -51,13 +61,13 @@ import { fmtBytes, fmtDateTime, type Device } from '../model'
 
 /*
   One installed app: its details, and what a tester does to it — open it, stop it, open its
-  App info on the phone, download its APKs, clear its data or uninstall it. The last two are
+  App info on the phone, export its APKs, clear its data or uninstall it. The last two are
   destructive and always go through ConfirmAppAction, which names the app, the phone and what
   is lost.
 
   Also the pieces the Apps tab shares with this sheet: the avatar (the app's own icon once read
-  from its APK, its initial until then), the action wording, and the .zip writer that packs a
-  split app's APKs so Device Lab can install them back.
+  from its APK, its initial until then), the action wording, and an export's progress. The
+  export itself (one .apk, or an .xapk of a split app) is archive/xapk's.
 */
 
 /** What the Apps tab and this sheet use of a lane (PLAN §2); every operation is optional. */
@@ -69,7 +79,12 @@ export type AppsLane = Pick<Backend, 'apps' | 'app' | 'appAction' | 'pull' | 'ap
 
 /** An icon ready to draw: blob URLs made once per badge, revoked when the badge is dropped. */
 export type IconView =
-  | { readonly kind: 'bitmap'; readonly url: string }
+  | {
+      readonly kind: 'bitmap'
+      readonly url: string
+      /** The image itself: an export puts it in the .xapk as the app's icon. */
+      readonly blob: Blob
+    }
   | {
       readonly kind: 'adaptive'
       readonly foreground: string
@@ -82,8 +97,8 @@ export interface BadgeView {
   readonly icon: IconView | null
 }
 
-const imageUrl = (image: IconImage) =>
-  URL.createObjectURL(new Blob([image.bytes], { type: image.mime }))
+const imageBlob = (image: IconImage) => new Blob([image.bytes], { type: image.mime })
+const imageUrl = (image: IconImage) => URL.createObjectURL(imageBlob(image))
 
 /** 0xAARRGGBB → `rgb(r g b / a)`. Built at runtime: the palette rule bans colour literals. */
 export function argbCss(argb: number): string {
@@ -95,7 +110,10 @@ export function argbCss(argb: number): string {
 export function badgeView(badge: AppBadge): BadgeView {
   const { icon } = badge
   let view: IconView | null = null
-  if (icon?.kind === 'bitmap') view = { kind: 'bitmap', url: imageUrl(icon) }
+  if (icon?.kind === 'bitmap') {
+    const blob = imageBlob(icon)
+    view = { kind: 'bitmap', url: URL.createObjectURL(blob), blob }
+  }
   if (icon?.kind === 'adaptive') {
     const bg = icon.background
     view = {
@@ -274,139 +292,135 @@ export function confirmCopy(
 }
 
 /* ---------------------------------------------------------------- *
- * Download: one .apk, or a .zip of a split app's APKs
+ * Export: one .apk, or an .xapk of a split app's APKs (archive/xapk)
  * ---------------------------------------------------------------- */
 
-let crcTable: Uint32Array | null = null
-
-/** CRC-32 (ISO-HDLC, as zip uses), continued from `crc` for data that comes in pieces. */
-export function crc32(bytes: Uint8Array, crc = 0): number {
-  if (!crcTable) {
-    crcTable = new Uint32Array(256)
-    for (let n = 0; n < 256; n++) {
-      let c = n
-      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
-      crcTable[n] = c >>> 0
-    }
-  }
-  let c = ~crc >>> 0
-  for (const byte of bytes) c = (crcTable[(c ^ byte) & 0xff] ?? 0) ^ (c >>> 8)
-  return ~c >>> 0
-}
-
-async function blobCrc(blob: Blob): Promise<number> {
-  const reader = blob.stream().getReader()
-  let crc = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) return crc
-    crc = crc32(value, crc)
-  }
-}
-
-/** The 32-bit fields of a zip without ZIP64 stop just short of 4 GB. */
-const ZIP_LIMIT = 0xffffffff
-
-/** MS-DOS date and time, the only kind a plain zip header holds (local time, 2-second steps). */
-function dosDateTime(d: Date): { time: number; date: number } {
-  return {
-    time: (d.getHours() << 11) | (d.getMinutes() << 5) | Math.floor(d.getSeconds() / 2),
-    date: (Math.max(d.getFullYear() - 1980, 0) << 9) | ((d.getMonth() + 1) << 5) | d.getDate(),
-  }
-}
-
-/**
- * A zip of `entries`, STORED (APKs are compressed already, and a stored entry is what the
- * install code slices without inflating). The data is never copied: the result is a Blob made
- * of the headers and the entries' own Blobs. Rejects past 4 GB, which needs ZIP64.
- */
-export async function storedZip(
-  entries: readonly { readonly name: string; readonly blob: Blob }[],
-  at: Date = new Date(),
-): Promise<Blob> {
-  const { time, date } = dosDateTime(at)
-  const encoder = new TextEncoder()
-  const parts: BlobPart[] = []
-  const central: Uint8Array<ArrayBuffer>[] = []
-  let offset = 0
-  for (const { name, blob } of entries) {
-    const nameBytes = encoder.encode(name)
-    const crc = await blobCrc(blob)
-    if (offset + 30 + nameBytes.length + blob.size > ZIP_LIMIT) {
-      throw new Error('These APKs add up to more than 4 GB, which a plain .zip can’t hold.')
-    }
-    const local = new Uint8Array(30 + nameBytes.length)
-    const lv = new DataView(local.buffer)
-    lv.setUint32(0, 0x04034b50, true)
-    lv.setUint16(4, 20, true) // version needed: 2.0
-    lv.setUint16(6, 0x0800, true) // the name is UTF-8
-    lv.setUint16(8, 0, true) // stored
-    lv.setUint16(10, time, true)
-    lv.setUint16(12, date, true)
-    lv.setUint32(14, crc, true)
-    lv.setUint32(18, blob.size, true)
-    lv.setUint32(22, blob.size, true)
-    lv.setUint16(26, nameBytes.length, true)
-    local.set(nameBytes, 30)
-
-    const entry = new Uint8Array(46 + nameBytes.length)
-    const cv = new DataView(entry.buffer)
-    cv.setUint32(0, 0x02014b50, true)
-    cv.setUint16(4, 20, true) // made by: 2.0, MS-DOS attributes
-    cv.setUint16(6, 20, true)
-    cv.setUint16(8, 0x0800, true)
-    cv.setUint16(10, 0, true)
-    cv.setUint16(12, time, true)
-    cv.setUint16(14, date, true)
-    cv.setUint32(16, crc, true)
-    cv.setUint32(20, blob.size, true)
-    cv.setUint32(24, blob.size, true)
-    cv.setUint16(28, nameBytes.length, true)
-    cv.setUint32(42, offset, true)
-    entry.set(nameBytes, 46)
-
-    parts.push(local, blob)
-    central.push(entry)
-    offset += local.length + blob.size
-  }
-  const centralSize = central.reduce((n, e) => n + e.length, 0)
-  if (offset + centralSize + 22 > ZIP_LIMIT || entries.length > 0xffff) {
-    throw new Error('These APKs add up to more than 4 GB, which a plain .zip can’t hold.')
-  }
-  const end = new Uint8Array(22)
-  const ev = new DataView(end.buffer)
-  ev.setUint32(0, 0x06054b50, true)
-  ev.setUint16(8, entries.length, true)
-  ev.setUint16(10, entries.length, true)
-  ev.setUint32(12, centralSize, true)
-  ev.setUint32(16, offset, true)
-  return new Blob([...parts, ...central, end], { type: 'application/zip' })
-}
-
-/** `/data/app/~~x==/com.example-y==/split_config.xxhdpi.apk` → `split_config.xxhdpi.apk`. */
-export const apkFileName = (path: string) => path.split('/').pop() || 'base.apk'
-
-/** `com.example.shop-1.4.0.apk`, or `.zip` for a split app: safe on every file system. */
-export function downloadName(packageName: string, version: string, files: number): string {
-  const safe = (s: string) => s.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^[._]+/, '')
-  const stem = [packageName, version].map(safe).filter(Boolean).join('-')
-  return `${stem || 'app'}.${files > 1 ? 'zip' : 'apk'}`
-}
-
-/** A download in flight, as the sheet shows it. */
-export interface DownloadProgress {
+/** An export in flight, as the row and the sheet show it. */
+export interface ExportProgress {
+  /** Reading `pm path`, pulling the APKs, then (for a split app) checksumming them into an .xapk. */
+  readonly phase: 'reading' | 'pulling' | 'packing'
+  /** Bytes pulled, or while packing, bytes checksummed. */
   readonly received: number
   /** null until every APK's size is known. */
   readonly total: number | null
+  /** APKs; 0 while they are being listed. */
   readonly files: number
 }
 
-/** "Downloading 12.3 of 45.6 MB · 27%", or the bytes alone while the size is unknown. */
-export function downloadText(p: DownloadProgress): string {
+/**
+ * Whole percent of the phase, or null while its size is unknown. Packing starts again from 0:
+ * checksumming a large app takes seconds, and a bar left full would read as done or stuck.
+ */
+export function exportPercent(p: ExportProgress): number | null {
+  if (p.phase === 'reading') return null
+  if (p.total === null || p.total <= 0) return null
+  return Math.min(100, Math.floor((p.received / p.total) * 100))
+}
+
+/** "Exporting 12.3 of 45.6 MB (3 APKs) · 27%", or what is happening before and after. */
+export function exportText(p: ExportProgress): string {
+  if (p.phase === 'reading') return 'Finding the APK files…'
+  const pct = exportPercent(p)
+  if (p.phase === 'packing') {
+    const packing = `Packing ${String(p.files)} APKs into an .xapk`
+    return pct === null ? `${packing}…` : `${packing} · ${String(pct)}%`
+  }
   const files = p.files > 1 ? ` (${String(p.files)} APKs)` : ''
-  if (p.total === null || p.total <= 0) return `Downloading ${fmtBytes(p.received)}${files}…`
-  const pct = Math.min(100, Math.floor((p.received / p.total) * 100))
-  return `Downloading ${fmtBytes(p.received)} of ${fmtBytes(p.total)}${files} · ${String(pct)}%`
+  if (p.total === null || pct === null) return `Exporting ${fmtBytes(p.received)}${files}…`
+  return `Exporting ${fmtBytes(p.received)} of ${fmtBytes(p.total)}${files} · ${String(pct)}%`
+}
+
+/** The same, short enough for a row's second line at 390 px: the percentage leads. */
+export function exportShortText(p: ExportProgress): string {
+  if (p.phase === 'reading') return 'Finding the APK files…'
+  const pct = exportPercent(p)
+  if (p.phase === 'packing') {
+    return pct === null ? 'Packing the .xapk…' : `Packing the .xapk · ${String(pct)}%`
+  }
+  if (p.total === null || pct === null) return `Exporting · ${fmtBytes(p.received)}`
+  return `Exporting · ${String(pct)}% of ${fmtBytes(p.total)}`
+}
+
+/**
+ * The export's name in the row menu and the sheet alike. Neutral on purpose: the row can't know
+ * before the export whether the app is one APK (saved as .apk) or a split app (saved as .xapk).
+ */
+export const EXPORT_LABEL = 'Export app'
+
+/**
+ * What the export saves, under the sheet's button once the APKs are listed: one APK as it is, a
+ * split app's APKs as one .xapk (which adb install can't take). null while they are unknown.
+ */
+export function exportNote(apks: number | null): string | null {
+  if (apks === null || apks < 1) return null
+  return apks === 1 ? 'Saves one .apk.' : `Saves its ${String(apks)} APKs as one .xapk.`
+}
+
+/*
+ * An export and an uninstall of the same app exclude each other: uninstalling deletes the APKs
+ * the export is pulling, so the export would fail halfway (or save a backup the user meant to
+ * keep from an app that is gone). Clear data stays open: `pm clear` leaves /data/app alone.
+ */
+
+/** Uninstall waits while an action or an export of the app runs. */
+export const canUninstall = (busy: AppAction | undefined, exporting: ExportProgress | undefined) =>
+  busy === undefined && exporting === undefined
+
+/** One export per app at a time, and none of an app being uninstalled. */
+export const canStartExport = (
+  busy: AppAction | undefined,
+  exporting: ExportProgress | undefined,
+) => exporting === undefined && busy !== 'uninstall'
+
+/** Said where Uninstall is held back by an export. */
+export const UNINSTALL_WAITS = 'Cancel the export or let it finish to uninstall'
+
+/**
+ * For a control that goes away by itself, like an export's Cancel when the export ends: if it
+ * holds focus then, focus moves to `returnFocus`'s target instead of falling to <body> or to
+ * the dialog around it.
+ */
+export function useFocusAfterUnmount(ref: RefObject<HTMLElement | null>, returnFocus: () => void) {
+  const refocus = useEffectEvent(returnFocus)
+  useLayoutEffect(() => {
+    const el = ref.current
+    // Layout cleanups run before React removes the node, while it still holds focus.
+    return () => {
+      if (el && el === document.activeElement) refocus()
+    }
+  }, [ref])
+}
+
+/** The bar under an export: a determinate meter once the size is known, a pulse until then. */
+export function ExportMeter({
+  progress,
+  label,
+  className,
+}: {
+  progress: ExportProgress
+  label: string
+  className?: string
+}) {
+  const pct = exportPercent(progress)
+  return (
+    <div
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={pct ?? undefined}
+      aria-valuetext={exportText(progress)}
+      className={cn('bg-muted h-1.5 overflow-hidden rounded-full', className)}
+    >
+      <div
+        className={cn(
+          'bg-primary h-full rounded-full motion-safe:transition-[width]',
+          pct === null && 'w-1/3 motion-safe:animate-pulse',
+        )}
+        style={pct === null ? undefined : { width: `${String(pct)}%` }}
+      />
+    </div>
+  )
 }
 
 /* ---------------------------------------------------------------- *
@@ -429,6 +443,7 @@ export function ConfirmAppAction({
   running,
   onCancel,
   onConfirm,
+  onCloseAutoFocus,
 }: {
   device: Device
   pending: PendingConfirm | null
@@ -436,18 +451,23 @@ export function ConfirmAppAction({
   running: boolean
   onCancel: () => void
   onConfirm: (pending: PendingConfirm) => void
+  /** Where focus goes once it has closed; by default, back where it was. */
+  onCloseAutoFocus?: (event: Event) => void
 }) {
-  const copy = pending
-    ? confirmCopy(pending.action, pending.name, pending.row.packageName, device.name)
+  const open = pending !== null
+  // The wording fades out with the dialog; the action below still reads the live `pending`.
+  const shown = useHeldWhileClosing(open, pending)
+  const copy = shown
+    ? confirmCopy(shown.action, shown.name, shown.row.packageName, device.name)
     : null
   return (
     <AlertDialog
-      open={pending !== null}
-      onOpenChange={(open) => {
-        if (!open && !running) onCancel()
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && !running) onCancel()
       }}
     >
-      <AlertDialogContent>
+      <AlertDialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <AlertDialogHeader>
           <AlertDialogTitle className="wrap-anywhere">{copy?.title}</AlertDialogTitle>
           <AlertDialogDescription className="wrap-anywhere">{copy?.body}</AlertDialogDescription>
@@ -456,7 +476,8 @@ export function ConfirmAppAction({
           <AlertDialogCancel disabled={running}>Cancel</AlertDialogCancel>
           {/* aria-disabled while running: disabling the focused button drops focus to <body>. */}
           <AlertDialogAction
-            className="bg-destructive hover:bg-destructive/90 text-white aria-disabled:opacity-50"
+            variant="destructive"
+            className="aria-disabled:opacity-50"
             aria-disabled={running}
             onClick={(e) => {
               // The tab closes it once the phone answers, not Radix on click.
@@ -584,7 +605,7 @@ function Details({
 
 /**
  * "App details": opened from a row of the Apps tab. Reads `dumpsys package` and `pm path` when
- * it opens; the actions live in the tab, which also runs the downloads (they outlive the sheet).
+ * it opens; the actions live in the tab, which also runs the exports (they outlive the sheet).
  */
 export function AppSheet({
   device,
@@ -592,13 +613,14 @@ export function AppSheet({
   row,
   view,
   busy,
-  download,
+  exporting,
   timeZone,
   onOpenChange,
   onAction,
   onConfirm,
-  onDownload,
-  onCancelDownload,
+  onExport,
+  onCancelExport,
+  onCloseAutoFocus,
 }: {
   device: Device
   lane: AppsLane
@@ -607,33 +629,46 @@ export function AppSheet({
   view: BadgeView | null | undefined
   /** The action running on this app, if any. */
   busy: AppAction | undefined
-  download: DownloadProgress | undefined
+  exporting: ExportProgress | undefined
   /** The phone's time zone name (persist.sys.timezone), for dumpsys's local times. */
   timeZone?: string
   onOpenChange: (open: boolean) => void
   onAction: (action: Exclude<AppAction, DestructiveAction>) => void
   onConfirm: (action: DestructiveAction) => void
-  onDownload: (detail: AppDetail) => void
-  onCancelDownload: () => void
+  onExport: (detail: AppDetail) => void
+  onCancelExport: () => void
+  /** Where focus goes once it has closed; by default, back where it was. */
+  onCloseAutoFocus?: (event: Event) => void
 }) {
+  const open = row !== null
+  // What the sheet fades out with. It is inert while it closes, so nothing held here can act.
+  const shown = {
+    row: useHeldWhileClosing(open, row),
+    view: useHeldWhileClosing(open, view),
+    busy: useHeldWhileClosing(open, busy),
+    exporting: useHeldWhileClosing(open, exporting),
+  }
   return (
-    <Sheet open={row !== null} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full gap-0 overflow-y-auto sm:max-w-md">
-        {row && (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        className="w-full gap-0 overflow-y-auto sm:max-w-md"
+        onCloseAutoFocus={onCloseAutoFocus}
+      >
+        {shown.row && (
           // Keyed: another app's details start from loading, never from this one's.
           <SheetBody
-            key={`${device.id}|${row.packageName}`}
+            key={`${device.id}|${shown.row.packageName}`}
             device={device}
             lane={lane}
-            row={row}
-            view={view}
-            busy={busy}
-            download={download}
+            row={shown.row}
+            view={shown.view}
+            busy={shown.busy}
+            exporting={shown.exporting}
             timeZone={timeZone}
             onAction={onAction}
             onConfirm={onConfirm}
-            onDownload={onDownload}
-            onCancelDownload={onCancelDownload}
+            onExport={onExport}
+            onCancelExport={onCancelExport}
           />
         )}
       </SheetContent>
@@ -647,24 +682,24 @@ function SheetBody({
   row,
   view,
   busy,
-  download,
+  exporting,
   timeZone,
   onAction,
   onConfirm,
-  onDownload,
-  onCancelDownload,
+  onExport,
+  onCancelExport,
 }: {
   device: Device
   lane: AppsLane
   row: AppRow
   view: BadgeView | null | undefined
   busy: AppAction | undefined
-  download: DownloadProgress | undefined
+  exporting: ExportProgress | undefined
   timeZone: string | undefined
   onAction: (action: Exclude<AppAction, DestructiveAction>) => void
   onConfirm: (action: DestructiveAction) => void
-  onDownload: (detail: AppDetail) => void
-  onCancelDownload: () => void
+  onExport: (detail: AppDetail) => void
+  onCancelExport: () => void
 }) {
   const [load, setLoad] = useState<DetailLoad>(() =>
     lane.app ? { status: 'loading' } : { status: 'unavailable' },
@@ -693,6 +728,11 @@ function SheetBody({
   }, [attempt])
 
   const detail = load.status === 'ready' ? load.detail : null
+  const exportButton = useRef<HTMLButtonElement>(null)
+  const exportNoteId = useId()
+  const saves = exportNote(detail ? detail.apks.length : null)
+  const exportable = detail !== null && detail.apks.length > 0 && canStartExport(busy, exporting)
+  const uninstallable = canUninstall(busy, exporting)
   const can = Boolean(lane.appAction) && busy === undefined
   const actionButton = (
     action: Exclude<AppAction, DestructiveAction>,
@@ -738,21 +778,39 @@ function SheetBody({
             {actionButton('info', 'App info on phone', Info)}
             {lane.pull && (
               <Button
+                ref={exportButton}
                 variant="outline"
                 size="sm"
-                aria-disabled={!detail || detail.apks.length === 0 || download !== undefined}
+                aria-disabled={!exportable}
                 className="justify-start aria-disabled:opacity-50"
                 title={detail ? undefined : 'Available once the details are read'}
+                aria-describedby={saves && !exporting ? exportNoteId : undefined}
                 onClick={() => {
-                  if (detail && detail.apks.length > 0 && !download) onDownload(detail)
+                  if (exportable) onExport(detail)
                 }}
               >
-                {download ? <Loader2 className="animate-spin" /> : <Download />}
-                {detail && detail.apks.length > 1 ? 'Download APKs' : 'Download APK'}
+                {exporting ? <Loader2 className="animate-spin" /> : <Download />}
+                {EXPORT_LABEL}
               </Button>
             )}
           </div>
-          {download && <DownloadBar progress={download} onCancel={onCancelDownload} />}
+          {lane.pull && saves && !exporting && (
+            <p id={exportNoteId} className="text-muted-foreground text-xs">
+              {saves}
+            </p>
+          )}
+          {exporting && (
+            <ExportBar
+              progress={exporting}
+              onCancel={() => {
+                // The bar and its button go once the export stops: keep focus in the sheet.
+                exportButton.current?.focus()
+                onCancelExport()
+              }}
+              // And when the export ends by itself while its Cancel has focus.
+              returnFocus={() => exportButton.current?.focus()}
+            />
+          )}
         </section>
 
         <section aria-label="Details" className="flex flex-col gap-3">
@@ -817,10 +875,11 @@ function SheetBody({
                   <Button
                     variant="outline"
                     size="sm"
-                    aria-disabled={busy !== undefined}
+                    aria-disabled={!uninstallable}
                     className="text-destructive hover:text-destructive aria-disabled:opacity-50"
+                    title={exporting ? UNINSTALL_WAITS : undefined}
                     onClick={() => {
-                      if (busy === undefined) onConfirm('uninstall')
+                      if (uninstallable) onConfirm('uninstall')
                     }}
                   >
                     {busy === 'uninstall' ? <Loader2 className="animate-spin" /> : <Trash2 />}
@@ -857,33 +916,24 @@ export function StateBadges({ row, detail }: { row: AppRow; detail?: AppDetail |
   )
 }
 
-function DownloadBar({ progress, onCancel }: { progress: DownloadProgress; onCancel: () => void }) {
-  const pct =
-    progress.total && progress.total > 0
-      ? Math.min(100, Math.floor((progress.received / progress.total) * 100))
-      : null
+function ExportBar({
+  progress,
+  onCancel,
+  returnFocus,
+}: {
+  progress: ExportProgress
+  onCancel: () => void
+  returnFocus: () => void
+}) {
+  const cancel = useRef<HTMLButtonElement>(null)
+  useFocusAfterUnmount(cancel, returnFocus)
   return (
     <div className="flex items-center gap-3 rounded-lg border p-2.5">
       <div className="min-w-0 flex-1">
-        <p className="text-muted-foreground text-xs tabular-nums">{downloadText(progress)}</p>
-        <div
-          role="progressbar"
-          aria-label="Download"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={pct ?? undefined}
-          className="bg-muted mt-1.5 h-1.5 overflow-hidden rounded-full"
-        >
-          <div
-            className={cn(
-              'bg-primary h-full rounded-full transition-[width]',
-              pct === null && 'w-1/3 motion-safe:animate-pulse',
-            )}
-            style={pct === null ? undefined : { width: `${String(pct)}%` }}
-          />
-        </div>
+        <p className="text-muted-foreground text-xs tabular-nums">{exportText(progress)}</p>
+        <ExportMeter progress={progress} label="Export" className="mt-1.5" />
       </div>
-      <Button variant="ghost" size="sm" onClick={onCancel}>
+      <Button ref={cancel} variant="ghost" size="sm" onClick={onCancel}>
         <X /> Cancel
       </Button>
     </div>

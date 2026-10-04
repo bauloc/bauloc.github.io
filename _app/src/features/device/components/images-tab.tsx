@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { untilAborted } from '@/lib/abort'
 import { cn } from '@/lib/cn'
 
 import {
@@ -33,7 +34,7 @@ import { fmtDateTime, type Device } from '../model'
 import { featureChecks } from '../preflight/checks'
 import type { ImagesOutcome } from '../preflight/types'
 import { InlineChecklist } from './checklist'
-import { ImageViewer, imageFacts, imageWhen, typeLabel } from './image-viewer'
+import { ImageViewer, imageFacts, imageWhen, typeLabel, type PreviewSource } from './image-viewer'
 
 /*
   The Images tab (PLAN §4.5): the phone's photos by album, newest first, a page at a time,
@@ -334,26 +335,6 @@ async function pullForPreview(
   }
 }
 
-/**
- * `work`, or the signal's reason as soon as it aborts: a slow lane that ignores the signal must
- * not keep one of the PREVIEW_CONCURRENCY slots after its tile has gone.
- */
-function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => {
-      reject(signal.reason as Error)
-    }
-    if (signal.aborted) {
-      onAbort()
-      return
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-    work.then(resolve, reject).finally(() => {
-      signal.removeEventListener('abort', onAbort)
-    })
-  })
-}
-
 /** A tile's preview, and whether it is kept for the next time the tile asks. */
 interface PreviewRead {
   readonly preview: Preview
@@ -373,6 +354,8 @@ async function readPreview(
   const plan = previewPlan(row, { thumbnail: Boolean(thumbnail), pull: Boolean(pull) })
   let blob: Blob
   try {
+    // untilAborted: a slow lane that ignores the signal must not keep one of the
+    // PREVIEW_CONCURRENCY slots after its tile has gone.
     if (plan.step === 'thumbnail' && thumbnail) {
       blob = await untilAborted(thumbnail(deviceId, imageKey(row), signal), signal)
     } else if (plan.step === 'original' && pull) {
@@ -436,6 +419,24 @@ function requestPreview(
     })
   inflight.set(key, promise)
   return promise
+}
+
+/**
+ * The grid's previews as the viewer sees them: what a tile already has, or a read it can join
+ * (stopped when the viewer moves on), so a photo shows its preview while its original is read.
+ */
+export function viewerPreviews(backend: Backend, deviceId: string): PreviewSource {
+  return {
+    get(row) {
+      const preview = previews.get(previewKey(deviceId, row))
+      return preview?.kind === 'ready' ? preview.url : undefined
+    },
+    load(row, signal) {
+      return requestPreview(previewKey(deviceId, row), backend, deviceId, row, signal, signal).then(
+        (preview) => (preview.kind === 'ready' ? preview.url : undefined),
+      )
+    },
+  }
 }
 
 /* ---------------------------------------------------------------- *
@@ -803,6 +804,7 @@ function AlbumGrid({
         onCloseFocus={() => {
           focusTile(lastViewed.current)
         }}
+        previews={viewerPreviews(backend, device.id)}
       />
     </div>
   )

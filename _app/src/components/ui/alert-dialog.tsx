@@ -3,11 +3,27 @@ import { cn } from "@/lib/cn"
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
 
 import { Button } from "@/components/ui/button"
+import {
+  OverlayOpen,
+  useOverlayOpenState,
+  useReturnFocus,
+} from "@/components/ui/dialog"
 
+// Inert while it closes, and gives focus back without a trigger: see dialog.tsx.
 function AlertDialog({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
-  return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
+  const [shown, change] = useOverlayOpenState(props)
+  return (
+    <OverlayOpen value={shown}>
+      <AlertDialogPrimitive.Root
+        data-slot="alert-dialog"
+        {...props}
+        open={shown}
+        onOpenChange={change}
+      />
+    </OverlayOpen>
+  )
 }
 
 function AlertDialogTrigger({
@@ -26,6 +42,8 @@ function AlertDialogPortal({
   )
 }
 
+// Same motion as dialog.tsx; the overlay's exit lasts as long as the content's, so the
+// scroll lock it holds lets go only once both are gone.
 function AlertDialogOverlay({
   className,
   ...props
@@ -34,7 +52,7 @@ function AlertDialogOverlay({
     <AlertDialogPrimitive.Overlay
       data-slot="alert-dialog-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-black/50 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
+        "fixed inset-0 z-50 bg-black/50 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:duration-100 data-[state=closed]:ease-in data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:duration-150 data-[state=open]:ease-out",
         className
       )}
       {...props}
@@ -45,10 +63,13 @@ function AlertDialogOverlay({
 function AlertDialogContent({
   className,
   size = "default",
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
   size?: "default" | "sm"
 }) {
+  const open = React.useContext(OverlayOpen)
+  const returnFocus = useReturnFocus(open, onCloseAutoFocus)
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />
@@ -56,9 +77,11 @@ function AlertDialogContent({
         data-slot="alert-dialog-content"
         data-size={size}
         className={cn(
-          "group/alert-dialog-content fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg duration-200 data-[size=sm]:max-w-xs data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[size=default]:sm:max-w-lg",
+          "group/alert-dialog-content fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg data-[size=sm]:max-w-xs data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-98 data-[state=closed]:duration-100 data-[state=closed]:ease-in data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-98 data-[state=open]:duration-150 data-[state=open]:ease-out data-[size=default]:sm:max-w-lg",
           className
         )}
+        inert={!open}
+        onCloseAutoFocus={returnFocus}
         {...props}
       />
     </AlertDialogPortal>
@@ -97,6 +120,10 @@ function AlertDialogFooter({
   )
 }
 
+// Beside the media, when there is one, by following it as a sibling rather than through
+// shadcn's group-has variant: that compiles to `:is(.group:has(…) *)`, and a :has() with a
+// descendant after it makes Chrome restyle the whole page whenever an element is added or
+// removed anywhere (globals.css explains the cost).
 function AlertDialogTitle({
   className,
   ...props
@@ -105,7 +132,7 @@ function AlertDialogTitle({
     <AlertDialogPrimitive.Title
       data-slot="alert-dialog-title"
       className={cn(
-        "text-lg font-semibold sm:group-data-[size=default]/alert-dialog-content:group-has-data-[slot=alert-dialog-media]/alert-dialog-content:col-start-2",
+        "text-lg font-semibold sm:group-data-[size=default]/alert-dialog-content:[[data-slot=alert-dialog-media]~&]:col-start-2",
         className
       )}
       {...props}

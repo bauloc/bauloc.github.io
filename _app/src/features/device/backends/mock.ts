@@ -120,21 +120,21 @@ export const MOCK_FIXTURES: readonly Fixture[] = [
     },
   },
   {
-    id: '00008101-001E29801AC0001E',
+    id: '00008101-000A1B2C3D4E5F02',
     platform: 'ios',
     state: 'ready',
     connection: 'usb',
-    name: "Bầu's iPhone 12 Pro",
+    name: 'Ngọc’s iPhone 12 Pro',
     model: 'iPhone 12 Pro',
     osVersion: '26.5.2',
     blockers: ['TUNNEL_REQUIRED'],
     detail: {
       identity: {
-        'Device name': "Bầu's iPhone 12 Pro",
+        'Device name': 'Ngọc’s iPhone 12 Pro',
         Model: 'iPhone 12 Pro',
         'Model identifier': 'iPhone13,3',
-        Serial: 'F17DK2SC0D92',
-        Identifier: '00008101-001E29801AC0001E',
+        Serial: 'F2LX0EXAMPLE',
+        Identifier: '00008101-000A1B2C3D4E5F02',
       },
       software: { iOS: '26.5.2', Build: '23F84', 'Developer Mode': 'On', Pairing: 'Paired' },
       hardware: {},
@@ -190,18 +190,24 @@ const delay = (ms: number) =>
     setTimeout(resolve, ms)
   })
 
-/** A plausible screen for the device: its name, the time and a gradient — a real PNG. */
+/**
+ * A plausible screen for the device: its name, the time and a gradient — a real PNG, the size
+ * a Pixel 9 captures (1080 × 2424). Like a real one it is over 1 MB, so the Screenshots card's
+ * "Copy ≤ 1 MB" has something to shrink.
+ */
 async function renderScreen(name: string): Promise<Blob> {
   const canvas = document.createElement('canvas')
-  canvas.width = 540
-  canvas.height = 1170
+  canvas.width = 1080
+  canvas.height = 2424
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('Canvas is unavailable')
-  const g = ctx.createLinearGradient(0, 0, 540, 1170)
+  // Drawn on a 540-wide layout at 2x, as a phone draws dp at its density.
+  ctx.scale(2, 2)
+  const g = ctx.createLinearGradient(0, 0, 540, 1212)
   g.addColorStop(0, 'rgb(79 70 229)')
   g.addColorStop(1, 'rgb(16 185 129)')
   ctx.fillStyle = g
-  ctx.fillRect(0, 0, 540, 1170)
+  ctx.fillRect(0, 0, 540, 1212)
   ctx.fillStyle = 'rgb(255 255 255)'
   ctx.textAlign = 'center'
   ctx.font = '600 120px system-ui, sans-serif'
@@ -214,7 +220,7 @@ async function renderScreen(name: string): Promise<Blob> {
   ctx.font = '500 36px system-ui, sans-serif'
   ctx.fillText(name, 270, 460)
   ctx.font = '400 26px system-ui, sans-serif'
-  ctx.fillText('Mock screenshot · Device Lab', 270, 1100)
+  ctx.fillText('Mock screenshot · Device Lab', 270, 1140)
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (blob) resolve(blob)

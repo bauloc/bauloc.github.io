@@ -83,3 +83,21 @@ describe('mock lane, -disconnect', () => {
     expect(lane.list()).toHaveLength(before - 1)
   })
 })
+
+describe('mock lane, fixtures', () => {
+  it('shows a made-up iPhone: the page is public, so no real phone’s ids are in it', async () => {
+    const lane = createMockBackend()
+    const iphone = lane.list().find((d) => d.platform === 'ios' && d.state === 'ready')
+    expect(iphone?.id).toBe('00008101-000A1B2C3D4E5F02')
+    expect(iphone?.name).toBe('Ngọc’s iPhone 12 Pro')
+
+    const detail = await lane.detail(iphone?.id ?? '')
+    expect(detail.identity).toMatchObject({
+      'Device name': 'Ngọc’s iPhone 12 Pro',
+      Serial: 'F2LX0EXAMPLE',
+      Identifier: '00008101-000A1B2C3D4E5F02',
+    })
+    // Apple's format all the same: twelve capitals and digits.
+    expect(detail.identity.Serial).toMatch(/^[A-Z0-9]{12}$/)
+  })
+})

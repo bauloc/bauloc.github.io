@@ -416,6 +416,26 @@ describe('ImagesTab', () => {
     expect(await screen.findByRole('dialog')).toHaveTextContent('shot-3.png')
   })
 
+  it('opens the viewer on the tile’s own preview while the original is read', async () => {
+    const pull = vi.fn(() => new Promise<Blob>(() => undefined))
+    const thumbnail = vi.fn(() => Promise.resolve(new Blob([JPEG], { type: 'image/jpeg' })))
+    const { container } = renderTab(
+      lane({ images: () => Promise.resolve([row(401), row(402)]), thumbnail, pull }),
+    )
+    await waitFor(() => {
+      expect(container.querySelectorAll('img[src^="blob:preview-"]')).toHaveLength(2)
+    })
+    const tile = container.querySelector('[data-image-index="0"] img')?.getAttribute('src')
+    fireEvent.click(screen.getByRole('button', { name: /^shot-401\.png/ }))
+    const dialog = await screen.findByRole('dialog')
+    expect(
+      dialog.querySelector(`[data-slot="image-frame"] img[src="${String(tile)}"]`),
+    ).not.toBeNull()
+    expect(dialog).toHaveTextContent('Reading from Pixel 9')
+    // The tile's preview is reused, not read again.
+    expect(thumbnail).toHaveBeenCalledTimes(2)
+  })
+
   it('says so when the lane can’t list images', () => {
     renderTab(lane({}))
     expect(screen.getByText('This connection can’t list the phone’s images.')).toBeInTheDocument()

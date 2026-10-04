@@ -42,7 +42,7 @@ type MockOps = Required<
   >
 >
 
-/** What a page URL's `&apps=` and `&images=` ask the mock to do. */
+/** What a page URL's `&apps=` (`failed`, or a number of extra apps) and `&images=` ask the mock to do. */
 function scenario(name: 'apps' | 'images'): string {
   try {
     return new URLSearchParams(globalThis.location.search).get(name) ?? ''
@@ -228,6 +228,62 @@ const APP_FIXTURES: readonly MockApp[] = [
     }),
   ),
 ]
+
+/** The most synthetic apps `&apps=<n>` adds: a real phone with a lot installed has about this. */
+export const MAX_SYNTHETIC_APPS = 1000
+
+/**
+ * How many synthetic apps a page URL's `&apps=` asks for: a whole number from 1 up (capped at
+ * MAX_SYNTHETIC_APPS), or 0 for anything else, so `&apps=failed` and no knob at all keep the
+ * plain fixtures.
+ */
+export function syntheticCount(value: string): number {
+  if (!/^\d+$/.test(value)) return 0
+  return Math.min(MAX_SYNTHETIC_APPS, Number(value))
+}
+
+// prettier-ignore
+const SYNTHETIC_WORDS = [
+  'Atlas', 'Beacon', 'Cedar', 'Delta', 'Ember', 'Fable', 'Grove', 'Harbor', 'Indigo', 'Juniper',
+  'Kestrel', 'Lumen', 'Meadow', 'Nimbus', 'Orbit', 'Pebble', 'Quill', 'Ripple', 'Summit', 'Tide',
+] as const
+// prettier-ignore
+const SYNTHETIC_KINDS = [
+  'Notes', 'Tracker', 'Reader', 'Scanner', 'Wallet', 'Radio', 'Planner', 'Studio', 'Chat', 'Maps',
+  'Timer', 'Lens', 'Keys', 'Pay', 'Fit', 'Cast', 'Books', 'Mail',
+] as const
+
+/**
+ * `&apps=<n>`: n made-up user apps on top of the fixtures, to see the Apps tab (and anything
+ * that opens over it) the way it is on a phone with hundreds of apps. Deterministic, so a
+ * measurement can be repeated: labels from two word lists, a third of each icon kind, dates
+ * spread over two years, and package names under com.example.synthetic so they never collide
+ * with a fixture.
+ */
+export function syntheticApps(count: number): MockApp[] {
+  const icons = ['bitmap', 'adaptive', null] as const
+  return Array.from({ length: count }, (_, i): MockApp => {
+    const word = SYNTHETIC_WORDS[i % SYNTHETIC_WORDS.length] ?? 'Atlas'
+    const kind = SYNTHETIC_KINDS[Math.floor(i / SYNTHETIC_WORDS.length) % SYNTHETIC_KINDS.length]
+    const round = Math.floor(i / (SYNTHETIC_WORDS.length * SYNTHETIC_KINDS.length))
+    const label = `${word} ${kind ?? 'Notes'}${round > 0 ? ` ${String(round + 1)}` : ''}`
+    const major = 1 + (i % 9)
+    return {
+      packageName: `com.example.synthetic.app${String(i + 1).padStart(4, '0')}`,
+      label,
+      versionName: `${String(major)}.${String(i % 13)}.${String(i % 5)}`,
+      versionCode: major * 10_000 + i,
+      system: false,
+      installer: i % 4 === 3 ? null : 'com.android.vending',
+      updated: (i * 7) % 700,
+      installed: 700 + (i % 30),
+      targetSdk: 33 + (i % 3),
+      minSdk: 24 + (i % 5),
+      icon: icons[i % icons.length] ?? null,
+      hue: (i * 37) % 360,
+    }
+  })
+}
 
 /** `/data/app/~~<hash>==/<pkg>-<hash>==/base.apk`: the shape Android uses, `=` included. */
 function apkDir(pkg: string): string {
@@ -516,8 +572,9 @@ export function createMockAndroid(hooks: MockHooks): MockOps {
   const appsOf = (id: string) => {
     let apps = installed.get(id)
     if (!apps) {
+      const fixtures = [...APP_FIXTURES, ...syntheticApps(syntheticCount(scenario('apps')))]
       apps = new Map(
-        APP_FIXTURES.map(({ updated, installed: since, ...a }) => [
+        fixtures.map(({ updated, installed: since, ...a }) => [
           a.packageName,
           {
             ...a,
