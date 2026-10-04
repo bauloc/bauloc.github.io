@@ -23,7 +23,7 @@ import {
 } from './components/device-detail'
 import { DeviceList } from './components/device-list'
 import { aboutRows, DoctorDialog } from './components/doctor-dialog'
-import { Gate } from './components/gate'
+import { Gate, readGatePlatform, saveGatePlatform, type GatePlatform } from './components/gate'
 import { HelperChip, type HelperHandlers } from './components/helper-chip'
 import { HelperNotice } from './components/helper-notice'
 import { deviceCheck } from './components/hint-card'
@@ -347,6 +347,8 @@ export function DeviceLabPage() {
   const [startingAdb, setStartingAdb] = useState(false)
   const [doctorOpen, setDoctorOpen] = useState(false)
   const [zoom, setZoom] = useState(readZoom)
+  // The Gate's platform, as this browser chose it last; null until the tester chooses one.
+  const [gatePlatform, setGatePlatform] = useState<GatePlatform | null>(readGatePlatform)
   const [env, setEnv] = useState(() => environmentNow())
   const [appUpdated, setAppUpdated] = useState(false)
   const [finding, setFinding] = useState(false)
@@ -988,6 +990,11 @@ export function DeviceLabPage() {
               helperOn={helperOn}
               checklist={gateItems}
               onWifi={openWifi}
+              choice={gatePlatform}
+              onChoose={(platform) => {
+                setGatePlatform(platform)
+                saveGatePlatform(platform)
+              }}
             />
           ) : (
             <>
