@@ -5,18 +5,37 @@ export interface MinimapHandle {
   update(progress: number, lit: boolean): void
 }
 
-const TICK_GAP = 10 // 1 px tick + 9 px space, as measured on the reference
+/** The widest gap between ticks, and the tracker's width when there is room for it. */
+const MAX_GAP = 40
 const TRACKER = 30
+/** Past this the gaps shrink instead of the ruler growing, down to MIN_GAP. */
+const MAX_WIDTH = 320
+const MIN_GAP = 14
+/** Ticks within this distance of the tracker step aside, so it never sits on a hairline. */
+const CLEARANCE = 4
 
-/** The reference draws ~2.5 ticks per sheet; past a few dozen sheets the ruler stops growing. */
-export function tickCount(sheets: number): number {
-  return Math.min(48, Math.max(14, Math.round(sheets * 3 + 2)))
+/** Whether a tick at `at` lies under (or too close to) a tracker whose left edge is at `x`. */
+export function isUnderTracker(at: number, x: number, tracker: number): boolean {
+  return at > x - CLEARANCE && at < x + tracker + CLEARANCE
 }
 
 /**
- * A ruler of hairline ticks with a hollow tracker riding it — the strip's scrollbar, since the
- * real one is hidden. Ticks under the tracker step aside; the tracker fills yellow when the
- * camera has come to rest on a sheet you can open.
+ * The ruler's geometry for `stops` sheets: one tick per sheet, so it counts what the strip
+ * holds. Sheet i rests at progress i/(stops-1), which is where its tick sits, and the
+ * tracker is never so wide that, resting on one tick, it hides a neighbour as well.
+ */
+export function rulerLayout(stops: number): { gap: number; tracker: number; width: number } {
+  const n = Math.max(1, Math.round(stops))
+  const gap =
+    n > 1 ? Math.min(MAX_GAP, Math.max(MIN_GAP, Math.floor(MAX_WIDTH / (n - 1)))) : MAX_GAP
+  const tracker = Math.min(TRACKER, 2 * (gap - CLEARANCE - 1))
+  return { gap, tracker, width: (n - 1) * gap + 1 }
+}
+
+/**
+ * A ruler with one hairline tick per sheet and a hollow tracker riding it — the strip's
+ * scrollbar, since the real one is hidden. The tick under the tracker steps aside; the
+ * tracker fills yellow when the camera has come to rest on a sheet you can open.
  *
  * Driven imperatively: it moves on every animation frame, and re-rendering React that often
  * would cost more than the whole camera.
@@ -31,6 +50,7 @@ export function Minimap({
   onSeek,
   ref,
 }: {
+  /** How many sheets the strip holds: one tick each. */
   ticks: number
   /** Fade in with the page's first load, not when the strip returns from the grid. */
   entrance: boolean
@@ -39,13 +59,17 @@ export function Minimap({
 }) {
   const tracker = useRef<HTMLSpanElement>(null)
   const ruler = useRef<HTMLSpanElement>(null)
-  const width = ticks * TICK_GAP - (TICK_GAP - 1)
+  const { gap, tracker: trackerWidth, width } = rulerLayout(ticks)
+  // Half a tracker of room each side, so it can centre on the first and last ticks.
+  const inset = trackerWidth / 2
+  const span = width - 1
 
   useImperativeHandle(
     ref,
     () => ({
       update(progress, lit) {
-        const x = progress * (width - TRACKER)
+        // The tracker's left edge; its centre then lies on the tick at `progress`.
+        const x = progress * span
         if (tracker.current) {
           tracker.current.style.transform = `translateX(${String(x)}px)`
           tracker.current.dataset.lit = String(lit)
@@ -53,18 +77,17 @@ export function Minimap({
         const marks = ruler.current?.children
         if (!marks) return
         for (let i = 0; i < marks.length; i++) {
-          const at = i * TICK_GAP
-          const hidden = at > x - 4 && at < x + TRACKER + 4
+          const hidden = isUnderTracker(inset + i * gap, x, trackerWidth)
           ;(marks[i] as HTMLElement).style.opacity = hidden ? '0' : '1'
         }
       },
     }),
-    [width],
+    [span, inset, gap, trackerWidth],
   )
 
   const seek = (event: PointerEvent<HTMLDivElement>) => {
     const box = event.currentTarget.getBoundingClientRect()
-    const progress = (event.clientX - box.left - TRACKER / 2) / (width - TRACKER)
+    const progress = span > 0 ? (event.clientX - box.left - inset) / span : 0
     onSeek(Math.min(1, Math.max(0, progress)))
   }
 
@@ -74,8 +97,8 @@ export function Minimap({
       onPointerDown={seek}
       className={`short-screen:top-auto short-screen:bottom-6 short-screen:py-1 fixed top-12 left-1/2 z-10 -translate-x-1/2 cursor-pointer py-4 ${entrance ? 'motion-safe:animate-sheet-fade' : ''}`}
     >
-      <span className="relative block h-[18px]" style={{ width }}>
-        <span ref={ruler} className="flex h-full gap-[9px]">
+      <span className="relative block h-[18px]" style={{ width: width + trackerWidth }}>
+        <span ref={ruler} className="absolute inset-y-0 flex" style={{ left: inset, gap: gap - 1 }}>
           {Array.from({ length: ticks }, (_, i) => (
             <span
               key={i}
@@ -86,7 +109,7 @@ export function Minimap({
         <span
           ref={tracker}
           className="border-index-rule data-[lit=true]:border-index-yellow data-[lit=true]:bg-index-yellow absolute top-0 left-0 h-full border transition-colors duration-300"
-          style={{ width: TRACKER }}
+          style={{ width: trackerWidth }}
         />
       </span>
     </div>

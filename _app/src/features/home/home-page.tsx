@@ -5,7 +5,7 @@ import { SHEET_GAP, SHEET_WIDTH } from './camera'
 import { Crosshair } from './components/crosshair'
 import { IntroSheet } from './components/intro-sheet'
 import { LinkSheet } from './components/link-sheet'
-import { Minimap, tickCount } from './components/minimap'
+import { Minimap } from './components/minimap'
 import { TextSwitch } from './components/text-switch'
 import { ThemeSwitch } from './components/theme-switch'
 import { HOME_LINKS } from './home-links'
@@ -210,7 +210,7 @@ function StripView({ entrance, initialSheet }: { entrance: boolean; initialSheet
         </div>
       </div>
 
-      <Minimap ref={minimap} ticks={tickCount(SHEETS)} entrance={entrance} onSeek={seek} />
+      <Minimap ref={minimap} ticks={SHEETS} entrance={entrance} onSeek={seek} />
       <Crosshair />
     </>
   )

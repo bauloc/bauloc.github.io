@@ -6,9 +6,11 @@
  * with no `art` it still gets a finished sheet: its own title, set as large as fits.
  *
  * They are plain anchors and a full document load, not router links, and that is not an
- * oversight: /iptv is not a route of this app but a raw M3U playlist read directly by player
- * apps, and /profile/, /xconsole/ and /device/, which are, gain nothing from a client-side
- * jump off a full-screen camera. A plain anchor also keeps middle-click and ⌘-click working.
+ * oversight: /profile/, /xconsole/ and /device/ gain nothing from a client-side jump off a
+ * full-screen camera, and a plain anchor keeps middle-click and ⌘-click working.
+ *
+ * /iptv is deliberately not here. It is a raw M3U playlist that player apps read directly
+ * (XConsole keeps it in sync), not a page anyone browses to.
  */
 
 /** Used by the launcher's ranking (a group name is a search term), not for layout. */
@@ -77,15 +79,6 @@ export const HOME_LINKS: readonly HomeLink[] = [
     status: 'wip',
     art: { kind: 'pixelPhone' },
     keywords: ['adb', 'usb', 'android', 'ios', 'udid', 'screenshot', 'qa', 'webusb'],
-  },
-  {
-    href: '/iptv',
-    title: 'IPTV playlist',
-    description: 'M3U playlist, synced from upstream. Open in any IPTV player.',
-    group: 'Data',
-    status: 'live',
-    art: { kind: 'testCard' },
-    keywords: ['m3u', 'playlist', 'tv', 'channels', 'stream'],
   },
   {
     href: 'https://github.com/bauloc',
