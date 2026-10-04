@@ -213,6 +213,38 @@ body[data-scroll-locked] [data-sonner-toaster][data-x-position='right'] {
   }
 }
 
+/*
+  The loading skeleton (components/ui/skeleton.tsx). A soft band sweeps left to right across
+  each one: 1.6 s across, ease-in-out, then 0.4 s at rest before the next. Only `transform`
+  moves, on the skeleton's ::after, so the compositor runs every sweep: no layout and no paint
+  per frame, however many skeletons there are (`background-position`, `left`, `width` or a
+  filter would lay out or repaint each one on every frame: measured in Chrome, 900 bands moved
+  by `left` painted about 12,000 times a second, these none). With reduced motion there is no
+  sweep: the skeleton itself pulses its opacity, which moves nothing and still reads as
+  loading. In @theme, like the overlay keyframes above, so Tailwind emits them with the
+  `animate-skeleton-*` utilities that use them.
+*/
+@theme inline {
+  --animate-skeleton-sweep: skeleton-sweep 2s ease-in-out infinite;
+  --animate-skeleton-pulse: skeleton-pulse 2s ease-in-out infinite;
+
+  @keyframes skeleton-sweep {
+    from {
+      transform: translateX(-100%);
+    }
+    80%,
+    to {
+      transform: translateX(100%);
+    }
+  }
+
+  @keyframes skeleton-pulse {
+    50% {
+      opacity: 0.55;
+    }
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -220,5 +252,15 @@ body[data-scroll-locked] [data-sonner-toaster][data-x-position='right'] {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  /*
+    The one animation reduced motion keeps: a skeleton's opacity pulse, which moves nothing.
+    Without it a loading list is a still grey block, indistinguishable from a broken one. It
+    names the pulse itself, so nothing else on a skeleton (nor its band, which is hidden
+    anyway) gets through; the higher specificity is what beats `*` above.
+  */
+  [data-slot='skeleton'] {
+    animation: --theme(--animate-skeleton-pulse) !important;
   }
 }

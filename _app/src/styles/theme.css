@@ -237,6 +237,14 @@ html:has([data-shell='console']) {
   --sidebar-accent-foreground: oklch(0.359 0.144 278.697);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.585 0.233 277.117);
+  /*
+    The loading skeleton (components/ui/skeleton.tsx): the accent tint moved 7% toward the
+    text colour, so a placeholder reads as a shape on a card rather than as an empty
+    tint, and the band that sweeps across it. The band must be lighter than the base in both
+    modes: the page's background here, and a little of the text colour in dark (below).
+  */
+  --skeleton: color-mix(in oklab, var(--accent), var(--foreground) 7%);
+  --skeleton-highlight: color-mix(in oklab, var(--background) 75%, transparent);
 }
 
 html.dark:has([data-shell='console']) {
@@ -267,6 +275,8 @@ html.dark:has([data-shell='console']) {
   --sidebar-accent-foreground: oklch(0.87 0.065 274.039);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.673 0.182 276.935);
+  /* The skeleton's base follows the dark --accent and --foreground by itself. */
+  --skeleton-highlight: color-mix(in oklab, var(--foreground) 11%, transparent);
 }
 
 /*
@@ -357,6 +367,9 @@ html.dark:has([data-shell='console']) {
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  /* Off the console pages, where --skeleton isn't set: a neutral tint of the text, and no band. */
+  --color-skeleton: var(--skeleton, color-mix(in oklab, currentColor 10%, transparent));
+  --color-skeleton-highlight: var(--skeleton-highlight, transparent);
 
   --color-profile-teal: var(--profile-teal);
   --color-profile-teal-50: var(--profile-teal-50);
