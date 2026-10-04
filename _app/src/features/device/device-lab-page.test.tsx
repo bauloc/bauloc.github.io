@@ -321,8 +321,37 @@ describe('DeviceLabPage, with the local helper', () => {
       within(header).getByRole('button', { name: 'Connect helper: Connect helper' }).click()
     })
     expect(calls.connect).toHaveBeenCalledTimes(1)
-    // The Gate's iPhone card is the helper's.
+    // The Gate's iPhone side is the helper's.
+    act(() => {
+      screen.getByRole('radio', { name: /iPhone & iPad/ }).click()
+    })
     expect(screen.getByText('Needs the helper')).toBeInTheDocument()
+    window.localStorage.removeItem('dvc_prefs')
+  })
+
+  it('remembers the Gate’s platform for the next visit, and opens on it', async () => {
+    window.localStorage.setItem('dvc_prefs', JSON.stringify({ gatePlatform: 'ios' }))
+    try {
+      await renderPage()
+      expect(screen.getByRole('radio', { name: /iPhone & iPad/ })).toHaveAttribute(
+        'aria-checked',
+        'true',
+      )
+      expect(
+        screen.getByRole('heading', { level: 2, name: 'Set up iPhone through the helper' }),
+      ).toBeTruthy()
+      act(() => {
+        screen.getByRole('radio', { name: /Android/ }).click()
+      })
+      expect(
+        screen.getByRole('heading', { level: 2, name: 'Set up Android over USB' }),
+      ).toBeTruthy()
+      expect(JSON.parse(window.localStorage.getItem('dvc_prefs') ?? '{}')).toEqual({
+        gatePlatform: 'android',
+      })
+    } finally {
+      window.localStorage.removeItem('dvc_prefs')
+    }
   })
 
   it('lists the helper’s iPhone, says it connected once, and asks for its tools', async () => {
@@ -353,9 +382,18 @@ describe('DeviceLabPage, with the local helper', () => {
   it('shows the checklist on the Gate once connected, with this Mac’s tools', async () => {
     await renderPage()
     setHelper(helperStatus('connected'), [])
+    // The visit opened on Android (no helper then), and a helper coming up mid-visit doesn't
+    // move it: the tester chooses the iPhone side.
+    expect(screen.getByRole('radio', { name: /Android/ })).toHaveAttribute('aria-checked', 'true')
+    act(() => {
+      screen.getByRole('radio', { name: /iPhone & iPad/ }).click()
+    })
     expect(await screen.findByText('Get Xcode from the App Store')).toBeTruthy()
     expect(calls.doctor).toHaveBeenCalled()
-    expect(screen.getByRole('heading', { level: 1, name: 'Plug in a phone.' })).toBeTruthy()
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Set up iPhone through the helper' }),
+    ).toBeTruthy()
+    expect(screen.getByText('Ready for iPhones')).toBeInTheDocument()
   })
 
   it('says when the helper stopped: live region, toast, and a strip above the list', async () => {
@@ -432,9 +470,18 @@ describe('DeviceLabPage, with the local helper', () => {
   it('connects a TV over Wi‑Fi from the Gate, through the helper', async () => {
     await renderPage()
     setHelper(WIFI_HELPER, [])
+    // Wi‑Fi is Android's: on the iPhone side it isn't shown.
+    act(() => {
+      screen.getByRole('radio', { name: /iPhone & iPad/ }).click()
+    })
+    expect(screen.queryByRole('button', { name: 'Network device (Wi‑Fi)…' })).toBeNull()
+    act(() => {
+      screen.getByRole('radio', { name: /Android/ }).click()
+    })
     act(() => {
       screen.getByRole('button', { name: 'Network device (Wi‑Fi)…' }).click()
     })
+    window.localStorage.removeItem('dvc_prefs')
     const dialog = await screen.findByRole('dialog', { name: 'Connect over Wi‑Fi' })
     act(() => {
       fireEvent.change(within(dialog).getByLabelText('IP address'), {

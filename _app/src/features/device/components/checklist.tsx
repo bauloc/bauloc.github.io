@@ -136,11 +136,16 @@ export function StatusWord({ status, className }: { status: CheckStatus; classNa
   )
 }
 
-/** A command to run, shown in full, with its copy button. */
+/**
+ * A command to run, on one line as it will be typed, with its copy button. Too long for the
+ * width, it scrolls rather than breaking a path or URL in the middle.
+ */
 export function Command({ text, label = 'Copy command' }: { text: string; label?: string }) {
   return (
     <div className="bg-muted/60 flex items-center gap-2 rounded-lg border py-1 pr-1 pl-3">
-      <code className="min-w-0 flex-1 font-mono text-xs wrap-anywhere">{text}</code>
+      <code className="min-w-0 flex-1 overflow-x-auto py-1 font-mono text-xs whitespace-pre">
+        {text}
+      </code>
       <CopyButton text={text} label={label} />
     </div>
   )
