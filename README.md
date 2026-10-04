@@ -19,6 +19,8 @@ Website cá nhân của **Nguyen Phuoc Loc (BAULOC)**, Mobile Developer. Ngoài 
 | [XConsole](https://bauloc.github.io/xconsole/) | Công cụ quản trị: tạo trang Terms of Service và Privacy Policy để nộp ứng dụng lên App Store và Google Play, quản lý playlist IPTV. |
 | [Device Lab](https://bauloc.github.io/device/) | Xem thông tin, chụp màn hình và đọc log của điện thoại kết nối với máy tính; với Android còn cài, gỡ và xuất ứng dụng. Có [bản demo](https://bauloc.github.io/device/?mock=1) dùng thiết bị mẫu. |
 
+Mọi trang đều có giao diện sáng và tối (một lựa chọn chung cho cả site); các trang con có nút quay về trang chủ trên header. Trang chủ, Profile và XConsole có hai ngôn ngữ, Tiếng Việt và English: mặc định theo ngôn ngữ của trình duyệt, đổi bằng nút EN · VI và được nhớ lại. CV tải về cũng có hai bản.
+
 ### Device Lab
 
 - **Android qua USB:** kết nối thẳng từ trình duyệt bằng WebUSB (Chrome hoặc Edge bản desktop), không cần cài thêm gì.

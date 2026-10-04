@@ -3,8 +3,6 @@ import { parseEnv } from 'node:util'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  FAILED,
-  SENT,
   configuredTelegram,
   mailtoHref,
   sendToTelegram,
@@ -20,14 +18,14 @@ describe('validateContact', () => {
     expect(validateContact(DRAFT)).toBeNull()
   })
 
-  it('checks the fields in the order the form shows them, one message at a time', () => {
-    expect(validateContact({ name: ' ', email: '', message: '' })).toBe('Please enter your name.')
-    expect(validateContact({ ...DRAFT, email: '  ' })).toBe('Please enter a valid email.')
-    expect(validateContact({ ...DRAFT, message: '\n ' })).toBe('Please enter your message.')
+  it('checks the fields in the order the form shows them, one at a time', () => {
+    expect(validateContact({ name: ' ', email: '', message: '' })).toBe('name')
+    expect(validateContact({ ...DRAFT, email: '  ' })).toBe('email')
+    expect(validateContact({ ...DRAFT, message: '\n ' })).toBe('message')
   })
 
   it("asks only for an '@' in the email, as the Flutter build did", () => {
-    expect(validateContact({ ...DRAFT, email: 'not an email' })).toBe('Please enter a valid email.')
+    expect(validateContact({ ...DRAFT, email: 'not an email' })).toBe('email')
     expect(validateContact({ ...DRAFT, email: 'a@b' })).toBeNull()
   })
 })
@@ -83,12 +81,9 @@ describe('mailtoHref', () => {
 })
 
 describe('sendToTelegram', () => {
-  it('posts the message form-encoded and thanks the sender', async () => {
+  it('posts the message form-encoded and reports it sent', async () => {
     const fetchImpl = vi.fn<typeof fetch>(() => Promise.resolve(Response.json({ ok: true })))
-    await expect(sendToTelegram(DRAFT, TARGET, fetchImpl)).resolves.toEqual({
-      ok: true,
-      toast: SENT,
-    })
+    await expect(sendToTelegram(DRAFT, TARGET, fetchImpl)).resolves.toEqual({ ok: true })
 
     const [url, init] = fetchImpl.mock.calls[0]!
     expect(url).toBe('https://api.telegram.org/bottest-token/sendMessage')
@@ -99,7 +94,7 @@ describe('sendToTelegram', () => {
     expect(body.get('text')).toBe(telegramMessage(DRAFT))
   })
 
-  it("shows Telegram's own explanation when it refuses", async () => {
+  it("passes on Telegram's own explanation when it refuses", async () => {
     const fetchImpl = vi.fn<typeof fetch>(() =>
       Promise.resolve(
         Response.json({ ok: false, description: 'Too Many Requests' }, { status: 429 }),
@@ -107,17 +102,17 @@ describe('sendToTelegram', () => {
     )
     await expect(sendToTelegram(DRAFT, TARGET, fetchImpl)).resolves.toEqual({
       ok: false,
-      toast: 'Too Many Requests',
+      detail: 'Too Many Requests',
     })
   })
 
-  it('falls back to the generic failure when the reply is not Telegram JSON', async () => {
+  it('leaves the wording to the page when the reply is not Telegram JSON', async () => {
     const fetchImpl = vi.fn<typeof fetch>(() =>
       Promise.resolve(new Response('<html>bad gateway</html>', { status: 502 })),
     )
     await expect(sendToTelegram(DRAFT, TARGET, fetchImpl)).resolves.toEqual({
       ok: false,
-      toast: FAILED,
+      detail: null,
     })
   })
 
@@ -125,7 +120,7 @@ describe('sendToTelegram', () => {
     const fetchImpl = vi.fn<typeof fetch>(() => Promise.reject(new TypeError('Failed to fetch')))
     await expect(sendToTelegram(DRAFT, TARGET, fetchImpl)).resolves.toEqual({
       ok: false,
-      toast: FAILED,
+      detail: null,
     })
   })
 })

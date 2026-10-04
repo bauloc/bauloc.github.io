@@ -18,9 +18,12 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Toggle } from '@/components/ui/toggle'
 import { cn } from '@/lib/cn'
+import { useMessages } from '@/lib/i18n'
+import { useLocale } from '@/lib/locale'
 
 import { useConsole } from '../console-context'
 import { toastFailure } from '../errors'
+import { XCONSOLE_MESSAGES } from '../messages'
 import { AuthError, type Repo } from '../repo/github'
 import {
   DATA_COLLECTED_OPTIONS,
@@ -83,9 +86,10 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function Steps({ step }: { step: 1 | 2 }) {
+  const t = useMessages(XCONSOLE_MESSAGES).sheet
   const items = [
-    { n: 1, title: 'General info', sub: 'Terms & Privacy' },
-    { n: 2, title: 'Privacy details', sub: 'Privacy Policy' },
+    { n: 1, title: t.general, sub: t.generalSub },
+    { n: 2, title: t.privacyDetails, sub: t.privacyDetailsSub },
   ] as const
   return (
     <ol className="bg-muted/40 flex items-center gap-3 border-y px-6 py-3">
@@ -146,6 +150,9 @@ export function PageSheet({
   onIndex: (db: DbIndex) => void
 }) {
   const { repo, openSettings } = useConsole()
+  const all = useMessages(XCONSOLE_MESSAGES)
+  const t = all.sheet
+  const locale = useLocale()
   const [draft, setDraft] = useState<PageDraft>(() => emptyDraft(today()))
   const [existing, setExisting] = useState<LegalPage | null>(null)
   /** The page file exactly as the edit loaded it, to tell at publish whether it changed since. */
@@ -189,7 +196,7 @@ export function PageSheet({
       .read(pagePath(slug))
       .then((text) => {
         if (!isLive()) return
-        if (text === null) throw new Error(`No saved answers for "${slug}"`)
+        if (text === null) throw new Error(t.noAnswers(slug))
         const page = parsePage(text)
         loadedText.current = text
         setExisting(page)
@@ -202,7 +209,7 @@ export function PageSheet({
       })
       .catch((error: unknown) => {
         if (!isLive()) return
-        toastFailure('Could not load the page', error, openSettings)
+        toastFailure(t.loadFailed, error, openSettings)
         onClose()
       })
   })
@@ -233,7 +240,7 @@ export function PageSheet({
   }
 
   const next = () => {
-    const problems = validateGeneral(draft)
+    const problems = validateGeneral(draft, locale)
     showErrors(problems)
     if (problems.length === 0) setStep(2)
   }
@@ -246,22 +253,21 @@ export function PageSheet({
   }
 
   const publish = async () => {
-    const problems = [...validateGeneral(draft), ...validatePrivacy(draft)]
+    const problems = [...validateGeneral(draft, locale), ...validatePrivacy(draft, locale)]
     showErrors(problems)
     setRefusedRepo(null)
     if (problems.length > 0) return
     const used = repo
 
     setBusy(true)
-    const id = toast.loading(existing ? 'Updating…' : 'Publishing…')
+    const id = toast.loading(existing ? t.updating : t.publishing)
     try {
       // Everything is read at ONE commit and the change is built on that same commit: if the
       // branch moves in between, GitHub refuses the update instead of this publish silently
       // undoing what landed (another tab, another device).
       const head = await repo.head()
       const fresh = await repo.read(DB_PATH, head)
-      if (fresh === null)
-        throw new Error(`${DB_PATH} is missing on GitHub — nothing was published.`)
+      if (fresh === null) throw new Error(t.indexMissingNothingPublished(DB_PATH))
       const index = parseDb(fresh)
       if (existing === null) {
         const slugNow = draft.slug.trim()
@@ -271,12 +277,12 @@ export function PageSheet({
         if (taken) {
           toast.dismiss(id)
           setStep(1)
-          showErrors([`A page with the slug "${slugNow}" already exists. Choose another.`])
+          showErrors([t.slugTaken(slugNow)])
           return
         }
       } else {
         const current = await repo.read(pagePath(existing.slug), head)
-        const conflict = editConflict(existing.slug, index, loadedText.current, current)
+        const conflict = editConflict(existing.slug, index, loadedText.current, current, locale)
         if (conflict !== null) {
           toast.dismiss(id)
           // The list behind the sheet shows the index as it is now, deleted page gone.
@@ -288,28 +294,32 @@ export function PageSheet({
       const plan = planPublish(draft, index, existing, new Date().toISOString())
       await repo.commit({ ...plan, parent: head })
       const slug = existing?.slug ?? draft.slug.trim()
-      toast.success(existing ? 'Updated' : 'Published', {
+      toast.success(existing ? t.updated : t.published, {
         id,
         description: (
           <span>
-            Live in about a minute:{' '}
-            <a
-              className="underline"
-              href={termsUrl(slug)}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Terms
-            </a>{' '}
-            ·{' '}
-            <a
-              className="underline"
-              href={privacyUrl(slug)}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Privacy
-            </a>
+            {t.liveSoon({
+              terms: (
+                <a
+                  className="underline"
+                  href={termsUrl(slug)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {all.pages.terms}
+                </a>
+              ),
+              privacy: (
+                <a
+                  className="underline"
+                  href={privacyUrl(slug)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {all.pages.privacy}
+                </a>
+              ),
+            })}
           </span>
         ),
         duration: 8000,
@@ -324,7 +334,7 @@ export function PageSheet({
         setRefusedRepo(used)
         setShown((n) => n + 1)
       } else {
-        toastFailure('Publish failed', error, openSettings, id)
+        toastFailure(t.publishFailed, error, openSettings, id)
       }
     } finally {
       setBusy(false)
@@ -342,13 +352,10 @@ export function PageSheet({
     >
       <SheetContent className="w-full gap-0 p-0 sm:max-w-xl">
         <SheetHeader className="px-6 pt-6 pb-4">
-          <SheetTitle className="text-lg">
-            {existing ? 'Edit Terms & Privacy' : 'New Terms & Privacy page'}
-          </SheetTitle>
+          <SheetTitle className="text-lg">{existing ? t.editTitle : t.newTitle}</SheetTitle>
           <SheetDescription>
-            {existing
-              ? `Changes publish over ${existing.slug}.`
-              : 'Both pages publish together in one commit.'}
+            {existing ? t.editDescription(existing.slug) : t.newDescription}
+            {t.answersInEnglish && ` ${t.answersInEnglish}`}
           </SheetDescription>
         </SheetHeader>
         <Steps step={step} />
@@ -362,19 +369,14 @@ export function PageSheet({
               <TriangleAlert className="mt-0.5 size-4 shrink-0" />
               <div className="flex-1 space-y-2">
                 <ul className="list-inside space-y-0.5">
-                  {tokenRefused && (
-                    <li>
-                      GitHub refused the token. Update it, then publish again — your answers are
-                      kept.
-                    </li>
-                  )}
+                  {tokenRefused && <li>{t.tokenRefused}</li>}
                   {errors.map((e) => (
                     <li key={e}>{e}</li>
                   ))}
                 </ul>
                 {tokenRefused && (
                   <Button size="sm" variant="outline" onClick={openSettings}>
-                    Update token
+                    {all.updateToken}
                   </Button>
                 )}
               </div>
@@ -382,18 +384,18 @@ export function PageSheet({
           )}
 
           {loading ? (
-            <div className="space-y-4" aria-label="Loading">
+            <div className="space-y-4" aria-label={all.loading}>
               {[0, 1, 2, 3].map((i) => (
                 <Skeleton key={i} className="h-9 w-full" />
               ))}
             </div>
           ) : step === 1 ? (
             <div className="grid gap-8">
-              <Section title="App">
-                <Field id="tp-app-name" label="App name" required>
+              <Section title={t.app}>
+                <Field id="tp-app-name" label={t.appName} required>
                   <Input
                     id="tp-app-name"
-                    placeholder="e.g. Habit Tracker"
+                    placeholder={t.appNamePlaceholder}
                     value={draft.app_name}
                     onChange={(e) => {
                       const name = e.target.value
@@ -408,11 +410,11 @@ export function PageSheet({
                 </Field>
                 <Field
                   id="tp-slug"
-                  label="URL slug"
+                  label={t.slug}
                   required
                   hint={
                     existing ? (
-                      'The slug is the published URL, so it cannot change.'
+                      t.slugFixed
                     ) : (
                       <span className="font-mono">
                         bauloc.github.io/terms/<b className="text-foreground">{slug}</b>/ ·
@@ -433,7 +435,7 @@ export function PageSheet({
                     }}
                   />
                 </Field>
-                <Field label="Platform" required>
+                <Field label={t.platform} required>
                   <div className="flex gap-2">
                     {(['ios', 'android'] as const).map((p) => (
                       <Toggle
@@ -450,11 +452,11 @@ export function PageSheet({
                     ))}
                   </div>
                 </Field>
-                <Field id="tp-desc" label="App description" required>
+                <Field id="tp-desc" label={t.appDescription} required>
                   <Textarea
                     id="tp-desc"
                     rows={3}
-                    placeholder="Briefly describe what your app does and who it's for."
+                    placeholder={t.appDescriptionPlaceholder}
                     value={draft.app_description}
                     onChange={(e) => {
                       set('app_description', e.target.value)
@@ -463,9 +465,9 @@ export function PageSheet({
                 </Field>
               </Section>
 
-              <Section title="Developer / company">
+              <Section title={t.developer}>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field id="tp-dev-name" label="Name" required>
+                  <Field id="tp-dev-name" label={t.name} required>
                     <Input
                       id="tp-dev-name"
                       value={draft.developer_name}
@@ -474,7 +476,7 @@ export function PageSheet({
                       }}
                     />
                   </Field>
-                  <Field id="tp-dev-email" label="Email" required>
+                  <Field id="tp-dev-email" label={t.email} required>
                     <Input
                       id="tp-dev-email"
                       type="email"
@@ -484,18 +486,18 @@ export function PageSheet({
                       }}
                     />
                   </Field>
-                  <Field id="tp-website" label="Website">
+                  <Field id="tp-website" label={t.website}>
                     <Input
                       id="tp-website"
                       type="url"
-                      placeholder="https://… (optional)"
+                      placeholder={t.websitePlaceholder}
                       value={draft.website_url}
                       onChange={(e) => {
                         set('website_url', e.target.value)
                       }}
                     />
                   </Field>
-                  <Field id="tp-country" label="Country" required>
+                  <Field id="tp-country" label={t.country} required>
                     <Input
                       id="tp-country"
                       value={draft.country}
@@ -507,8 +509,8 @@ export function PageSheet({
                 </div>
               </Section>
 
-              <Section title="Effective date">
-                <Field id="tp-date" label="Date" required>
+              <Section title={t.effectiveDate}>
+                <Field id="tp-date" label={t.date} required>
                   <Input
                     id="tp-date"
                     type="date"
@@ -525,44 +527,40 @@ export function PageSheet({
             </div>
           ) : (
             <div className="grid gap-8">
-              <Section title="Data collection">
-                <Field label="Data collected" hint="Leave all off if the app collects nothing.">
+              <Section title={t.dataCollection}>
+                <Field label={t.dataCollected} hint={t.dataCollectedHint}>
                   <div className="flex flex-wrap gap-2">
-                    {DATA_COLLECTED_OPTIONS.map((o) => (
+                    {DATA_COLLECTED_OPTIONS.map((id) => (
                       <Toggle
-                        key={o.id}
+                        key={id}
                         size="sm"
                         variant="outline"
-                        pressed={draft.data_collected.includes(o.id)}
+                        pressed={draft.data_collected.includes(id)}
                         onPressedChange={(on) => {
-                          toggleData(o.id, on)
+                          toggleData(id, on)
                         }}
                         className="data-[state=on]:border-primary rounded-full px-3"
                       >
-                        {o.label}
+                        {t.data[id]}
                       </Toggle>
                     ))}
                   </div>
                 </Field>
-                <Field id="tp-used-for" label="How data is used" required>
+                <Field id="tp-used-for" label={t.dataUsedFor} required>
                   <Textarea
                     id="tp-used-for"
                     rows={3}
-                    placeholder="e.g. To sync your data across devices and improve the app experience."
+                    placeholder={t.dataUsedForPlaceholder}
                     value={draft.data_used_for}
                     onChange={(e) => {
                       set('data_used_for', e.target.value)
                     }}
                   />
                 </Field>
-                <Field
-                  id="tp-third"
-                  label="Third-party services"
-                  hint="Comma separated. Leave empty if none."
-                >
+                <Field id="tp-third" label={t.thirdParty} hint={t.thirdPartyHint}>
                   <Input
                     id="tp-third"
-                    placeholder="e.g. Firebase, Google Analytics"
+                    placeholder={t.thirdPartyPlaceholder}
                     // Joined on ',' alone so typing round-trips exactly; saving trims.
                     value={draft.third_party_services.join(',')}
                     onChange={(e) => {
@@ -572,11 +570,11 @@ export function PageSheet({
                 </Field>
               </Section>
 
-              <Section title="App settings">
+              <Section title={t.appSettings}>
                 {(
                   [
-                    ['has_account_creation', 'App allows account creation'],
-                    ['children_under_13', 'App is directed at children under 13'],
+                    ['has_account_creation', t.accountCreation],
+                    ['children_under_13', t.children],
                   ] as const
                 ).map(([key, label]) => (
                   <div key={key} className="flex items-center justify-between gap-4">
@@ -594,8 +592,8 @@ export function PageSheet({
                 ))}
               </Section>
 
-              <Section title="Contact">
-                <Field id="tp-contact" label="Privacy contact email" required>
+              <Section title={t.contact}>
+                <Field id="tp-contact" label={t.contactEmail} required>
                   <Input
                     id="tp-contact"
                     type="email"
@@ -607,7 +605,7 @@ export function PageSheet({
                 </Field>
               </Section>
 
-              <Section title="Preview">
+              <Section title={t.preview}>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     variant="outline"
@@ -616,7 +614,7 @@ export function PageSheet({
                       previewPage('terms')
                     }}
                   >
-                    <Eye /> Terms of Service
+                    <Eye /> {t.termsOfService}
                   </Button>
                   <Button
                     variant="outline"
@@ -625,7 +623,7 @@ export function PageSheet({
                       previewPage('privacy')
                     }}
                   >
-                    <Eye /> Privacy Policy
+                    <Eye /> {t.privacyPolicy}
                   </Button>
                 </div>
               </Section>
@@ -635,7 +633,7 @@ export function PageSheet({
 
         <SheetFooter className="flex-row justify-end gap-2 border-t px-6 py-4">
           <Button variant="outline" disabled={busy} onClick={onClose}>
-            Cancel
+            {all.cancel}
           </Button>
           {step === 2 && (
             <Button
@@ -646,12 +644,12 @@ export function PageSheet({
                 setStep(1)
               }}
             >
-              <ArrowLeft /> Back
+              <ArrowLeft /> {t.back}
             </Button>
           )}
           {step === 1 ? (
             <Button disabled={loading} onClick={next}>
-              Next <ArrowRight />
+              {t.next} <ArrowRight />
             </Button>
           ) : (
             <Button
@@ -661,7 +659,7 @@ export function PageSheet({
               }}
             >
               {busy ? <Loader2 className="animate-spin" /> : <Check />}
-              {existing ? 'Save & publish' : 'Publish'}
+              {existing ? t.savePublish : t.publish}
             </Button>
           )}
         </SheetFooter>

@@ -1,3 +1,6 @@
+import { defineMessages } from '@/lib/i18n'
+import { currentLocale, type Locale } from '@/lib/locale'
+
 import type { RepoFile } from '../repo/github'
 
 /*
@@ -54,21 +57,31 @@ export function normalizePlaylist(text: string): string {
   return text.trimStart()
 }
 
+/** What the helpers below say, worded when they run (see model.ts's PROBLEMS). */
+const WORDS = defineMessages({
+  en: { notM3u: 'Response does not start with #EXTM3U', never: 'Never', unknown: 'Unknown' },
+  vi: { notM3u: 'Phản hồi không bắt đầu bằng #EXTM3U', never: 'Chưa có', unknown: 'Không rõ' },
+})
+
 /** A playlist the players can read, or why it is not one. Expects normalizePlaylist's output. */
 export function checkPlaylist(
   text: string,
+  locale: Locale = currentLocale(),
 ): { ok: true; channels: number } | { ok: false; reason: string } {
   if (!text.startsWith('#EXTM3U')) {
-    return { ok: false, reason: 'Response does not start with #EXTM3U' }
+    return { ok: false, reason: WORDS[locale].notM3u }
   }
   return { ok: true, channels: (text.match(/^#EXTINF/gm) ?? []).length }
 }
 
-/** `2026-05-10T08:33:17Z` → `10-May-2026 15:33` in local time; 'Never' before the first sync. */
-export function formatSyncTime(iso: string | null): string {
-  if (!iso) return 'Never'
+/**
+ * `2026-05-10T08:33:17Z` → `10-May-2026 15:33` in local time, or `10/05/2026 15:33` in
+ * Vietnamese; 'Never' before the first sync.
+ */
+export function formatSyncTime(iso: string | null, locale: Locale = currentLocale()): string {
+  if (!iso) return WORDS[locale].never
   const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return 'Unknown'
+  if (Number.isNaN(d.getTime())) return WORDS[locale].unknown
   const months = [
     'Jan',
     'Feb',
@@ -84,7 +97,11 @@ export function formatSyncTime(iso: string | null): string {
     'Dec',
   ]
   const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(d.getDate())}-${months[d.getMonth()] ?? ''}-${String(d.getFullYear())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  if (locale === 'vi') {
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${String(d.getFullYear())} ${time}`
+  }
+  return `${pad(d.getDate())}-${months[d.getMonth()] ?? ''}-${String(d.getFullYear())} ${time}`
 }
 
 /** The playlist and its sync record, as one commit. */

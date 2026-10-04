@@ -9,9 +9,13 @@
 
 /* Too short for the index's minimap above the sheet: a touch screen on its side (the
    sheet's top edge is 14.7% of the height down), or any window short enough that the ruler
-   would cross the opening sheet. */
+   would cross the opening sheet. Only on its side: a small phone held upright (an iPhone SE
+   is 667 px tall) has the sheet a third of the way down, and the bottom row is the corner
+   switches' — the ruler sat 6 px from "Grid" there, and ran under the longer Vietnamese
+   labels. */
 @custom-variant short-screen {
-  @media (pointer: coarse) and (max-height: 680px), (max-height: 560px) {
+  @media (pointer: coarse) and (max-height: 680px) and (orientation: landscape),
+    (max-height: 560px) {
     @slot;
   }
 }
@@ -91,12 +95,11 @@
     scroll-padding-top: 4.5rem;
   }
 
-  /* The profile is light only, as its Flutter original was: a dark-mode visitor still gets
-     light form controls and scrollbars, and overscroll shows the page's white. */
+  /* The profile's ground on the root too, so overscroll shows the page's own colour, light
+     or dark, rather than the console's off-white. */
   html:has([data-page='profile']),
   html:has([data-page='profile']) body {
-    color-scheme: light;
-    background: white;
+    background: var(--profile-page);
   }
 
   /* The consoles set their face and ground on <body>, so dialogs and toasts portalled there

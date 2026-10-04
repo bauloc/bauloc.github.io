@@ -1,12 +1,18 @@
 import type { CSSProperties, FocusEvent } from 'react'
 
+import { useMessages } from '@/lib/i18n'
+
 import type { HomeLink } from '../home-links'
+import { HOME_MESSAGES } from '../messages'
 import { SheetArt } from './sheet-art'
 
 /** What you need to know before clicking. Nothing for a finished, public destination. */
-function statusNote(link: HomeLink): string | null {
-  if (link.status === 'internal') return 'Needs a GitHub token'
-  if (link.status === 'wip') return 'In progress'
+function statusNote(
+  link: HomeLink,
+  t: { readonly needsToken: string; readonly inProgress: string },
+): string | null {
+  if (link.status === 'internal') return t.needsToken
+  if (link.status === 'wip') return t.inProgress
   return null
 }
 
@@ -52,9 +58,10 @@ export function LinkSheet({
   /** Keyboard focus only — a mouse click focuses the link too, and must not pan the camera. */
   onFocusVisible?: () => void
 }) {
-  const note = statusNote(link)
+  const t = useMessages(HOME_MESSAGES)
+  const note = statusNote(link, t)
   const external = link.external === true
-  const name = [link.title, note, external ? 'opens in a new tab' : null].filter(Boolean).join(', ')
+  const name = [link.title, note, external ? t.newTab : null].filter(Boolean).join(', ')
   // Art that covers the sheet edge to edge gets no white sheet under it: at fractional zoom
   // the white would show through the art's anti-aliased edges as a pale rim.
   const fullBleed = link.art?.kind === 'testCard'

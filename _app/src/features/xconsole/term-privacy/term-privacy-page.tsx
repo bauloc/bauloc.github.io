@@ -14,25 +14,24 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useMessages } from '@/lib/i18n'
 
 import { PageHeader, StatCard } from '../components/page-header'
 import { useConsole } from '../console-context'
-import { CONSOLE_MODULES } from '../console-menu'
 import { toastFailure } from '../errors'
+import { XCONSOLE_MESSAGES } from '../messages'
 import { AuthError } from '../repo/github'
 import { DB_PATH, parseDb, planDelete, type DbEntry, type DbIndex } from './model'
 import { PageCard } from './page-card'
 import { PageSheet } from './page-sheet'
-import { formatDate } from './templates/format'
 
 type State =
   | { status: 'loading' }
   | { status: 'ready'; db: DbIndex }
   /** No index on GitHub. Never shown as an empty list: publishing would overwrite the real one. */
   | { status: 'missing' }
-  | { status: 'failed'; message: string; auth: boolean }
-
-const MODULE = CONSOLE_MODULES[0]
+  /** `message` is null when the failure came without one: the page words that itself. */
+  | { status: 'failed'; message: string | null; auth: boolean }
 
 async function loadDb(read: (path: string) => Promise<string | null>): Promise<State> {
   try {
@@ -41,7 +40,7 @@ async function loadDb(read: (path: string) => Promise<string | null>): Promise<S
   } catch (error) {
     return {
       status: 'failed',
-      message: error instanceof Error ? error.message : 'Unknown error',
+      message: error instanceof Error ? error.message : null,
       auth: error instanceof AuthError,
     }
   }
@@ -50,6 +49,8 @@ async function loadDb(read: (path: string) => Promise<string | null>): Promise<S
 /** Term & Privacy: the published apps, and the sheet that creates, edits and publishes them. */
 export function TermPrivacyPage() {
   const { repo, openSettings } = useConsole()
+  const all = useMessages(XCONSOLE_MESSAGES)
+  const t = all.pages
   const [state, setState] = useState<State>({ status: 'loading' })
   const [sheet, setSheet] = useState<{ editing: string | null } | null>(null)
   const [deleting, setDeleting] = useState<DbEntry | null>(null)
@@ -77,32 +78,32 @@ export function TermPrivacyPage() {
 
   const confirmDelete = async (entry: DbEntry) => {
     setCommitting(true)
-    const id = toast.loading(`Deleting ${entry.app_name}…`)
+    const id = toast.loading(t.deleting(entry.app_name))
     try {
       // Read the index at one commit and build on that same commit: if anything lands in
       // between, GitHub refuses the update instead of this delete undoing it.
       const head = await repo.head()
       const fresh = await repo.read(DB_PATH, head)
-      if (fresh === null) throw new Error(`${DB_PATH} is missing on GitHub — nothing was deleted.`)
+      if (fresh === null) throw new Error(t.indexMissingNothingDeleted(DB_PATH))
       const index = parseDb(fresh)
       if (!index.entries.some((e) => e.slug === entry.slug)) {
         // Another tab or device got there first: show the list as it is now.
         setState({ status: 'ready', db: index })
-        toast.info('Already deleted', {
+        toast.info(t.alreadyDeleted, {
           id,
-          description: `${entry.app_name} was deleted elsewhere.`,
+          description: t.alreadyDeletedDetail(entry.app_name),
         })
         return
       }
       const plan = planDelete(entry.slug, index, new Date().toISOString())
       await repo.commit({ ...plan, parent: head })
       setState({ status: 'ready', db: plan.db })
-      toast.success('Deleted', {
+      toast.success(t.deleted, {
         id,
-        description: `${entry.app_name} and both of its pages are gone.`,
+        description: t.deletedDetail(entry.app_name),
       })
     } catch (error) {
-      toastFailure('Delete failed', error, openSettings, id)
+      toastFailure(t.deleteFailed, error, openSettings, id)
     } finally {
       setCommitting(false)
     }
@@ -117,8 +118,8 @@ export function TermPrivacyPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={MODULE.title}
-        description={MODULE.description}
+        title={all.module.termPrivacy.title}
+        description={all.module.termPrivacy.description}
         actions={
           <Button
             disabled={state.status !== 'ready' || committing}
@@ -126,13 +127,13 @@ export function TermPrivacyPage() {
               setSheet({ editing: null })
             }}
           >
-            <Plus /> New page
+            <Plus /> {t.newPage}
           </Button>
         }
       />
 
       {state.status === 'loading' && (
-        <div className="grid gap-4 md:grid-cols-3" aria-label="Loading">
+        <div className="grid gap-4 md:grid-cols-3" aria-label={all.loading}>
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} className="h-28 rounded-xl" />
           ))}
@@ -145,23 +146,21 @@ export function TermPrivacyPage() {
           <TriangleAlert className="text-destructive size-5 shrink-0" />
           <div className="flex-1 text-sm">
             <p className="font-medium">
-              {state.status === 'missing'
-                ? 'The page index was not found'
-                : 'Could not load the pages'}
+              {state.status === 'missing' ? t.indexMissing : t.loadFailed}
             </p>
             <p className="text-muted-foreground mt-0.5">
               {state.status === 'missing'
-                ? `There is no ${DB_PATH} on the master branch. Publishing stays off until it is back, so the real list cannot be overwritten.`
-                : state.message}
+                ? t.indexMissingDetail(DB_PATH)
+                : (state.message ?? all.unknownError)}
             </p>
           </div>
           {state.status === 'failed' && state.auth ? (
             <Button variant="outline" onClick={openSettings}>
-              Update token
+              {all.updateToken}
             </Button>
           ) : (
             <Button variant="outline" onClick={reload}>
-              <RotateCcw /> Retry
+              <RotateCcw /> {t.retry}
             </Button>
           )}
         </div>
@@ -171,13 +170,13 @@ export function TermPrivacyPage() {
         <>
           <div className="grid gap-4 sm:grid-cols-3">
             <StatCard
-              label="Apps"
+              label={t.apps}
               value={entries.length}
-              hint={`${String(entries.length * 2)} pages live`}
+              hint={t.pagesLive(entries.length * 2)}
               icon={<FileText />}
             />
             <StatCard
-              label="Platforms"
+              label={t.platforms}
               value={
                 <span>
                   {entries.filter((e) => e.platform.includes('ios')).length}
@@ -189,9 +188,9 @@ export function TermPrivacyPage() {
               icon={<Smartphone />}
             />
             <StatCard
-              label="Last published"
-              value={(lastUpdated && formatDate(lastUpdated.split('T')[0] ?? '')) || '—'}
-              hint="Pages go live about a minute after publishing"
+              label={t.lastPublished}
+              value={(lastUpdated && all.date(lastUpdated.split('T')[0] ?? '')) || '—'}
+              hint={t.goLive}
               icon={<CalendarDays />}
             />
           </div>
@@ -201,18 +200,15 @@ export function TermPrivacyPage() {
               <div className="bg-primary/10 text-primary grid size-12 place-items-center rounded-full">
                 <FileText className="size-6" />
               </div>
-              <h2 className="mt-4 font-semibold">No pages yet</h2>
-              <p className="text-muted-foreground mt-1 max-w-sm text-sm">
-                Create the Terms of Service and Privacy Policy an app needs for the App Store and
-                Google Play.
-              </p>
+              <h2 className="mt-4 font-semibold">{t.empty}</h2>
+              <p className="text-muted-foreground mt-1 max-w-sm text-sm">{t.emptyDetail}</p>
               <Button
                 className="mt-6"
                 onClick={() => {
                   setSheet({ editing: null })
                 }}
               >
-                <Plus /> Create the first page
+                <Plus /> {t.createFirst}
               </Button>
             </div>
           ) : (
@@ -256,14 +252,11 @@ export function TermPrivacyPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {deleting?.app_name}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes its saved answers and both published pages from GitHub. Any store listing
-              that links to them will show a 404.
-            </AlertDialogDescription>
+            <AlertDialogTitle>{t.deleteTitle(deleting?.app_name ?? '')}</AlertDialogTitle>
+            <AlertDialogDescription>{t.deleteDetail}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{all.cancel}</AlertDialogCancel>
             {/* The variant, not a class: asChild joins the classes unmerged, so bg-primary won. */}
             <AlertDialogAction
               variant="destructive"
@@ -271,7 +264,7 @@ export function TermPrivacyPage() {
                 if (deleting) void confirmDelete(deleting)
               }}
             >
-              Delete
+              {t.delete}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

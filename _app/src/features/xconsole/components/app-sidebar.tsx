@@ -15,8 +15,10 @@ import {
   SidebarRail,
   useSidebar,
 } from '@/components/ui/sidebar'
+import { useMessages } from '@/lib/i18n'
 
 import { CONSOLE_MODULES, type ConsoleModule } from '../console-menu'
+import { XCONSOLE_MESSAGES } from '../messages'
 import { REPO } from '../repo/github'
 
 /** shadcn's collapsible sidebar: the modules, then the repository and Settings at the foot. */
@@ -29,6 +31,7 @@ export function AppSidebar({
 }) {
   // On a phone the sidebar is a sheet over the page: close it once something is chosen.
   const { setOpenMobile } = useSidebar()
+  const t = useMessages(XCONSOLE_MESSAGES)
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -51,7 +54,7 @@ export function AppSidebar({
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Modules</SidebarGroupLabel>
+          <SidebarGroupLabel>{t.modules}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {CONSOLE_MODULES.map((module) => (
@@ -59,7 +62,7 @@ export function AppSidebar({
                   <SidebarMenuButton
                     asChild
                     isActive={module.to === current.to}
-                    tooltip={module.title}
+                    tooltip={t.module[module.id].title}
                   >
                     <Link
                       to={module.to}
@@ -68,7 +71,7 @@ export function AppSidebar({
                       }}
                     >
                       <module.icon />
-                      <span>{module.title}</span>
+                      <span>{t.module[module.id].title}</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -81,7 +84,7 @@ export function AppSidebar({
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild tooltip="Repository on GitHub">
+            <SidebarMenuButton asChild tooltip={t.repository}>
               <a href={`https://github.com/${REPO}`} target="_blank" rel="noopener noreferrer">
                 <GitBranch />
                 <span className="truncate">{REPO}</span>
@@ -90,14 +93,14 @@ export function AppSidebar({
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
-              tooltip="Settings"
+              tooltip={t.settings}
               onClick={() => {
                 setOpenMobile(false)
                 onOpenSettings()
               }}
             >
               <Settings />
-              <span>Settings</span>
+              <span>{t.settings}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

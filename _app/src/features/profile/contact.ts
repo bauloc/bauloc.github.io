@@ -1,6 +1,7 @@
 /*
-  The contact form's logic, kept free of React so it can be tested: the Flutter build's
-  validation messages, and two ways to deliver a message.
+  The contact form's logic, kept free of React and of wording so it can be tested: the
+  Flutter build's validation, and two ways to deliver a message. What it finds is said by
+  the page, in the visitor's language (messages.ts).
 
   - Telegram, as the Flutter build did: a bot posts the message into a group. The site is
     static, so the browser calls the Bot API itself and the bot's token ends up in the
@@ -35,12 +36,15 @@ export function configuredTelegram(env: {
   return token !== '' && chatId !== '' ? { token, chatId } : null
 }
 
-/** What is wrong with a draft, as the toast that says so; null when it can be sent. */
-export function validateContact(draft: ContactDraft): string | null {
-  if (draft.name.trim() === '') return 'Please enter your name.'
+/** A field the form can find missing, in the order it shows them. */
+export type ContactField = 'name' | 'email' | 'message'
+
+/** The first field a draft lacks, one at a time as the Flutter build did; null when it can be sent. */
+export function validateContact(draft: ContactDraft): ContactField | null {
+  if (draft.name.trim() === '') return 'name'
   const email = draft.email.trim()
-  if (email === '' || !email.includes('@')) return 'Please enter a valid email.'
-  if (draft.message.trim() === '') return 'Please enter your message.'
+  if (email === '' || !email.includes('@')) return 'email'
+  if (draft.message.trim() === '') return 'message'
   return null
 }
 
@@ -69,11 +73,15 @@ export function mailtoHref(draft: ContactDraft): string {
   return `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
 }
 
-export const SENT = 'Thank you, I will respond as soon as possible.'
-export const FAILED = 'Request failed. Please try again.'
+/**
+ * How a send went. A refusal carries Telegram's own explanation when it gave one, which the
+ * Flutter build showed as-is; `null` means the page's generic failure.
+ */
+export type SendResult =
+  { readonly ok: true } | { readonly ok: false; readonly detail: string | null }
 
 /**
- * Post a draft to Telegram and say how it went, as the toast to show.
+ * Post a draft to Telegram and say how it went.
  *
  * A form-encoded POST is a CORS "simple request" — no preflight — and, unlike the Flutter
  * build's GET, keeps a long message out of the URL.
@@ -82,7 +90,7 @@ export async function sendToTelegram(
   draft: ContactDraft,
   target: TelegramTarget,
   fetchImpl: typeof fetch = fetch,
-): Promise<{ ok: boolean; toast: string }> {
+): Promise<SendResult> {
   const body = new URLSearchParams({
     chat_id: target.chatId,
     parse_mode: 'html',
@@ -95,13 +103,13 @@ export async function sendToTelegram(
       body,
     })
   } catch {
-    return { ok: false, toast: FAILED }
+    return { ok: false, detail: null }
   }
-  if (response.ok) return { ok: true, toast: SENT }
+  if (response.ok) return { ok: true }
 
-  // Telegram explains a refusal in `description`; the Flutter build showed it as-is.
+  // Telegram explains a refusal in `description`.
   const reply: unknown = await response.json().catch(() => null)
   const description =
     typeof reply === 'object' && reply !== null && 'description' in reply ? reply.description : null
-  return { ok: false, toast: typeof description === 'string' ? description : FAILED }
+  return { ok: false, detail: typeof description === 'string' ? description : null }
 }

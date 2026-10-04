@@ -86,6 +86,17 @@ describe('validation', () => {
     expect(validateGeneral(blank)).toHaveLength(8)
     expect(validatePrivacy({ ...blank, contact_email: '' })).toHaveLength(2)
   })
+
+  it('says the same problems in Vietnamese, in the same order', () => {
+    const blank = { ...emptyDraft(''), developer_name: '', developer_email: '', country: '' }
+    const vi = validateGeneral(blank, 'vi')
+    expect(vi).toHaveLength(validateGeneral(blank, 'en').length)
+    expect(vi[0]).toBe('Cần nhập tên ứng dụng')
+    expect(validatePrivacy({ ...blank, contact_email: '' }, 'vi')).toEqual([
+      'Cần mô tả cách dùng dữ liệu',
+      'Cần nhập email liên hệ',
+    ])
+  })
 })
 
 describe('planPublish', () => {

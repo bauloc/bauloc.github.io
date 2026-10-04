@@ -8,13 +8,31 @@
     <meta property="og:description" content="BAULOC — Mobile Developer" />
     <title>bauloc.github.io</title>
     <script>
-      // Theme before first paint, so a dark-mode visitor never sees a light frame while the
-      // bundle loads. A saved choice wins, else the system's. Mirrors src/lib/theme.ts.
-      try {
-        var saved = localStorage.getItem('bauloc:theme')
+      // Theme and language before first paint, so a dark-mode visitor never sees a light frame
+      // while the bundle loads. A saved choice wins, else the system's and the browser's.
+      // Mirrors src/lib/theme.ts and src/lib/locale.ts.
+      ;(function () {
+        var saved = null
+        var locale = null
+        try {
+          saved = localStorage.getItem('bauloc:theme')
+          locale = localStorage.getItem('bauloc:locale')
+        } catch (e) {}
         if (saved === 'dark' || (saved !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches))
           document.documentElement.classList.add('dark')
-      } catch (e) {}
+        if (locale !== 'en' && locale !== 'vi') {
+          var languages = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || '']
+          locale = 'en'
+          for (var i = 0; i < languages.length; i++) {
+            var primary = String(languages[i]).toLowerCase().split('-')[0]
+            if (primary === 'vi' || primary === 'en') {
+              locale = primary
+              break
+            }
+          }
+        }
+        document.documentElement.lang = locale
+      })()
     </script>
   </head>
   <body>

@@ -1,8 +1,11 @@
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 
-import cv from '../assets/cv.pdf'
-import { CV_FILE_NAME } from '../cv'
+import { useMessages } from '@/lib/i18n'
+import { useLocale } from '@/lib/locale'
+
+import { CV_FILE_NAME, CV_PDF } from '../cv'
+import { PROFILE_MESSAGES } from '../messages'
 import { ELEVATED_BUTTON } from './elevated-button'
 
 /**
@@ -10,26 +13,24 @@ import { ELEVATED_BUTTON } from './elevated-button'
  * the contact cards' teal tint, so it reads as the same family as the cards it leads to.
  */
 export function ContactPrompt({ children }: { children?: ReactNode }) {
+  const t = useMessages(PROFILE_MESSAGES)
+  const locale = useLocale()
   return (
-    <section className="bg-profile-teal-50 wide:p-6 mt-10 rounded-sm p-4 text-black">
-      <h2 className="wide:text-[22px] text-[18px] font-semibold">Let&apos;s work together</h2>
-      <p className="mt-2 text-[16px]">
-        I&apos;m available for freelance and contract projects. Whether it&apos;s a new app, a
-        feature for an existing one, or an app that needs rescuing, tell me what you&apos;re
-        building and I&apos;ll get back to you as soon as possible.
-      </p>
+    <section className="bg-profile-card wide:p-6 text-profile-ink mt-10 rounded-sm p-4">
+      <h2 className="wide:text-[22px] text-[18px] font-semibold">{t.workTogether}</h2>
+      <p className="mt-2 text-[16px]">{t.workTogetherBody}</p>
       <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-3">
         <Link to="/profile/contact" className={ELEVATED_BUTTON}>
-          Contact me
+          {t.contactMe}
         </Link>
         {children}
         {/* The side panel's DOWNLOAD is hidden below `wide`, so phones get the CV here. */}
         <a
-          href={cv}
-          download={CV_FILE_NAME}
+          href={CV_PDF[locale]}
+          download={CV_FILE_NAME[locale]}
           className="text-profile-primary text-[16px] font-medium underline-offset-4 hover:underline"
         >
-          Download CV (PDF)
+          {t.downloadCv}
         </a>
       </div>
     </section>

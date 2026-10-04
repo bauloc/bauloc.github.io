@@ -173,13 +173,26 @@
   The values were sampled from the running Flutter build (converted from Display P3 to sRGB),
   not derived, so the port looks like what visitors saw.
 
-  Light only, like the original: none of these is redefined under `.dark`.
+  The original was light only. Its dark mode is the one Flutter would draw for the same seed:
+  `ColorScheme.fromSeed(seedColor: Colors.teal, brightness: Brightness.dark)`, computed with
+  Material Color Utilities' tonal-spot scheme — the same computation gives back every light
+  value below exactly, which is what makes the dark ones trustworthy.
+
+  The CV's sheet (`[data-paper]`) keeps the light values in dark mode: it is paper, and it
+  prints that way.
 */
-:root {
-  /* Colors.teal and Colors.teal[50]: the side panel, the selected-item bar, the timeline,
-     and the contact cards. */
+:root,
+.dark [data-paper] {
+  /* Colors.teal: the selected-item bar, the timeline, the ticks. Bright enough on both
+     grounds (5:1 on the dark one), so it is the accent in both modes. */
   --profile-teal: #009688;
-  --profile-teal-50: #e0f2f1;
+  /* The side panel: Colors.teal. */
+  --profile-panel: #009688;
+  /* Colors.teal[50]: the contact cards, the project cards and the call to work together. */
+  --profile-card: #e0f2f1;
+  /* The page, and the text set on it. */
+  --profile-page: #ffffff;
+  --profile-ink: #000000;
   /* The menu rail: Colors.black12 over the scheme's surface. */
   --profile-rail: #d6dcda;
   /* The scheme's roles, by their M3 names. */
@@ -193,6 +206,27 @@
   /* fluttertoast's web default: toastify with this gradient. */
   --profile-toast-from: #00b09b;
   --profile-toast-to: #96c93d;
+}
+
+/*
+  The profile in dark mode. The roles are the dark scheme's own; the rest take the role that
+  stands in the same place: the page is the scheme's surface, the rail a raised container
+  (lighter than the page, as the light rail is darker), the cards and the side panel the
+  primary hue's dark containers, so the teal identity survives without a bright slab of it.
+*/
+.dark {
+  --profile-panel: #005048;
+  --profile-card: #003731;
+  --profile-page: #0e1513;
+  --profile-ink: #dde4e1;
+  --profile-rail: #252b2a;
+  --profile-surface: #0e1513;
+  --profile-on-surface: #dde4e1;
+  --profile-on-surface-variant: #bec9c6;
+  --profile-outline: #899390;
+  --profile-primary: #82d5c8;
+  --profile-surface-container-low: #161d1c;
+  --profile-secondary-container: #334b47;
 }
 
 /*
@@ -372,7 +406,10 @@ html.dark:has([data-shell='console']) {
   --color-skeleton-highlight: var(--skeleton-highlight, transparent);
 
   --color-profile-teal: var(--profile-teal);
-  --color-profile-teal-50: var(--profile-teal-50);
+  --color-profile-panel: var(--profile-panel);
+  --color-profile-card: var(--profile-card);
+  --color-profile-page: var(--profile-page);
+  --color-profile-ink: var(--profile-ink);
   --color-profile-rail: var(--profile-rail);
   --color-profile-surface: var(--profile-surface);
   --color-profile-on-surface: var(--profile-on-surface);

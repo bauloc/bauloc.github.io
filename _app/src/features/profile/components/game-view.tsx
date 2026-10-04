@@ -1,6 +1,10 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 
+import { SITE_MESSAGES } from '@/components/messages'
+import { useMessages } from '@/lib/i18n'
+
 import type { Game } from '../games'
+import { PROFILE_MESSAGES } from '../messages'
 import { MaterialIcon } from './material-icon'
 
 /**
@@ -16,6 +20,8 @@ import { MaterialIcon } from './material-icon'
 export function GameView({ game, onClose }: { game: Game; onClose: () => void }) {
   const [loaded, setLoaded] = useState(false)
   const closeRef = useRef<HTMLButtonElement>(null)
+  const site = useMessages(SITE_MESSAGES)
+  const t = useMessages(PROFILE_MESSAGES)
 
   const onKey = useEffectEvent((event: KeyboardEvent) => {
     if (event.key === 'Escape') onClose()
@@ -41,14 +47,14 @@ export function GameView({ game, onClose }: { game: Game; onClose: () => void })
     <div
       role="dialog"
       aria-label={game.title}
-      className="animate-slide-up wide:left-[379px] pointer-coarse:animate-pop-in fixed inset-y-0 right-0 left-[79px] z-20 flex flex-col bg-white pointer-coarse:left-0!"
+      className="animate-slide-up wide:left-[379px] pointer-coarse:animate-pop-in bg-profile-page fixed inset-y-0 right-0 left-[79px] z-20 flex flex-col pointer-coarse:left-0!"
     >
       <header className="bg-profile-surface relative flex h-14 shrink-0 items-center px-1">
         <button
           ref={closeRef}
           type="button"
           onClick={onClose}
-          aria-label="Close"
+          aria-label={site.close}
           className="text-profile-on-surface hover:bg-profile-on-surface/[0.08] active:bg-profile-on-surface/10 grid size-12 cursor-pointer place-items-center rounded-full transition-colors focus-visible:-outline-offset-2"
         >
           <MaterialIcon name="close" />
@@ -70,7 +76,7 @@ export function GameView({ game, onClose }: { game: Game; onClose: () => void })
         {!loaded && (
           <div
             role="progressbar"
-            aria-label={`Loading ${game.title}`}
+            aria-label={t.loadingGame(game.title)}
             className="bg-profile-secondary-container absolute inset-x-0 top-0 h-1 overflow-hidden"
           >
             <span className="animate-progress-bar bg-profile-primary absolute inset-y-0" />

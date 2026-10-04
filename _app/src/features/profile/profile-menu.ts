@@ -8,7 +8,8 @@ import type { MaterialIconName } from './components/material-icon'
  * section.
  */
 export interface ProfileMenuItem {
-  readonly title: string
+  /** Names the section in PROFILE_MESSAGES.section, where its title is in both languages. */
+  readonly id: 'about' | 'portfolio' | 'resume' | 'relax' | 'contact'
   readonly to:
     | '/profile/about_me'
     | '/profile/portfolio'
@@ -19,11 +20,11 @@ export interface ProfileMenuItem {
 }
 
 export const PROFILE_MENU = [
-  { title: 'About me', to: '/profile/about_me', icon: 'accountCircleOutlined' },
-  { title: 'Portfolio', to: '/profile/portfolio', icon: 'personalVideoRounded' },
-  { title: 'Resume', to: '/profile/resume', icon: 'list' },
-  { title: 'Relax', to: '/profile/relax', icon: 'gamesSharp' },
-  { title: 'Contact', to: '/profile/contact', icon: 'mailOutline' },
+  { id: 'about', to: '/profile/about_me', icon: 'accountCircleOutlined' },
+  { id: 'portfolio', to: '/profile/portfolio', icon: 'personalVideoRounded' },
+  { id: 'resume', to: '/profile/resume', icon: 'list' },
+  { id: 'relax', to: '/profile/relax', icon: 'gamesSharp' },
+  { id: 'contact', to: '/profile/contact', icon: 'mailOutline' },
 ] as const satisfies readonly ProfileMenuItem[]
 
 /** Where `/profile/` itself opens. The Flutter build started on Contact, so the port does. */

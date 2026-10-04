@@ -1,9 +1,12 @@
 import { FileText, Tv, type LucideIcon } from 'lucide-react'
 
-/** The console's modules, in sidebar order. A new module is one entry here plus its route. */
+/**
+ * The console's modules, in sidebar order. A new module is one entry here, its title and
+ * description in messages.tsx, and its route.
+ */
 export interface ConsoleModule {
-  readonly title: string
-  readonly description: string
+  /** Names the module in XCONSOLE_MESSAGES.module, where its words are in both languages. */
+  readonly id: 'termPrivacy' | 'iptv'
   readonly to: '/xconsole/term-privacy' | '/xconsole/iptv'
   readonly icon: LucideIcon
   /** The legacy console addressed modules by hash (`/xconsole/#iptv`). */
@@ -12,15 +15,13 @@ export interface ConsoleModule {
 
 export const CONSOLE_MODULES = [
   {
-    title: 'Term & Privacy',
-    description: 'Legal pages for App Store and Google Play submissions.',
+    id: 'termPrivacy',
     to: '/xconsole/term-privacy',
     icon: FileText,
     legacyHash: '#term-privacy',
   },
   {
-    title: 'IPTV',
-    description: 'Mirror an upstream M3U playlist to bauloc.github.io/iptv.',
+    id: 'iptv',
     to: '/xconsole/iptv',
     icon: Tv,
     legacyHash: '#iptv',

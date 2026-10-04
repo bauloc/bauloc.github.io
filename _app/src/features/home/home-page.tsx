@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 
+import { useMessages } from '@/lib/i18n'
+import { LANGUAGES, setLocale, useLocale } from '@/lib/locale'
+
 import { SHEET_GAP, SHEET_WIDTH } from './camera'
 import { Crosshair } from './components/crosshair'
 import { IntroSheet } from './components/intro-sheet'
@@ -10,11 +13,12 @@ import { TextSwitch } from './components/text-switch'
 import { ThemeSwitch } from './components/theme-switch'
 import { HOME_LINKS } from './home-links'
 import { buildView } from './launcher'
+import { HOME_MESSAGES } from './messages'
 import { STAGE_ID, useIndexCamera } from './use-camera'
 
-/** The statement is sheet 0; the links follow in data order. */
+/** The statement is sheet 0; the links follow in data order — the same in either language. */
 const FIRST_LINK = 1
-const SHEETS = HOME_LINKS.length + FIRST_LINK
+const SHEETS = HOME_LINKS.en.length + FIRST_LINK
 
 /** Letters typed within this window build one query; a pause starts a new one. */
 const TYPE_AHEAD_MS = 900
@@ -26,10 +30,24 @@ const TYPE_AHEAD_MS = 900
 */
 type Layout = 'list' | 'grid'
 const LAYOUT_STORAGE_KEY = 'bauloc:layout'
-const LAYOUTS = [
-  { value: 'list', label: 'List' },
-  { value: 'grid', label: 'Grid' },
-] as const satisfies readonly { value: Layout; label: string }[]
+
+/**
+ * The language switch's choices: each language by its own name, or by its code on a phone,
+ * where the full names would reach under the ruler (which keeps the top centre there). The
+ * name stays the button's name either way.
+ */
+const LANGUAGE_OPTIONS = LANGUAGES.map((language) => ({
+  value: language.value,
+  label: (
+    <>
+      <span aria-hidden="true" className="sm:hidden">
+        {language.short}
+      </span>
+      <span className="max-sm:sr-only">{language.name}</span>
+    </>
+  ),
+  lang: language.value,
+}))
 
 function readLayout(): Layout {
   try {
@@ -78,6 +96,8 @@ function sheetInFront(): number {
  */
 function useTypeAhead(onMatch: (sheet: number) => void) {
   const typed = useRef({ text: '', at: Number.NEGATIVE_INFINITY })
+  // Matched against the titles on screen, so "ho" finds Hồ sơ in Vietnamese.
+  const links = HOME_LINKS[useLocale()]
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
@@ -85,14 +105,14 @@ function useTypeAhead(onMatch: (sheet: number) => void) {
       const fresh = event.timeStamp - typed.current.at > TYPE_AHEAD_MS
       const text = fresh ? event.key : typed.current.text + event.key
       typed.current = { text, at: event.timeStamp }
-      const best = buildView(HOME_LINKS, text).rows[0]
-      if (best) onMatch(HOME_LINKS.indexOf(best.link) + FIRST_LINK)
+      const best = buildView(links, text).rows[0]
+      if (best) onMatch(links.indexOf(best.link) + FIRST_LINK)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [onMatch])
+  }, [onMatch, links])
 }
 
 /**
@@ -111,6 +131,7 @@ function StripView({ entrance, initialSheet }: { entrance: boolean; initialSheet
     FIRST_LINK,
     initialSheet,
   )
+  const links = HOME_LINKS[useLocale()]
 
   /**
    * Centre a sheet, and move focus to it when asked or when a sheet already has focus. The
@@ -196,7 +217,7 @@ function StripView({ entrance, initialSheet }: { entrance: boolean; initialSheet
           style={{ gap: SHEET_GAP }}
         >
           <IntroSheet entrance={entrance} />
-          {HOME_LINKS.map((link, index) => (
+          {links.map((link, index) => (
             <LinkSheet
               key={link.href}
               link={link}
@@ -245,6 +266,7 @@ function Cell({ caption, children }: { caption?: string; children: ReactNode }) 
  */
 function GridView({ onSheetFocus }: { onSheetFocus: (sheet: number) => void }) {
   const grid = useRef<HTMLDivElement>(null)
+  const links = HOME_LINKS[useLocale()]
 
   useLayoutEffect(() => {
     const element = grid.current
@@ -280,7 +302,7 @@ function GridView({ onSheetFocus }: { onSheetFocus: (sheet: number) => void }) {
           <Cell>
             <IntroSheet entrance={false} />
           </Cell>
-          {HOME_LINKS.map((link, index) => (
+          {links.map((link, index) => (
             <Cell key={link.href} caption={link.description}>
               <LinkSheet link={link} index={index + FIRST_LINK} entrance={false} />
             </Cell>
@@ -300,10 +322,13 @@ function GridView({ onSheetFocus }: { onSheetFocus: (sheet: number) => void }) {
 }
 
 /**
- * The site root. "List  Grid" bottom left, "Light  Dark" bottom right — the reference puts its
- * own links in the corners of a sheet; these sit in the corners of the page.
+ * The site root. "List  Grid" bottom left, "Light  Dark" bottom right, the language top
+ * right — the reference puts its own links in the corners of a sheet; these sit in the
+ * corners of the page. The top left stays empty, and the ruler keeps the top centre.
  */
 export function HomePage() {
+  const t = useMessages(HOME_MESSAGES)
+  const locale = useLocale()
   const [layout, setLayout] = useState<Layout>(readLayout)
   /** Entrance animations belong to the first load only; after a switch the morph is the motion. */
   const [switched, setSwitched] = useState(false)
@@ -342,11 +367,21 @@ export function HomePage() {
         />
       )}
       <TextSwitch
-        label="Layout"
-        options={LAYOUTS}
+        label={t.layout}
+        options={[
+          { value: 'list', label: t.list },
+          { value: 'grid', label: t.grid },
+        ]}
         value={layout}
         onSelect={chooseLayout}
-        className="left-6"
+        className="bottom-6 left-6"
+      />
+      <TextSwitch
+        label={t.language}
+        options={LANGUAGE_OPTIONS}
+        value={locale}
+        onSelect={setLocale}
+        className="top-6 right-6"
       />
       <ThemeSwitch />
     </main>

@@ -4,6 +4,8 @@ import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { FlaskConical } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
+import { HomeButton } from '@/components/home-button'
+import { LanguageToggle } from '@/components/language-toggle'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { Toaster } from '@/components/toaster'
 import { Badge } from '@/components/ui/badge'
@@ -11,24 +13,29 @@ import { Separator } from '@/components/ui/separator'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { useMessages } from '@/lib/i18n'
 
 import { AppSidebar } from './components/app-sidebar'
 import { TokenDialog } from './components/token-dialog'
 import { ConsoleContext, type ConsoleContextValue } from './console-context'
 import { CONSOLE_MODULES, moduleFor } from './console-menu'
+import { XCONSOLE_MESSAGES } from './messages'
 import { readToken, useToken } from './repo/token'
 import { isMockMode, useRepo } from './repo/use-repo'
 
 /**
  * `/xconsole/` — the console's shell, after shadcn/ui's dashboard: a collapsible sidebar of
- * modules, a sticky header with the theme switch, and the module on the right. Light and
- * dark both follow the site's theme choice (src/lib/theme.ts).
+ * modules, a sticky header, and the module on the right. The header leads back to the site's
+ * home page and ends with the language and the theme, both the site's own choices
+ * (src/lib/locale.ts, src/lib/theme.ts).
  *
  * Without a token the console can do nothing, so it asks for one before showing a module.
  */
 export function XConsoleLayout() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const current = moduleFor(pathname)
+  const t = useMessages(XCONSOLE_MESSAGES)
+  const title = t.module[current.id].title
   const navigate = useNavigate()
   const repo = useRepo()
   const token = useToken()
@@ -48,11 +55,11 @@ export function XConsoleLayout() {
 
   useEffect(() => {
     const previous = document.title
-    document.title = `${current.title} · XConsole`
+    document.title = `${title} · XConsole`
     return () => {
       document.title = previous
     }
-  }, [current.title])
+  }, [title])
 
   const context = useMemo<ConsoleContextValue | null>(
     () =>
@@ -79,7 +86,8 @@ export function XConsoleLayout() {
         />
         <SidebarInset>
           <header className="bg-background/80 sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b px-4 backdrop-blur">
-            <SidebarTrigger className="-ml-1" />
+            <HomeButton />
+            <SidebarTrigger />
             <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
             <nav
               aria-label="Breadcrumb"
@@ -89,7 +97,7 @@ export function XConsoleLayout() {
               <span aria-hidden="true" className="hidden sm:inline">
                 /
               </span>
-              <span className="text-foreground truncate font-medium">{current.title}</span>
+              <span className="text-foreground truncate font-medium">{title}</span>
             </nav>
             <div className="ml-auto flex items-center gap-2">
               {mock && (
@@ -98,9 +106,11 @@ export function XConsoleLayout() {
                   className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-300"
                 >
                   <FlaskConical />
-                  Mock<span className="hidden md:inline"> data — nothing is committed</span>
+                  {t.mock}
+                  <span className="hidden md:inline">{t.mockDetail}</span>
                 </Badge>
               )}
+              <LanguageToggle />
               <ThemeToggle />
             </div>
           </header>

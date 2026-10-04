@@ -1,16 +1,28 @@
+import { defineMessages, type Localized } from '@/lib/i18n'
+
+import cvEn from './assets/cv.pdf'
+import cvVi from './assets/cv-vi.pdf'
+
 /**
- * The CV behind the side panel's DOWNLOAD button (`/profile/cv`, and the PDF made from it by
- * `npm run cv`).
+ * The CV behind the side panel's DOWNLOAD button (`/profile/cv`, and the PDFs made from it
+ * by `npm run cv`, one per language).
  *
  * Same sources as the rest of the profile — the Resume timeline, the 2016 CV, live App Store
  * listings — and nothing beyond them: no figures, no tools the evidence does not name. The
- * projects come from portfolio.ts, so the two cannot disagree.
+ * projects come from portfolio.ts, so the two cannot disagree. The Vietnamese says what the
+ * English says.
  */
 
 export const CV_NAME = 'Nguyen Phuoc Loc'
+
+/** The printed CV in each language: /profile/cv, printed by `npm run cv`. */
+export const CV_PDF: Localized<string> = { en: cvEn, vi: cvVi }
+
 /** What a downloaded CV is called, rather than its hashed asset name. */
-export const CV_FILE_NAME = 'Nguyen-Phuoc-Loc-CV.pdf'
-export const CV_TITLE = 'Mobile Developer'
+export const CV_FILE_NAME: Localized<string> = {
+  en: 'Nguyen-Phuoc-Loc-CV.pdf',
+  vi: 'Nguyen-Phuoc-Loc-CV-vi.pdf',
+}
 
 export const CV_CONTACT = [
   { label: 'bauloc79@gmail.com', href: 'mailto:bauloc79@gmail.com' },
@@ -20,25 +32,6 @@ export const CV_CONTACT = [
   { label: 'github.com/bauloc', href: 'https://github.com/bauloc' },
 ] as const
 
-export const CV_SUMMARY =
-  "Mobile developer with more than ten years of shipping iOS, Apple TV, Android and Flutter apps, from FPT Telecom's FPT Play streaming service to apps I publish on my own developer account. Trained as an electrical and electronic engineer: systematic, careful with details, and used to owning an app from the first idea to the store release and the updates after it."
-
-export const CV_SKILLS = [
-  {
-    area: 'iOS',
-    items: 'Swift, Objective-C, Apple TV (tvOS), app extensions, push notifications (APNs)',
-  },
-  { area: 'Cross-platform', items: 'Flutter, Dart' },
-  { area: 'Android', items: 'Native Android apps' },
-  { area: 'Media', items: 'Live TV and video on demand, DRM-protected playback, Chromecast' },
-  {
-    area: 'Libraries',
-    items:
-      'CocoaPods, Alamofire, AFNetworking, Kingfisher, SDWebImage, Realm, Facebook and Google SDKs',
-  },
-  { area: 'Shipping', items: 'App Store Connect, TestFlight, Google Play Console, Crashlytics' },
-] as const
-
 export interface CvRole {
   readonly role: string
   readonly company: string
@@ -46,45 +39,150 @@ export interface CvRole {
   readonly points: readonly string[]
 }
 
-export const CV_EXPERIENCE: readonly CvRole[] = [
-  {
-    role: 'Software Developer',
-    company: 'Tevi',
-    period: '04/2022 – Present',
-    points: [
-      'Software developer on Tevi, a platform where content creators earn directly from their fans through livestreams, interactive games, memberships and paid posts.',
+export const CV = defineMessages({
+  en: {
+    title: 'Mobile Developer',
+    sections: {
+      summary: 'Summary',
+      skills: 'Skills',
+      experience: 'Experience',
+      ownApps: 'Own apps',
+      education: 'Education',
+    },
+    summary:
+      "Mobile developer with more than ten years of shipping iOS, Apple TV, Android and Flutter apps, from FPT Telecom's FPT Play streaming service to apps I publish on my own developer account. Trained as an electrical and electronic engineer: systematic, careful with details, and used to owning an app from the first idea to the store release and the updates after it.",
+    skills: [
+      {
+        area: 'iOS',
+        items: 'Swift, Objective-C, Apple TV (tvOS), app extensions, push notifications (APNs)',
+      },
+      { area: 'Cross-platform', items: 'Flutter, Dart' },
+      { area: 'Android', items: 'Native Android apps' },
+      { area: 'Media', items: 'Live TV and video on demand, DRM-protected playback, Chromecast' },
+      {
+        area: 'Libraries',
+        items:
+          'CocoaPods, Alamofire, AFNetworking, Kingfisher, SDWebImage, Realm, Facebook and Google SDKs',
+      },
+      {
+        area: 'Shipping',
+        items: 'App Store Connect, TestFlight, Google Play Console, Crashlytics',
+      },
+    ],
+    experience: [
+      {
+        role: 'Software Developer',
+        company: 'Tevi',
+        period: '04/2022 – Present',
+        points: [
+          'Software developer on Tevi, a platform where content creators earn directly from their fans through livestreams, interactive games, memberships and paid posts.',
+        ],
+      },
+      {
+        role: 'Software Developer, FPT Play',
+        company: 'FPT Telecom',
+        period: '09/2015 – 04/2022',
+        points: [
+          'Built and developed the FPT Play apps for iOS and Apple TV: live TV with program guides, video on demand, DRM-protected playback and Chromecast.',
+          "Developed ABC Play, FPT Telecom's entertainment and learning app for children on iOS and tvOS.",
+          'Released through TestFlight and App Store Connect, with Crashlytics crash reporting and push notifications.',
+        ],
+      },
+      {
+        role: 'Electrical & Automation Engineer',
+        company: 'V.T.E.C.H Electrical Technology Co',
+        period: '04/2014 – 08/2015',
+        points: [
+          'Power quality testing of transformer equipment.',
+          'Embedded programming for microcontrollers, and PLC programming.',
+        ],
+      },
+    ] as readonly CvRole[],
+    education: [
+      {
+        school: 'Ho Chi Minh City University of Technology',
+        detail: "Engineer's degree, Electrical & Electronic Engineering (Automatic Control)",
+        period: '2009 – 2014',
+      },
+      {
+        school: 'Informatics Center, University of Science, Ho Chi Minh City',
+        detail: 'Android Developer and iOS Developer programs',
+        period: '2014 – 2015',
+      },
     ],
   },
-  {
-    role: 'Software Developer, FPT Play',
-    company: 'FPT Telecom',
-    period: '09/2015 – 04/2022',
-    points: [
-      'Built and developed the FPT Play apps for iOS and Apple TV: live TV with program guides, video on demand, DRM-protected playback and Chromecast.',
-      "Developed ABC Play, FPT Telecom's entertainment and learning app for children on iOS and tvOS.",
-      'Released through TestFlight and App Store Connect, with Crashlytics crash reporting and push notifications.',
+  vi: {
+    title: 'Lập trình viên di động',
+    sections: {
+      summary: 'Tóm tắt',
+      skills: 'Kỹ năng',
+      experience: 'Kinh nghiệm',
+      ownApps: 'Ứng dụng cá nhân',
+      education: 'Học vấn',
+    },
+    summary:
+      'Lập trình viên di động với hơn mười năm phát hành ứng dụng iOS, Apple TV, Android và Flutter, từ dịch vụ FPT Play của FPT Telecom đến những ứng dụng tôi phát hành bằng tài khoản nhà phát triển cá nhân. Xuất thân kỹ sư điện – điện tử: làm việc có hệ thống, cẩn thận từng chi tiết, quen phụ trách một ứng dụng từ ý tưởng đầu tiên đến khi lên cửa hàng và các bản cập nhật sau đó.',
+    skills: [
+      {
+        area: 'iOS',
+        items: 'Swift, Objective-C, Apple TV (tvOS), app extension, thông báo đẩy (APNs)',
+      },
+      { area: 'Đa nền tảng', items: 'Flutter, Dart' },
+      { area: 'Android', items: 'Ứng dụng Android native' },
+      {
+        area: 'Đa phương tiện',
+        items: 'Truyền hình trực tiếp và video theo yêu cầu, phát nội dung DRM, Chromecast',
+      },
+      {
+        area: 'Thư viện',
+        items:
+          'CocoaPods, Alamofire, AFNetworking, Kingfisher, SDWebImage, Realm, SDK của Facebook và Google',
+      },
+      {
+        area: 'Phát hành',
+        items: 'App Store Connect, TestFlight, Google Play Console, Crashlytics',
+      },
+    ],
+    experience: [
+      {
+        role: 'Lập trình viên phần mềm',
+        company: 'Tevi',
+        period: '04/2022 – nay',
+        points: [
+          'Lập trình viên phần mềm của Tevi, nền tảng nơi nhà sáng tạo nội dung kiếm thu nhập trực tiếp từ người hâm mộ qua livestream, trò chơi tương tác, gói hội viên và bài đăng trả phí.',
+        ],
+      },
+      {
+        role: 'Lập trình viên phần mềm, FPT Play',
+        company: 'FPT Telecom',
+        period: '09/2015 – 04/2022',
+        points: [
+          'Xây dựng và phát triển ứng dụng FPT Play cho iOS và Apple TV: truyền hình trực tiếp kèm lịch phát sóng, video theo yêu cầu, phát nội dung DRM và Chromecast.',
+          'Phát triển ABC Play, ứng dụng giải trí và học tập cho trẻ em của FPT Telecom trên iOS và tvOS.',
+          'Phát hành qua TestFlight và App Store Connect, theo dõi crash bằng Crashlytics và gửi thông báo đẩy.',
+        ],
+      },
+      {
+        role: 'Kỹ sư Điện – Tự động hóa',
+        company: 'V.T.E.C.H Electrical Technology Co',
+        period: '04/2014 – 08/2015',
+        points: [
+          'Đo kiểm chất lượng điện năng cho thiết bị máy biến áp.',
+          'Lập trình nhúng cho vi điều khiển và lập trình PLC.',
+        ],
+      },
+    ],
+    education: [
+      {
+        school: 'Trường Đại học Bách khoa TP.HCM',
+        detail: 'Bằng kỹ sư Điện – Điện tử (chuyên ngành Điều khiển tự động)',
+        period: '2009 – 2014',
+      },
+      {
+        school: 'Trung tâm Tin học, Trường Đại học Khoa học Tự nhiên TP.HCM',
+        detail: 'Khóa Lập trình Android và Lập trình iOS',
+        period: '2014 – 2015',
+      },
     ],
   },
-  {
-    role: 'Electrical & Automation Engineer',
-    company: 'V.T.E.C.H Electrical Technology Co',
-    period: '04/2014 – 08/2015',
-    points: [
-      'Power quality testing of transformer equipment.',
-      'Embedded programming for microcontrollers, and PLC programming.',
-    ],
-  },
-]
-
-export const CV_EDUCATION = [
-  {
-    school: 'Ho Chi Minh City University of Technology',
-    detail: "Engineer's degree, Electrical & Electronic Engineering (Automatic Control)",
-    period: '2009 – 2014',
-  },
-  {
-    school: 'Informatics Center, University of Science, Ho Chi Minh City',
-    detail: 'Android Developer and iOS Developer programs',
-    period: '2014 – 2015',
-  },
-] as const
+})
