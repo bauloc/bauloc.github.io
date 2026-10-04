@@ -18,6 +18,8 @@ import {
   splitName,
   udpTransport,
   type MdnsMessage,
+  type OpenMdnsTransport,
+  type ServiceInstance,
 } from '../src/mdns'
 import {
   BRAVIA,
@@ -143,6 +145,25 @@ function packet(body: number[], an = 1, qd = 0): Buffer {
   return Buffer.from([0, 0, 0x84, 0, 0, qd, 0, an, 0, 0, 0, 0, ...body])
 }
 
+/** One record by hand: `name`, the type, class IN, TTL 120, then `data` with its length. */
+function record(name: string, type: number, data: number[]): number[] {
+  const length = [data.length >> 8, data.length & 0xff]
+  return [...encodeName(name), 0, type, 0, 1, 0, 0, 0, 120, ...length, ...data]
+}
+
+/** What was thrown, uncaught, out of a timer or an event while `run` ran: it stops the helper. */
+async function uncaughtDuring(run: () => Promise<void>): Promise<unknown[]> {
+  const thrown: unknown[] = []
+  const listener = (error: unknown): void => void thrown.push(error)
+  process.on('uncaughtException', listener)
+  try {
+    await run()
+  } finally {
+    process.off('uncaughtException', listener)
+  }
+  return thrown
+}
+
 describe('the codec', () => {
   it('reads the TV’s answer, byte for byte, pointers and all', () => {
     const message = parseMessage(TV_ADB_ANSWER)
@@ -263,6 +284,70 @@ describe('the codec', () => {
       3,
     ])
     expect(readName(chain, 7)).toEqual({ name: 'c.b.a', next: 11 })
+  })
+
+  it('refuses a label that is not UTF-8: no name it reads is one it could not ask about', () => {
+    /** 22 bytes of 0xFF read as 22 U+FFFD, 66 bytes when written back: past a label's 63. */
+    const bad = Buffer.from([22, ...Array<number>(22).fill(0xff), 5, ...ascii('local'), 0])
+    expect(readName(bad, 0)).toBeNull()
+    /** One bad byte is enough, and a cut-short sequence (it would come back as U+FFFD). */
+    expect(readName(Buffer.from([3, 0x61, 0xff, 0x62, 0]), 0)).toBeNull()
+    expect(readName(Buffer.from([3, 0xf0, 0x9f, 0x98, 0]), 0)).toBeNull()
+    /** UTF-8 is read as it is, and written back byte for byte. */
+    const name = joinName(['Phòng khách 📺', 'local'])
+    const wire = encodeName(name)
+    expect(readName(wire, 0)).toEqual({ name, next: wire.length })
+  })
+
+  it('takes exactly the labels that are UTF-8: every lead byte, against each range’s edges', () => {
+    /** UTF-8 is what decodes and encodes back as it was. */
+    const utf8 = (bytes: number[]): boolean => {
+      const raw = Buffer.from(bytes)
+      return Buffer.from(raw.toString('utf8'), 'utf8').equals(raw)
+    }
+    const read = (bytes: number[]): string | undefined =>
+      readName(Buffer.from([bytes.length, ...bytes, 0]), 0)?.name
+    /**
+     * Both sides of every edge in table 3-7 of the Unicode Standard: 0x80 and 0xBF bound each
+     * byte after the lead, 0xA0 and 0x90 the next one after 0xE0 and 0xF0 (overlong), 0x9F
+     * after 0xED (surrogates) and 0x8F after 0xF4 (past U+10FFFF). Every lead, then up to
+     * three of them.
+     */
+    const edges = [0x7f, 0x80, 0x8f, 0x90, 0x9f, 0xa0, 0xbf, 0xc0]
+    let tails: number[][] = [[]]
+    const all = [...tails]
+    for (let length = 1; length <= 3; length++) {
+      tails = tails.flatMap((tail) => edges.map((byte) => [...tail, byte]))
+      all.push(...tails)
+    }
+    const wrong: string[] = []
+    for (let lead = 0; lead < 256; lead++) {
+      for (const tail of all) {
+        const bytes = [lead, ...tail]
+        const taken = read(bytes) !== undefined
+        if (taken !== utf8(bytes)) wrong.push(Buffer.from(bytes).toString('hex'))
+      }
+    }
+    expect(wrong).toEqual([])
+    /** Overlong, a surrogate, past U+10FFFF, a byte that never leads, one cut short. */
+    for (const bytes of [
+      [0xc0, 0x80],
+      [0xe0, 0x9f, 0xbf],
+      [0xf0, 0x8f, 0xbf, 0xbf],
+      [0xed, 0xa0, 0x80],
+      [0xf4, 0x90, 0x80, 0x80],
+      [0xbf],
+      [0xc3, 0x61],
+    ]) {
+      expect(read(bytes)).toBeUndefined()
+    }
+    /** The first and last code point of each length, a BOM and U+FFFD itself: as they are. */
+    for (const code of [
+      0, 0x7f, 0x80, 0x7ff, 0x800, 0xd7ff, 0xe000, 0xfeff, 0xfffd, 0xffff, 0x10000, 0x10ffff,
+    ]) {
+      const text = String.fromCodePoint(code)
+      expect(read([...Buffer.from(text)])).toBe(text)
+    }
   })
 
   it('keeps the records before one that does not fit, and never trusts the counts', () => {
@@ -476,6 +561,74 @@ describe('browse()', () => {
     expect(instances).toEqual([])
   })
 
+  it('drops an answer naming an instance or host it could not ask about, never throwing', async () => {
+    /**
+     * Anyone on the network may answer (id 0 is taken). 30 bytes of 0xFF read as 30 U+FFFD,
+     * 90 bytes when written back: the follow-up's question for that name could not be
+     * written, and the throw, in a timer, stopped the helper.
+     */
+    const bad = [30, ...Array<number>(30).fill(0xff)]
+    const hostile = (): Buffer[] => [
+      /** A PTR alone, to such an instance: its SRV and TXT would be asked next. */
+      packet(record(ADB, 12, [...bad, ...encodeName(ADB)])),
+      /** An instance whose SRV names such a host: its A and AAAA would be asked next. */
+      packet(
+        [
+          ...record(ADB, 12, [...encodeName(`adb-HOSTILE.${ADB}`)]),
+          ...record(`adb-HOSTILE.${ADB}`, 33, [0, 0, 0, 0, 0x15, 0xb3, ...bad, 0]),
+        ],
+        2,
+      ),
+    ]
+    const network = fakeMdnsNetwork([braviaTv(), hostile])
+    let instances: ServiceInstance[] = []
+    const thrown = await uncaughtDuring(async () => {
+      instances = (await browse({ services: [ADB], open: network.open, windowMs: 150 })).instances
+    })
+    expect(thrown).toEqual([])
+    expect(instances.map((i) => [i.instance, i.port])).toEqual([
+      [BRAVIA.adb, 5555],
+      ['adb-HOSTILE', null],
+    ])
+    const asked = network.queries.flatMap((q) => q.questions.map((x) => `${x.type} ${x.name}`))
+    expect(asked.filter((q) => !q.startsWith('PTR '))).toEqual([
+      `SRV adb-HOSTILE.${ADB}`,
+      `TXT adb-HOSTILE.${ADB}`,
+    ])
+  })
+
+  it('nothing a transport does throws out of its packet handler or its follow-up timer', async () => {
+    const open: OpenMdnsTransport = (onPacket) =>
+      Promise.resolve({
+        send(packet) {
+          /** The follow-up's send throws at once, where a transport should reject. */
+          if (parseMessage(packet)?.questions.some((q) => q.type === 'SRV')) {
+            throw new Error('send threw')
+          }
+          setTimeout(() => {
+            /** Not a packet at all, then a PTR alone, which calls for that follow-up. */
+            onPacket(undefined as unknown as Buffer)
+            onPacket(
+              encodeMessage({
+                id: 0,
+                answers: [{ name: ADB, type: 'PTR', target: `adb-X.${ADB}` }],
+              }),
+            )
+          }, 5)
+          return Promise.resolve()
+        },
+        close: () => undefined,
+      })
+    let instances: ServiceInstance[] = []
+    const thrown = await uncaughtDuring(async () => {
+      instances = (await browse({ services: [ADB], open, windowMs: 150 })).instances
+    })
+    expect(thrown).toEqual([])
+    expect(instances).toEqual([
+      { service: ADB, instance: 'adb-X', target: null, port: null, addresses: [], txt: [] },
+    ])
+  })
+
   it('keeps at most `max` instances', async () => {
     const many = zoneResponder(
       Array.from({ length: 30 }, (_, i) => ({
@@ -529,6 +682,15 @@ describe('browse()', () => {
     const result = await browse({ services: [ADB], open: network.open, windowMs: 100 })
     expect(result.failure).toMatchObject({ reason: 'blocked', code: 'EPERM' })
     expect(mdnsFailure(new Error('odd'))).toEqual({ reason: 'failed', code: '', detail: 'odd' })
+  })
+
+  it('a service type it cannot ask about is refused before a socket opens', async () => {
+    const network = fakeMdnsNetwork([braviaTv()])
+    const services = [ADB, `_${'x'.repeat(63)}._tcp.local`]
+    await expect(browse({ services, open: network.open, windowMs: 100 })).rejects.toThrow(
+      'Bad DNS label',
+    )
+    expect([network.opened(), network.closed()]).toEqual([0, 0])
   })
 })
 

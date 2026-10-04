@@ -81,7 +81,7 @@ describe('main(): command line and refusals (§1.7, §1.10)', () => {
     expect(help.exits).toEqual([0])
     expect(help.stdout()).toContain('node ~/device-bridge.mjs [options]')
     const version = await run(['--version'])
-    expect([version.exits, version.stdout()]).toEqual([[0], '1.1.0\n'])
+    expect([version.exits, version.stdout()]).toEqual([[0], '1.1.1\n'])
   })
   it('an unknown option exits 64 with the exact sentence', async () => {
     const r = await run(['--foo'])
@@ -120,7 +120,7 @@ describe('main(): command line and refusals (§1.7, §1.10)', () => {
     const r1 = await run(['--port', String(port)], { bridge: { port } })
     expect(r1.exits).toEqual([1])
     expect(r1.err.join('')).toBe(
-      `A Device Lab helper (1.1.0) is already running on port ${String(port)}. Use that window, or stop it with Ctrl+C there.\n`,
+      `A Device Lab helper (1.1.1) is already running on port ${String(port)}. Use that window, or stop it with Ctrl+C there.\n`,
     )
     const other = http.createServer((_req, res) => res.end('hello'))
     const otherPort = await freePort()
@@ -134,7 +134,7 @@ describe('main(): command line and refusals (§1.7, §1.10)', () => {
   it('--doctor prints and exits 0 without serving anything', async () => {
     const r = await run(['--doctor'])
     expect(r.exits).toEqual([0])
-    expect(r.stdout()).toContain('bauloc-device-bridge 1.1.0 · doctor')
+    expect(r.stdout()).toContain('bauloc-device-bridge 1.1.1 · doctor')
   })
 })
 
@@ -144,7 +144,7 @@ describe('main(): start, banner, auto-open, signals', () => {
       bridge: { lanes: { ios: fakeIosLane({ rows: [IPHONE] }).factory } },
     })
     const text = r.stdout()
-    expect(text.startsWith('Device Lab helper 1.1.0 · http://127.0.0.1:')).toBe(true)
+    expect(text.startsWith('Device Lab helper 1.1.1 · http://127.0.0.1:')).toBe(true)
     expect(text).toContain('Open Device Lab with the link for your browser:')
     const banner = text.indexOf('Keep this window open')
     expect(text.indexOf('+ Ngọc’s iPhone 12 Pro · iOS 27.0 · USB · trusted')).toBeGreaterThan(
@@ -269,7 +269,7 @@ describe('the built file, in a real process', () => {
   it('starts, streams, and on SIGINT ends the stream, kills the tool group and exits 0', async () => {
     const h = await spawnHelper({}, [])
     expect(h.out()).toContain(
-      `Device Lab helper 1.1.0 · http://127.0.0.1:${String(h.port)} (this Mac only)`,
+      `Device Lab helper 1.1.1 · http://127.0.0.1:${String(h.port)} (this Mac only)`,
     )
     const stream = await openStream(h.port, '/api/devices/55090DLAQ0026D/logs', {
       Authorization: `Bearer ${h.token}`,

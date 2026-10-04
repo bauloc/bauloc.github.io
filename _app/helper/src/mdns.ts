@@ -27,7 +27,8 @@ import { clean, errorText, linkSignals, sleep } from './util'
  *
  * Everything that arrives is untrusted: every length, count and compression pointer is
  * checked against the packet before it is read (a pointer may only go backwards, and the
- * hops are counted), names are capped at 255 bytes, and what is kept is capped too.
+ * hops are counted), names are capped at 255 bytes and must be UTF-8, what is kept is
+ * capped too, and nothing an answer carries can throw out of a socket event or a timer.
  *
  * The second half, systemBrowse(), asks the same question of the computer's own mDNS daemon
  * through its tool (dns-sd on macOS, avahi-browse on Linux): see "system resolver" below.
@@ -101,10 +102,46 @@ export function encodeName(name: string): Buffer {
 }
 
 /**
+ * Whether buf[start, end) is UTF-8 (RFC 3629), byte by byte as table 3-7 of the Unicode
+ * Standard lists it: no overlong form, surrogate, code point past U+10FFFF or cut-short
+ * sequence. UTF-8, and nothing else, decodes and encodes back as it was. Checked where the
+ * bytes lie, with no copy: one packet can make readName() read 185,000 labels (1,455
+ * questions about one name of 127), and writing each label back to compare would double the
+ * time such a packet takes to read.
+ */
+function isUtf8(buf: Buffer, start: number, end: number): boolean {
+  for (let i = start; i < end; i++) {
+    const lead = buf[i] ?? 0
+    if (lead < 0x80) continue
+    /**
+     * How many bytes follow the lead (0x80 to 0xC1 and 0xF5 to 0xFF lead none), and the range
+     * of the next one: after 0xE0 and 0xF0 it refuses overlong forms, after 0xED surrogates,
+     * after 0xF4 code points past U+10FFFF.
+     */
+    const more = lead < 0xc2 ? 0 : lead < 0xe0 ? 1 : lead < 0xf0 ? 2 : lead < 0xf5 ? 3 : 0
+    const low = lead === 0xe0 ? 0xa0 : lead === 0xf0 ? 0x90 : 0x80
+    const high = lead === 0xed ? 0x9f : lead === 0xf4 ? 0x8f : 0xbf
+    const second = buf[i + 1] ?? 0
+    if (!more || i + more >= end || second < low || second > high) return false
+    for (let k = i + 2; k <= i + more; k++) {
+      if (((buf[k] ?? 0) & 0xc0) !== 0x80) return false
+    }
+    i += more
+  }
+  return true
+}
+
+/**
  * A name at `offset`, following compression pointers, or null when the packet is malformed:
  * a label or pointer past the end, a reserved label type, a pointer that does not go back
  * before every place this name was already read from (so no loop is possible), more than
  * 32 hops, or more than 255 bytes. `next` is where the record goes on after the name.
+ *
+ * A label must be UTF-8, as mDNS names are (RFC 6762 §16). Any other byte would read as
+ * U+FFFD, three bytes where it was one, and encodeName() could not write the name back as
+ * it came, or at all once a label passes 63 bytes (22 bytes of 0xFF come back as 66). So a
+ * name this returns can always be asked about again: the follow-ups never meet one that
+ * encodeName() refuses.
  */
 export function readName(buf: Buffer, offset: number): { name: string; next: number } | null {
   const labels: string[] = []
@@ -134,6 +171,7 @@ export function readName(buf: Buffer, offset: number): { name: string; next: num
     if (end > buf.length) return null
     length += byte + 1
     if (length > 255) return null
+    if (!isUtf8(buf, pos + 1, end)) return null
     labels.push(buf.toString('utf8', pos + 1, end))
     pos = end
   }
@@ -442,7 +480,10 @@ export interface ServiceInstance {
 }
 
 export interface BrowseOptions {
-  /** Service types to browse: `_adb._tcp.local`. */
+  /**
+   * Service types to browse: `_adb._tcp.local`. One that encodeName() refuses rejects the
+   * browse before a socket opens.
+   */
   services: readonly string[]
   open: OpenMdnsTransport
   /** How long answers are collected. The PTR query is sent again halfway. */
@@ -550,7 +591,11 @@ export async function browse(o: BrowseOptions): Promise<BrowseResult> {
     }
   }
 
-  /** SRV and TXT for instances without an SRV, A and AAAA for targets without an address. */
+  /**
+   * SRV and TXT for instances without an SRV, A and AAAA for targets without an address. It
+   * runs in a timer, where a throw would stop the helper, so a packet that cannot be written
+   * or sent is dropped (readName() returns no name encodeName() would refuse).
+   */
   const followUp = (): void => {
     if (done || !transport) return
     const questions: MdnsQuestion[] = []
@@ -573,8 +618,12 @@ export async function browse(o: BrowseOptions): Promise<BrowseResult> {
       }
     }
     for (let i = 0; i < questions.length; i += MAX_QUESTIONS) {
-      const packet = encodeQuery(id, questions.slice(i, i + MAX_QUESTIONS))
-      void transport.send(packet).catch(() => undefined)
+      try {
+        const packet = encodeQuery(id, questions.slice(i, i + MAX_QUESTIONS))
+        void transport.send(packet).catch(() => undefined)
+      } catch {
+        /** Those questions go unasked; the window still ends with what was learnt. */
+      }
     }
   }
 
@@ -616,26 +665,35 @@ export async function browse(o: BrowseOptions): Promise<BrowseResult> {
     return addresses.get(nameKey(target)) ?? []
   }
 
+  /**
+   * Every answer, from the transport's message event, where a throw would stop the helper: a
+   * packet that makes anything here throw is dropped, as a malformed one is.
+   */
   const onPacket = (packet: Buffer, from?: string): void => {
     if (done) return
-    const message = parseMessage(packet)
-    /** Ours (legacy unicast echoes the id) or a multicast answer (id 0). */
-    if (!message?.response || (message.id !== id && message.id !== 0)) return
-    for (const record of message.records) take(record, from)
-    bind(message.records, from)
+    try {
+      const message = parseMessage(packet)
+      /** Ours (legacy unicast echoes the id) or a multicast answer (id 0). */
+      if (!message?.response || (message.id !== id && message.id !== 0)) return
+      for (const record of message.records) take(record, from)
+      bind(message.records, from)
+    } catch {
+      return
+    }
     clearTimeout(followTimer)
     followTimer = setTimeout(followUp, 30)
   }
 
+  /** Written before the socket opens: a type encodeName() refuses throws with nothing open. */
+  const browseQuery = encodeQuery(
+    id,
+    o.services.map((name) => ({ name, type: 'PTR' })),
+  )
   try {
     transport = await o.open(onPacket)
   } catch (error) {
     return { instances: [], failure: mdnsFailure(error) }
   }
-  const browseQuery = encodeQuery(
-    id,
-    o.services.map((name) => ({ name, type: 'PTR' })),
-  )
   const window = new AbortController()
   const stop = (): void => window.abort()
   o.signal?.addEventListener('abort', stop, { once: true })
@@ -1075,17 +1133,17 @@ export function parseAvahiLine(line: string, type: string): AvahiLine | null {
   if (third < 0) return null
   const protocol = line.slice(second + 1, third)
   /**
-   * Case-insensitive without changing the line's length, so positions stay valid. `type` is
-   * one of ours (letters, digits, `_`, `-`, `.`).
+   * Found as text, never as a pattern (a type holding `(` or `+` would be one), and in ASCII
+   * case only, as DNS compares names: nameKey() keeps the line's length, so positions in it
+   * stay valid.
    */
-  const marker = new RegExp(`;${type.replace(/\./g, '\\.')};local`, 'i')
-  const found = marker.exec(line.slice(third))
-  if (!found) return null
-  const at = third + found.index
+  const marker = `;${nameKey(type)};local`
+  const at = nameKey(line).indexOf(marker, third)
+  if (at < 0) return null
   const labels = presentationLabels(line.slice(third + 1, at))
   const instance = labels?.length === 1 ? labels[0] : undefined
   if (!instance) return null
-  const rest = line.slice(at + found[0].length)
+  const rest = line.slice(at + marker.length)
   if (op !== '=') return rest === '' ? { op, protocol, instance, type } : null
   const m = /^;([^;]*);([^;]*);(\d{1,5});(.*)$/.exec(rest)
   if (!m?.[1] || !m[2] || !m[3]) return null

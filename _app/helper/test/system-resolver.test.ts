@@ -51,7 +51,15 @@ import {
   type FakeDnsSd,
 } from './fakes/dns-sd'
 import { braviaTv, errno, fakeMdnsNetwork, pixel9, silentMdns } from './fakes/mdns'
-import { freePort, isolation, onCleanup, request, tempDir, toolbox } from './harness'
+import {
+  freePort,
+  isolation,
+  listenerWarnings,
+  onCleanup,
+  request,
+  tempDir,
+  toolbox,
+} from './harness'
 
 const SERVICES = [
   '_adb._tcp.local',
@@ -295,6 +303,19 @@ describe('avahi-browse’s output', () => {
     ]) {
       expect(parseAvahiLine(junk, '_adb._tcp')).toBeNull()
     }
+  })
+
+  it('finds the type as text: `(`, `[` or `+` in it neither throws nor matches another type', () => {
+    expect(parseAvahiLine('+;eth0;IPv4;x;_a(b._tcp;local', '_a(b._tcp')).toEqual({
+      op: '+',
+      protocol: 'IPv4',
+      instance: 'x',
+      type: '_a(b._tcp',
+    })
+    expect(parseAvahiLine('+;eth0;IPv4;x;_A[B._TCP;LOCAL', '_a[b._tcp')).toMatchObject({
+      instance: 'x',
+    })
+    expect(parseAvahiLine('+;eth0;IPv4;x;_aaa._tcp;local', '_a+._tcp')).toBeNull()
   })
 
   it('TXT: escaped quotes and backslashes, \\DDD bytes, an unterminated string ends it', () => {
@@ -680,6 +701,17 @@ describe('browsing with dns-sd (macOS)', () => {
     expect(Date.now() - started).toBeLessThan(2_500)
     await allGone(b)
   })
+
+  it('no listener warning on Node 18 or 20: every process of a run listens to its deadline', async () => {
+    const b = bin()
+    const dnsSd = fakeDnsSd(b, OWNER)
+    const warnings = await listenerWarnings(async () => {
+      const result = await browseWith({ dnsSd, avahiBrowse: null })
+      expect(result.instances.map((i) => i.instance)).toContain(REAL_PIXEL.instance)
+    })
+    expect(warnings).toEqual([])
+    await allGone(b)
+  })
 })
 
 /* ------------------------------------------------------------------- avahi --- */
@@ -764,6 +796,16 @@ describe('browsing with avahi-browse (Linux)', () => {
       },
     })
     expect((await browseWith({ dnsSd: null, avahiBrowse })).instances).toEqual([])
+  })
+
+  it('no listener warning on Node 18 or 20 either', async () => {
+    const b = bin()
+    const avahiBrowse = fakeAvahiBrowse(b, { types: { '_adb-tls-connect._tcp': AVAHI_PIXEL } })
+    const warnings = await listenerWarnings(async () => {
+      const result = await browseWith({ dnsSd: null, avahiBrowse })
+      expect(result.instances.map((i) => i.instance)).toEqual([REAL_PIXEL.instance])
+    })
+    expect(warnings).toEqual([])
   })
 })
 

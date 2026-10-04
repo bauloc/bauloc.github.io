@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { DEVICE_ERRORS } from './backends/backend'
 import { HelperError } from './helper/client'
 import type { VisibilityLike } from './helper/connection'
 import type { NearbyDevice, NearbyReply } from './helper/protocol'
@@ -211,6 +212,34 @@ describe('createNearby', () => {
     d.nearby.mockImplementation(() => Promise.resolve(ok()))
     await d.store.refresh()
     expect(d.store.getSnapshot().message).toBeUndefined()
+  })
+
+  it('a failed request says the page’s sentence for its code, never the code itself', async () => {
+    const failed = async (error: HelperError) => {
+      const { store } = setup(() => Promise.reject(error))
+      store.watch()
+      await vi.advanceTimersByTimeAsync(0)
+      return store.getSnapshot()
+    }
+    // Codes this page raises itself: the section printed "HELPER_UNREACHABLE" as it was.
+    expect(await failed(new HelperError('HELPER_UNREACHABLE', 'network'))).toMatchObject({
+      state: 'failed',
+      code: 'HELPER_UNREACHABLE',
+      message: DEVICE_ERRORS.HELPER_UNREACHABLE,
+    })
+    expect(
+      await failed(new HelperError('HELPER_BAD_REPLY', 'protocol', { status: 200 })),
+    ).toMatchObject({ code: 'HELPER_BAD_REPLY', message: DEVICE_ERRORS.HELPER_BAD_REPLY })
+    // The page's own deadline: the helper was slow, not a device (as wifi.ts words it).
+    expect(await failed(new HelperError('TOOL_TIMEOUT', 'timeout'))).toMatchObject({
+      code: 'HELPER_TIMEOUT',
+      message: DEVICE_ERRORS.HELPER_TIMEOUT,
+    })
+    // The helper's own sentence still comes first.
+    const said = { code: 'INTERNAL', message: 'The scan stopped halfway.' }
+    expect(
+      await failed(new HelperError('INTERNAL', 'http', { status: 500, body: said })),
+    ).toMatchObject({ code: 'INTERNAL', message: 'The scan stopped halfway.' })
   })
 
   it('a look still running when the last view goes is dropped, not shown later', async () => {

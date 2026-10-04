@@ -7,6 +7,7 @@
   - request() / openStream(): raw node:http, because Node's fetch silently replaces a custom
     Host header [V], which would make the DNS-rebinding tests pass without testing anything.
   - until(), tinyPng(), freePort(), tempDir(): the small things every suite needs.
+  - listenerWarnings(): what Node 18 and 20 would warn about abort listeners, on Node 24.
 
   Lane suites run their REAL lane through the bridge by passing its factory and pointing the
   lane's endpoints at their fakes, for example:
@@ -14,6 +15,7 @@
                   resolveTools: () => Promise.resolve(toolbox((t) => { t.xcode.state = 'ready' })) })
   Every lane is off unless a test turns it on, and nothing else is ever reachable.
 */
+import { setMaxListeners } from 'node:events'
 import http, { type IncomingHttpHeaders } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import net, { type AddressInfo } from 'node:net'
@@ -90,6 +92,36 @@ export async function until(
     if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}.`)
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
+}
+
+/**
+ * The MaxListenersExceededWarnings `run` causes on Node 18 and 20, which cap every
+ * AbortSignal at 10 abort listeners and print the warning in the tester's terminal past it.
+ * Node 24 has no cap, so while `run` runs every new AbortController gets 18 and 20's.
+ */
+export async function listenerWarnings(run: () => unknown): Promise<string[]> {
+  const real = globalThis.AbortController
+  class Node20AbortController extends real {
+    constructor() {
+      super()
+      setMaxListeners(10, this.signal)
+    }
+  }
+  const seen: string[] = []
+  const listener = (warning: Error): void => {
+    if (warning.name === 'MaxListenersExceededWarning') seen.push(warning.message)
+  }
+  globalThis.AbortController = Node20AbortController
+  process.on('warning', listener)
+  try {
+    await run()
+    /** process.emitWarning() emits on the next tick. */
+    await new Promise((resolve) => setImmediate(resolve))
+  } finally {
+    globalThis.AbortController = real
+    process.off('warning', listener)
+  }
+  return seen
 }
 
 const crcTable = Array.from({ length: 256 }, (_, n) => {

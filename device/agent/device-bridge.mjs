@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Device Lab helper 1.1.0 (bauloc-device-bridge)
+ * Device Lab helper 1.1.1 (bauloc-device-bridge)
  *
  * Device Lab (https://bauloc.github.io/device/) shows identifiers, screenshots and logs for
  * the phones plugged into this Mac. Android works straight from Chrome over WebUSB. macOS
@@ -52,29 +52,30 @@
  *   This file          https://github.com/bauloc/bauloc.github.io/blob/master/device/agent/device-bridge.mjs
  *
  * Contents (line numbers in this file)
- *      91  Node version guard                   src/guard.ts
- *     113  §1 Constants, limits and allowlists  src/constants.ts
- *     306  §1 Command line                      src/cli.ts
- *     436  §2 Utilities                         src/util.ts
- *     683  §3 Property lists                    src/plist.ts
- *     807  §4a Running tools                    src/process.ts
- *    1126  §4b Finding tools                    src/tools.ts
- *    1800  §5 usbmuxd client                    src/usbmuxd.ts
- *    2145  §6 Lockdown client                   src/lockdown.ts
- *    2453  §7 iOS lane                          src/ios-lane.ts
- *    4148  §8 Simulator lane                    src/simulator-lane.ts
- *    4564  §9 mDNS browser                      src/mdns.ts
- *    5728  §9 Android lane                      src/android-lane.ts
- *    7698  §10 Device registry                  src/registry.ts
- *    7989  §11 Token, proof and pairing         src/auth.ts
- *    8163  §12 Doctor and preflight             src/preflight.ts
- *    8867  §13 HTTP API                         src/http.ts
- *    9562  §14 Local mode                       src/local-mode.ts
- *    9825  §15 Bridge lifecycle                 src/bridge.ts
- *   10248  §15 Banner                           src/banner.ts
- *   10330  §15 Startup, signals and exports     src/main.ts
+ *      92  Node version guard                   src/guard.ts
+ *     114  §1 Constants, limits and allowlists  src/constants.ts
+ *     307  §1 Command line                      src/cli.ts
+ *     437  §2 Utilities                         src/util.ts
+ *     691  §3 Property lists                    src/plist.ts
+ *     815  §4a Running tools                    src/process.ts
+ *    1134  §4b Finding tools                    src/tools.ts
+ *    1808  §5 usbmuxd client                    src/usbmuxd.ts
+ *    2153  §6 Lockdown client                   src/lockdown.ts
+ *    2461  §7 iOS lane                          src/ios-lane.ts
+ *    4156  §8 Simulator lane                    src/simulator-lane.ts
+ *    4572  §9 mDNS browser                      src/mdns.ts
+ *    5789  §9 Android lane                      src/android-lane.ts
+ *    7759  §10 Device registry                  src/registry.ts
+ *    8050  §11 Token, proof and pairing         src/auth.ts
+ *    8224  §12 Doctor and preflight             src/preflight.ts
+ *    8928  §13 HTTP API                         src/http.ts
+ *    9623  §14 Local mode                       src/local-mode.ts
+ *    9886  §15 Bridge lifecycle                 src/bridge.ts
+ *   10309  §15 Banner                           src/banner.ts
+ *   10391  §15 Startup, signals and exports     src/main.ts
  */
 import path from "node:path";
+import { setMaxListeners } from "node:events";
 import { StringDecoder } from "node:string_decoder";
 import { spawn } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeSync } from "node:fs";
@@ -114,7 +115,7 @@ if (tooOld) {
 /** What answers on 127.0.0.1: the page checks `health.name` before it trusts anything else. */
 const NAME = "bauloc-device-bridge";
 /** Semver of this file. The page shows it and compares it with the published file. */
-const VERSION = "1.1.0";
+const VERSION = "1.1.1";
 /**
  * The wire protocol's integer major. Within a major only additions are allowed (fields,
  * codes, endpoints, `features`); the page accepts DVC_MIN_AGENT ≤ PROTOCOL ≤ DVC_MAX_AGENT.
@@ -544,11 +545,18 @@ function aborted(signal) {
 /**
  * One AbortSignal that aborts when any parent does, after `timeoutMs`, or on abort().
  * AbortSignal.any() would do this, but it arrived in Node 20 and this file runs on 18.
+ *
+ * Neither it nor its parents cap their abort listeners, as no AbortSignal does on Node 24:
+ * a parent holds one per signal linked to it (every request and adb exchange links to the
+ * bridge's shutdown signal), and a linked signal one per process, socket or wait of its work
+ * (a dns-sd run: two per process). Node 18 and 20 cap them at 10 and print a
+ * MaxListenersExceededWarning, in the tester's terminal, past it.
  */
 function linkSignals(parents, timeoutMs) {
 	const controller = new AbortController();
 	const abort = () => controller.abort();
 	const live = parents.filter((parent) => parent !== void 0);
+	setMaxListeners(0, controller.signal, ...live);
 	let timer;
 	const dispose = () => {
 		for (const parent of live) parent.removeEventListener("abort", abort);
@@ -4583,7 +4591,8 @@ function createSimulatorLane(ctx, cadence = {}) {
  *
  * Everything that arrives is untrusted: every length, count and compression pointer is
  * checked against the packet before it is read (a pointer may only go backwards, and the
- * hops are counted), names are capped at 255 bytes, and what is kept is capped too.
+ * hops are counted), names are capped at 255 bytes and must be UTF-8, what is kept is
+ * capped too, and nothing an answer carries can throw out of a socket event or a timer.
  *
  * The second half, systemBrowse(), asks the same question of the computer's own mDNS daemon
  * through its tool (dns-sd on macOS, avahi-browse on Linux): see "system resolver" below.
@@ -4649,10 +4658,43 @@ function encodeName(name) {
 	return Buffer.concat(parts);
 }
 /**
+ * Whether buf[start, end) is UTF-8 (RFC 3629), byte by byte as table 3-7 of the Unicode
+ * Standard lists it: no overlong form, surrogate, code point past U+10FFFF or cut-short
+ * sequence. UTF-8, and nothing else, decodes and encodes back as it was. Checked where the
+ * bytes lie, with no copy: one packet can make readName() read 185,000 labels (1,455
+ * questions about one name of 127), and writing each label back to compare would double the
+ * time such a packet takes to read.
+ */
+function isUtf8(buf, start, end) {
+	for (let i = start; i < end; i++) {
+		const lead = buf[i] ?? 0;
+		if (lead < 128) continue;
+		/**
+		 * How many bytes follow the lead (0x80 to 0xC1 and 0xF5 to 0xFF lead none), and the range
+		 * of the next one: after 0xE0 and 0xF0 it refuses overlong forms, after 0xED surrogates,
+		 * after 0xF4 code points past U+10FFFF.
+		 */
+		const more = lead < 194 ? 0 : lead < 224 ? 1 : lead < 240 ? 2 : lead < 245 ? 3 : 0;
+		const low = lead === 224 ? 160 : lead === 240 ? 144 : 128;
+		const high = lead === 237 ? 159 : lead === 244 ? 143 : 191;
+		const second = buf[i + 1] ?? 0;
+		if (!more || i + more >= end || second < low || second > high) return false;
+		for (let k = i + 2; k <= i + more; k++) if (((buf[k] ?? 0) & 192) !== 128) return false;
+		i += more;
+	}
+	return true;
+}
+/**
  * A name at `offset`, following compression pointers, or null when the packet is malformed:
  * a label or pointer past the end, a reserved label type, a pointer that does not go back
  * before every place this name was already read from (so no loop is possible), more than
  * 32 hops, or more than 255 bytes. `next` is where the record goes on after the name.
+ *
+ * A label must be UTF-8, as mDNS names are (RFC 6762 §16). Any other byte would read as
+ * U+FFFD, three bytes where it was one, and encodeName() could not write the name back as
+ * it came, or at all once a label passes 63 bytes (22 bytes of 0xFF come back as 66). So a
+ * name this returns can always be asked about again: the follow-ups never meet one that
+ * encodeName() refuses.
  */
 function readName(buf, offset) {
 	const labels = [];
@@ -4682,6 +4724,7 @@ function readName(buf, offset) {
 		if (end > buf.length) return null;
 		length += byte + 1;
 		if (length > 255) return null;
+		if (!isUtf8(buf, pos + 1, end)) return null;
 		labels.push(buf.toString("utf8", pos + 1, end));
 		pos = end;
 	}
@@ -4985,7 +5028,11 @@ async function browse(o) {
 			}
 		}
 	};
-	/** SRV and TXT for instances without an SRV, A and AAAA for targets without an address. */
+	/**
+	 * SRV and TXT for instances without an SRV, A and AAAA for targets without an address. It
+	 * runs in a timer, where a throw would stop the helper, so a packet that cannot be written
+	 * or sent is dropped (readName() returns no name encodeName() would refuse).
+	 */
 	const followUp = () => {
 		if (done || !transport) return;
 		const questions = [];
@@ -5008,10 +5055,10 @@ async function browse(o) {
 				ask(record.target, "AAAA");
 			}
 		}
-		for (let i = 0; i < questions.length; i += MAX_QUESTIONS) {
+		for (let i = 0; i < questions.length; i += MAX_QUESTIONS) try {
 			const packet = encodeQuery(id, questions.slice(i, i + MAX_QUESTIONS));
 			transport.send(packet).catch(() => void 0);
-		}
+		} catch {}
 	};
 	/**
 	 * Ties each SRV in a packet to the addresses that came with it: the A and AAAA records for
@@ -5051,16 +5098,29 @@ async function browse(o) {
 		if (tied?.from !== void 0) return sourced.get(nameKey(target))?.get(tied.from) ?? [tied.from];
 		return addresses.get(nameKey(target)) ?? [];
 	};
+	/**
+	 * Every answer, from the transport's message event, where a throw would stop the helper: a
+	 * packet that makes anything here throw is dropped, as a malformed one is.
+	 */
 	const onPacket = (packet, from) => {
 		if (done) return;
-		const message = parseMessage(packet);
-		/** Ours (legacy unicast echoes the id) or a multicast answer (id 0). */
-		if (!message?.response || message.id !== id && message.id !== 0) return;
-		for (const record of message.records) take(record, from);
-		bind(message.records, from);
+		try {
+			const message = parseMessage(packet);
+			/** Ours (legacy unicast echoes the id) or a multicast answer (id 0). */
+			if (!message?.response || message.id !== id && message.id !== 0) return;
+			for (const record of message.records) take(record, from);
+			bind(message.records, from);
+		} catch {
+			return;
+		}
 		clearTimeout(followTimer);
 		followTimer = setTimeout(followUp, 30);
 	};
+	/** Written before the socket opens: a type encodeName() refuses throws with nothing open. */
+	const browseQuery = encodeQuery(id, o.services.map((name) => ({
+		name,
+		type: "PTR"
+	})));
 	try {
 		transport = await o.open(onPacket);
 	} catch (error) {
@@ -5069,10 +5129,6 @@ async function browse(o) {
 			failure: mdnsFailure(error)
 		};
 	}
-	const browseQuery = encodeQuery(id, o.services.map((name) => ({
-		name,
-		type: "PTR"
-	})));
 	const window = new AbortController();
 	const stop = () => window.abort();
 	o.signal?.addEventListener("abort", stop, { once: true });
@@ -5375,13 +5431,18 @@ function parseAvahiLine(line, type) {
 	const third = second < 0 ? -1 : line.indexOf(";", second + 1);
 	if (third < 0) return null;
 	const protocol = line.slice(second + 1, third);
-	const found = new RegExp(`;${type.replace(/\./g, "\\.")};local`, "i").exec(line.slice(third));
-	if (!found) return null;
-	const at = third + found.index;
+	/**
+	 * Found as text, never as a pattern (a type holding `(` or `+` would be one), and in ASCII
+	 * case only, as DNS compares names: nameKey() keeps the line's length, so positions in it
+	 * stay valid.
+	 */
+	const marker = `;${nameKey(type)};local`;
+	const at = nameKey(line).indexOf(marker, third);
+	if (at < 0) return null;
 	const labels = presentationLabels(line.slice(third + 1, at));
 	const instance = labels?.length === 1 ? labels[0] : void 0;
 	if (!instance) return null;
-	const rest = line.slice(at + found[0].length);
+	const rest = line.slice(at + marker.length);
 	if (op !== "=") return rest === "" ? {
 		op,
 		protocol,

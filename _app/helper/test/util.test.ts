@@ -12,7 +12,7 @@ import {
   withTimeout,
 } from '../src/util'
 import { nodeTooOld } from '../src/guard'
-import { tinyPng } from './harness'
+import { listenerWarnings, tinyPng } from './harness'
 
 describe('clean', () => {
   it('strips ANSI escapes and control characters but keeps tab', () => {
@@ -150,6 +150,17 @@ describe('concurrency helpers', () => {
     detached.dispose()
     other.abort()
     expect(detached.signal.aborted).toBe(false)
+  })
+  it('linkSignals: no listener warning on Node 18 or 20, for a parent or the signal it makes', async () => {
+    const warnings = await listenerWarnings(() => {
+      // The bridge's shutdown signal: every request and adb exchange links to it.
+      const shutdown = new AbortController()
+      const ops = Array.from({ length: 12 }, () => linkSignals([shutdown.signal], 1_000))
+      // A dns-sd run's signal: each of its processes listens to it.
+      for (let i = 0; i < 12; i++) ops[0]?.signal.addEventListener('abort', () => undefined)
+      for (const op of ops) op.dispose()
+    })
+    expect(warnings).toEqual([])
   })
 })
 

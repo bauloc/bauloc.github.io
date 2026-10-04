@@ -166,7 +166,7 @@ describe('5. /api/health and the proof (§2.8, T7)', () => {
     const health = reply.json<Health>()
     expect(health).toMatchObject({
       name: 'bauloc-device-bridge',
-      version: '1.1.0',
+      version: '1.1.1',
       protocol: 1,
       port: s.port,
       tokenId: s.bridge.tokenId,
@@ -336,7 +336,7 @@ describe('GET /api/doctor', () => {
     const report = (await get('/api/doctor', s.auth)).json<DoctorReport>()
     expect(report.helper).toMatchObject({
       name: 'bauloc-device-bridge',
-      version: '1.1.0',
+      version: '1.1.1',
       port: s.port,
       protocol: 1,
     })
