@@ -9,6 +9,10 @@
 
   The Android features (installs, apps, images) word their codes here by the same rule:
   backends return codes, the UI owns the words (DEVICE_HINTS, INSTALL_ERRORS).
+
+  The local helper (backends/agent.ts) reports iPhones, simulators and adb-server Android
+  phones in this same shape. A phone two lanes can see is one row: mergeDevices keeps the
+  better one. The helper's own codes are worded here and in DEVICE_ERRORS, never in the helper.
 */
 
 import type { InstallErrorCode, InstallFailure } from './backends/android/pm-output'
@@ -18,7 +22,8 @@ import type { Fix, InstallPhone } from './preflight/types'
 export type { Fix, FixAction } from './preflight/types'
 
 export type Platform = 'android' | 'ios'
-export type Connection = 'usb' | 'network'
+/** How the device is reached. `simulator`: an iOS Simulator or an Android emulator. */
+export type Connection = 'usb' | 'network' | 'simulator'
 export type BackendKind = 'webusb' | 'agent' | 'mock'
 
 export type DeviceState =
@@ -153,21 +158,35 @@ export function sortDevices(list: readonly Device[]): Device[] {
   })
 }
 
+/** The mock lane never beats a real one: its fixtures reuse real ids. */
+const mockRank = (d: Device) => (d.backend === 'mock' ? 1 : 0)
+
 /**
- * Every lane's devices as one sorted list. The same Android phone can be visible to two lanes;
- * the first lane listed wins, because whichever claimed the USB interface owns it.
+ * Whether `d` is a better source for its id than `cur`. A `held` row means another program owns
+ * the USB interface, so any other lane listing the same id (the helper, attached through that
+ * very program) is the better source whatever its state. Otherwise the more usable state wins,
+ * and a tie keeps lane order.
+ */
+function better(d: Device, cur: Device): boolean {
+  if (mockRank(d) !== mockRank(cur)) return mockRank(d) < mockRank(cur)
+  if ((d.state === 'held') !== (cur.state === 'held')) return cur.state === 'held'
+  return STATE_WEIGHT[d.state] < STATE_WEIGHT[cur.state]
+}
+
+/**
+ * Every lane's devices as one sorted list, one row per device id. The same Android phone can be
+ * visible to WebUSB and to the helper (through Google's adb server): the best row wins (better()
+ * above), so a phone WebUSB can't claim shows as the helper's ready row rather than `held`.
  */
 export function mergeDevices(lanes: readonly (readonly Device[])[]): Device[] {
-  const seen = new Set<string>()
-  const out: Device[] = []
+  const best = new Map<string, Device>()
   for (const lane of lanes) {
     for (const d of lane) {
-      if (seen.has(d.id)) continue
-      seen.add(d.id)
-      out.push(d)
+      const cur = best.get(d.id)
+      if (!cur || better(d, cur)) best.set(d.id, d)
     }
   }
-  return sortDevices(out)
+  return sortDevices([...best.values()])
 }
 
 /** The list filter: platform facets, then a case-insensitive match on name, model, id, OS. */
@@ -253,6 +272,37 @@ export const DEVICE_HINTS: Readonly<Record<string, Omit<Hint, 'code'>>> = {
     title: 'Connected over Wi‑Fi',
     body: 'Identifiers work. Install and logs need a cable — plug it in over USB.',
   },
+  // The helper's iOS blockers (spec §7.4). Not in parity.json: the legacy page had no helper.
+  XCODE_REQUIRED: {
+    title: 'Screenshots need Xcode on this Mac',
+    body: 'On iOS 17 and newer, the helper takes screenshots through Xcode. Install Xcode from the App Store, open it once, then retry.',
+    fixes: [
+      { label: 'Open check', action: 'doctor' },
+      { label: 'Retry', action: 'retry' },
+    ],
+    extra: 'Identifiers and logs work without it.',
+  },
+  XCODE_SETUP_REQUIRED: {
+    title: 'Xcode needs to finish setting up',
+    body: 'Open Xcode once and let it install its components, then retry. The environment check has the command if you prefer Terminal.',
+    fixes: [
+      { label: 'Open check', action: 'doctor' },
+      { label: 'Retry', action: 'retry' },
+    ],
+  },
+  IOS_DDI_REQUIRED: {
+    title: 'Screenshots need Apple’s developer disk image',
+    body: 'iOS 16 and older need the image mounted on the device first, with the device unlocked. Connecting it to Xcode’s Devices and Simulators window prepares it. Then retry.',
+    fixes: [
+      { label: 'Retry', action: 'retry' },
+      { label: 'Open check', action: 'doctor' },
+    ],
+  },
+  IOS_LOCKDOWN_FAILED: {
+    title: 'The device isn’t answering',
+    body: 'Unplug it and plug it back in with the device unlocked, then retry. Avoid USB hubs.',
+    fixes: [{ label: 'Retry', action: 'retry' }],
+  },
   TOOL_MISSING: {
     title: 'A required tool is missing',
     body: 'Open the environment check for the exact install command.',
@@ -286,11 +336,29 @@ export const DEVICE_HINTS: Readonly<Record<string, Omit<Hint, 'code'>>> = {
   },
 }
 
+/**
+ * An Android device over Wi‑Fi (§4.7) says the same codes, but there is no cable to reseat:
+ * it asks on its own screen (a TV's, answered with the remote), and it drops off the network.
+ */
+export const WIFI_HINTS: Readonly<Record<string, Omit<Hint, 'code'>>> = {
+  ANDROID_UNAUTHORIZED: {
+    title: 'Waiting for you to allow debugging',
+    body: 'On the device, choose Allow on “Allow debugging?” (on a TV, with the remote). Tick “Always allow from this computer” so it stops asking.',
+    fixes: [{ label: 'Retry', action: 'retry' }],
+  },
+  ANDROID_OFFLINE: {
+    title: 'The device stopped answering over Wi‑Fi',
+    body: 'Wake it and check it is still on the same Wi‑Fi as this computer, then connect again.',
+    fixes: [{ label: 'Connect over Wi‑Fi…', action: 'open-wifi' }],
+  },
+}
+
 /** The first blocker the UI has wording for, as a hint. */
 export function hintFor(device: Device | null): Hint | null {
   if (!device) return null
+  const wifi = device.platform === 'android' && device.connection === 'network'
   for (const code of device.blockers) {
-    const hint = DEVICE_HINTS[code]
+    const hint = (wifi ? WIFI_HINTS[code] : undefined) ?? DEVICE_HINTS[code]
     if (hint) return { code, ...hint }
   }
   return null

@@ -12,7 +12,10 @@ import {
   hintFor,
   installErrorWording,
   installPhoneOf,
+  mergeDevices,
   normalizeDevice,
+  type Device,
+  type DeviceState,
 } from './model'
 
 /*
@@ -156,5 +159,81 @@ describe('Android hints and facts', () => {
       brand: 'google',
       manufacturer: 'Google',
     })
+  })
+})
+
+describe('the helper’s hints', () => {
+  it.each([
+    ['XCODE_REQUIRED', 'Screenshots need Xcode on this Mac', ['doctor', 'retry']],
+    ['XCODE_SETUP_REQUIRED', 'Xcode needs to finish setting up', ['doctor', 'retry']],
+    ['IOS_DDI_REQUIRED', 'Screenshots need Apple’s developer disk image', ['retry', 'doctor']],
+    ['IOS_LOCKDOWN_FAILED', 'The device isn’t answering', ['retry']],
+  ])('words %s with what to do', (code, title, actions) => {
+    const hint = hintFor(normalizeDevice({ id: 'd', backend: 'agent', blockers: [code] }))
+    expect(hint?.title).toBe(title)
+    expect(hint?.body).toMatch(/\.$/)
+    expect(hint?.fixes?.map((f) => ('action' in f ? f.action : null))).toEqual(actions)
+  })
+
+  it('words an Android device over Wi‑Fi by its screen and its network, never a cable', () => {
+    const tv = (code: string, connection: 'network' | 'usb' = 'network') =>
+      hintFor(
+        normalizeDevice({
+          id: '192.168.1.42:5555',
+          backend: 'agent',
+          platform: 'android',
+          connection,
+          blockers: [code],
+        }),
+      )
+    expect(tv('ANDROID_UNAUTHORIZED')?.title).toBe('Waiting for you to allow debugging')
+    expect(tv('ANDROID_UNAUTHORIZED')?.body).toMatch(/with the remote/)
+    expect(tv('ANDROID_OFFLINE')).toMatchObject({
+      code: 'ANDROID_OFFLINE',
+      title: 'The device stopped answering over Wi‑Fi',
+      fixes: [{ label: 'Connect over Wi‑Fi…', action: 'open-wifi' }],
+    })
+    // On a cable, the cable's words, as before.
+    expect(tv('ANDROID_OFFLINE', 'usb')?.body).toMatch(/Reseat the cable/)
+    // A code Wi‑Fi doesn't change keeps its usual words.
+    expect(tv('IOS_LOCKDOWN_FAILED')?.title).toBe('The device isn’t answering')
+  })
+
+  it('says Xcode is only for screenshots', () => {
+    expect(DEVICE_HINTS.XCODE_REQUIRED?.extra).toBe('Identifiers and logs work without it.')
+  })
+})
+
+describe('mergeDevices', () => {
+  const row = (backend: Device['backend'], state: DeviceState, id = 'same', name = id): Device =>
+    normalizeDevice({ id, backend, state, name })
+  const merged = (...lanes: Device[][]) => mergeDevices(lanes).map((d) => `${d.backend}:${d.state}`)
+
+  it('keeps one row per id, the more usable one, and sorts the rest as before', () => {
+    expect(merged([row('webusb', 'held')], [row('agent', 'ready')])).toEqual(['agent:ready'])
+    expect(merged([row('webusb', 'ready')], [row('agent', 'offline')])).toEqual(['webusb:ready'])
+    expect(merged([row('webusb', 'ready')], [row('agent', 'ready')])).toEqual(['webusb:ready'])
+    expect(
+      merged(
+        [row('webusb', 'offline', 'a')],
+        [row('agent', 'ready', 'b'), row('agent', 'held', 'c')],
+      ),
+    ).toEqual(['agent:ready', 'agent:held', 'webusb:offline'])
+  })
+
+  it('lets a held row lose to anything a real lane lists, and the mock lose to everything real', () => {
+    expect(merged([row('webusb', 'held')], [row('agent', 'absent')])).toEqual(['agent:absent'])
+    expect(merged([row('mock', 'ready')], [row('agent', 'untrusted')])).toEqual(['agent:untrusted'])
+    expect(merged([row('mock', 'ready')], [row('webusb', 'held')])).toEqual(['webusb:held'])
+  })
+
+  it('keeps a simulator’s connection', () => {
+    const sim = normalizeDevice({
+      id: 's',
+      backend: 'agent',
+      connection: 'simulator',
+      platform: 'ios',
+    })
+    expect(mergeDevices([[sim]])[0]?.connection).toBe('simulator')
   })
 })

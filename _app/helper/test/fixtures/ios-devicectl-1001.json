@@ -1,0 +1,43 @@
+{
+  "error" : {
+    "code" : 1001,
+    "domain" : "com.apple.dt.CoreDeviceError",
+    "userInfo" : {
+      "CapabilityFeatureIdentifier" : {
+        "string" : "com.apple.coredevice.feature.capturescreenshot"
+      },
+      "CapabilityName" : {
+        "string" : "Capture Screenshot"
+      },
+      "DeviceIdentifier" : {
+        "string" : "FE8CDEE4-FFB2-466E-98AB-66CB32E60892"
+      },
+      "NSLocalizedDescription" : {
+        "string" : "The capability “Capture Screenshot” is not supported by this device."
+      }
+    }
+  },
+  "info" : {
+    "arguments" : [
+      "devicectl",
+      "device",
+      "capture",
+      "screenshot",
+      "--device",
+      "FE8CDEE4-FFB2-466E-98AB-66CB32E60892",
+      "--destination",
+      "/tmp/device-bridge-run/offsim.png",
+      "--timeout",
+      "10",
+      "--json-output",
+      "offsim-shot.json"
+    ],
+    "commandType" : "devicectl.device.capture.screenshot",
+    "environment" : {
+
+    },
+    "jsonVersion" : 5,
+    "outcome" : "failed",
+    "version" : "642.16"
+  }
+}

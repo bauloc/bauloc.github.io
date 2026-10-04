@@ -3,6 +3,7 @@ import { useSyncExternalStore } from 'react'
 import type { InstallErrorCode, InstallFailure, InstallOutcome } from './backends/android/pm-output'
 import type { InstallPlan } from './backends/archive/plan'
 import type { AppAction, Backend, InstallOptions, InstallProgress } from './backends/backend'
+import { BLACK_SHOT_TEXT, looksBlack } from './black-shot'
 import {
   deviceErrorMessage,
   fileChangedFailure,
@@ -25,7 +26,8 @@ import type { PickerOutcome, UsbFinding } from './preflight/types'
   useSyncExternalStore; backends feed it through their subscriptions. Keeping it here keeps
   the rules testable without a DOM (store.test.ts), and they are the legacy page's rules:
 
-  - one list for both platforms, first lane wins on a shared device (model.mergeDevices);
+  - one list for both platforms, one row per device: on a device two lanes list, the best
+    state wins and a real lane beats the mock (see model.mergeDevices);
   - auto-select only when exactly one device is ready and nothing is selected — never
     silently pick among several (scrcpy #3137, Maestro #2096);
   - a selected device that disappears is SAID to have gone, not silently swapped (STF);
@@ -47,6 +49,8 @@ export interface Shot {
   readonly url: string
   readonly at: Date
   readonly fileName: string
+  /** Every pixel near black: the screen was off or locked (black-shot.ts). Kept, and said. */
+  readonly black: boolean
 }
 
 export type DetailState =
@@ -150,9 +154,11 @@ const AUTHORIZING: ReadonlySet<DeviceState> = new Set(['authorizing', 'unauthori
 /** States a running job survives. Anything else means the phone went away. */
 const CONNECTED: ReadonlySet<DeviceState> = new Set(['ready', 'busy'])
 
-/** How a store reads the time: injectable, for tests. */
+/** How a store reads the time and looks at a screenshot: injectable, for tests. */
 export interface DeviceLabOptions {
   readonly now?: () => number
+  /** Whether a screenshot is all black; black-shot.ts looksBlack by default. */
+  readonly looksBlack?: (blob: Blob) => Promise<boolean>
 }
 
 export interface DeviceLab {
@@ -236,6 +242,7 @@ export function createDeviceLab(
   options: DeviceLabOptions = {},
 ): DeviceLab {
   const now = options.now ?? Date.now
+  const isBlack = options.looksBlack ?? looksBlack
   let snap = INITIAL
   /** Running jobs' abort handles, and why each was aborted. */
   const running = new Map<string, { controller: AbortController; cause: AbortCause | null }>()
@@ -259,18 +266,27 @@ export function createDeviceLab(
   const findDevice = (id: string | null) =>
     id === null ? undefined : snap.devices.find((d) => d.id === id)
 
-  function loadDetail(device: Device) {
+  /** The blockers the shown detail was read under: a change re-reads it (see syncDetail). */
+  let detailBlockers = ''
+  const blockersKey = (device: Device) => device.blockers.join(' ')
+
+  /**
+   * Reads the device's detail. `quiet` keeps what is shown until the new one arrives, and keeps
+   * it if that read fails: a refresh of facts already on screen, not a new load.
+   */
+  function loadDetail(device: Device, quiet = false) {
     const backend = backendOf(device)
     if (!backend) return
     const ticket = ++detailTicket
-    set({ detail: { status: 'loading', deviceId: device.id } })
+    detailBlockers = blockersKey(device)
+    if (!quiet) set({ detail: { status: 'loading', deviceId: device.id } })
     backend.detail(device.id).then(
       (detail) => {
         if (ticket === detailTicket)
           set({ detail: { status: 'ready', deviceId: device.id, detail } })
       },
       (error: unknown) => {
-        if (ticket === detailTicket) {
+        if (ticket === detailTicket && !quiet) {
           set({
             detail: { status: 'failed', deviceId: device.id, message: deviceErrorMessage(error) },
           })
@@ -292,6 +308,10 @@ export function createDeviceLab(
       return
     }
     if (!ownsDetail) loadDetail(device)
+    // Still ready, but a blocker came or went (Developer Mode turned on, Xcode installed): the
+    // detail shows those facts too, so it is read again behind the one on screen.
+    else if (d.status === 'ready' && blockersKey(device) !== detailBlockers)
+      loadDetail(device, true)
   }
 
   function select(id: string | null) {
@@ -583,6 +603,8 @@ export function createDeviceLab(
       try {
         const blob = await backend.screenshot(id)
         if (gen !== generation) return null
+        const black = await isBlack(blob).catch(() => false)
+        if (gen !== generation) return null
         const at = new Date()
         const shot: Shot = {
           id: `shot_${String(at.getTime())}`,
@@ -592,6 +614,7 @@ export function createDeviceLab(
           url: URL.createObjectURL(blob),
           at,
           fileName: shotFilename(device, at),
+          black,
         }
         const shots = [shot, ...snap.shots]
         // Revoke what drops off the end, or it leaks for the life of the page.
@@ -599,7 +622,11 @@ export function createDeviceLab(
         set({
           shots,
           capturing: false,
-          announcement: say(`Screenshot captured from ${device.name}.`),
+          announcement: say(
+            black
+              ? `Screenshot captured from ${device.name}, all black. ${BLACK_SHOT_TEXT}`
+              : `Screenshot captured from ${device.name}.`,
+          ),
         })
         return null
       } catch (error) {

@@ -1,0 +1,603 @@
+/*
+  Types shared by every section of the helper. Nothing here exists at run time.
+
+  Two kinds live here:
+  - The wire protocol (§2.3 and §12c). The page mirrors it, with hand-written guards, in
+    src/features/device/helper/protocol.ts: change both together, and within protocol 1
+    only ever ADD fields, codes and endpoints.
+  - The helper's internal seams (§1.4): the Lane interface every platform implements, the
+    LaneContext the bridge hands each lane, and the options createBridge() takes.
+*/
+import type { ChildProcess } from 'node:child_process'
+import type { RunTool, StreamTool } from './process'
+import type { ToolOptions, Toolbox } from './tools'
+import type { IosLaneFacts } from './ios-lane'
+import type { AndroidLaneFacts } from './android-lane'
+import type { SimulatorLaneFacts } from './simulator-lane'
+
+/* ------------------------------------------------------------------ wire: devices --- */
+
+/** A subset of the page's DeviceState: the helper never reports held, absent or busy. */
+export type HelperState =
+  | 'ready'
+  | 'connecting'
+  | 'authorizing'
+  | 'locked'
+  | 'unauthorized'
+  | 'untrusted'
+  | 'offline'
+  | 'recovery'
+  | 'unknown'
+
+export type Connection = 'usb' | 'network' | 'simulator'
+
+export interface Capabilities {
+  screenshot: boolean
+  identifiers: boolean
+  logs: boolean
+  install: false
+}
+
+export interface HelperDevice {
+  /** UDID, simulator UUID or adb serial. Matches one of ID (constants). */
+  id: string
+  platform: 'ios' | 'android'
+  connection: Connection
+  state: HelperState
+  /** At most 200 characters, control characters stripped; '' lets the page fall back. */
+  name: string
+  /** Marketing name when the helper knows it, else ''. */
+  model: string
+  /** ProductType, ro.product.device or the simulator's modelIdentifier. */
+  modelId: string
+  osVersion: string
+  /** Blocker codes, most actionable first; every one is in EMITTED_BLOCKERS. */
+  blockers: string[]
+  capabilities: Capabilities
+}
+
+export type XcodeState =
+  'ready' | 'not-installed' | 'not-selected' | 'needs-first-launch' | 'no-capture'
+
+export interface IosLaneState {
+  status: 'ok' | 'unavailable' | 'error'
+  screenshots: 'devicectl' | 'none'
+  xcode: XcodeState
+  wifi: boolean
+  wifiHidden: number
+  reason?: string
+}
+
+export interface AndroidLaneState {
+  status: 'ok' | 'off' | 'stopped' | 'error'
+  adb: 'found' | 'missing'
+  serverProtocol?: number
+  startedByHelper: boolean
+  reason?: string
+}
+
+export interface SimulatorsLaneState {
+  status: 'ok' | 'off' | 'unavailable'
+  booted: number
+  reason?: string
+}
+
+export interface Lanes {
+  ios: IosLaneState
+  android: AndroidLaneState
+  simulators: SimulatorsLaneState
+}
+
+export interface Snapshot {
+  rev: number
+  runId: string
+  devices: HelperDevice[]
+  lanes: Lanes
+}
+
+/* -------------------------------------------------------------- wire: health, detail --- */
+
+export interface Health {
+  name: string
+  version: string
+  protocol: number
+  features: string[]
+  port: number
+  tokenId: string
+  tokenPersistent: boolean
+  runId: string
+  startedAt: number
+  local: boolean
+  platform: string
+  sha256: string
+  proof?: string
+}
+
+export interface DetailOutputs {
+  getprop: string
+  wmSize: string
+  wmDensity: string
+  battery: string
+  df: string
+  androidId: string
+}
+
+export interface IosFacts {
+  udid: string
+  connection: 'usb' | 'network'
+  source: 'lockdown' | 'ideviceinfo' | 'plaintext'
+  device: {
+    DeviceName?: string
+    DeviceClass?: string
+    ProductType?: string
+    ProductVersion?: string
+    BuildVersion?: string
+    SerialNumber?: string
+    HardwareModel?: string
+    ModelNumber?: string
+    RegionInfo?: string
+    CPUArchitecture?: string
+    TimeZone?: string
+    /** Decimal string: it can exceed 2^53. */
+    UniqueChipID?: string
+  }
+  battery?: {
+    BatteryCurrentCapacity?: number
+    BatteryIsCharging?: boolean
+    ExternalConnected?: boolean
+    FullyCharged?: boolean
+  }
+  disk?: {
+    TotalDiskCapacity?: number
+    TotalDataCapacity?: number
+    TotalDataAvailable?: number
+    AmountDataAvailable?: number
+  }
+  international?: { Language?: string; Locale?: string }
+  /** null below iOS 16, or when unreadable. */
+  developerMode: boolean | null
+  /** The session's PasswordProtected: a passcode is required right now. */
+  locked: boolean | null
+  withheld: Array<'battery' | 'disk' | 'international' | 'developerMode'>
+}
+
+export interface SimFacts {
+  udid: string
+  name: string
+  deviceType: { name: string; modelIdentifier: string }
+  runtime: { name: string; version: string; build: string }
+  state: 'Booted' | 'Booting'
+  dataPathSize?: number
+}
+
+export type DetailResponse =
+  | {
+      platform: 'android'
+      kind: 'android'
+      serial: string
+      connection: Connection
+      outputs: DetailOutputs
+    }
+  | { platform: 'ios'; kind: 'ios'; facts: IosFacts }
+  | { platform: 'ios'; kind: 'simulator'; facts: SimFacts }
+
+export type ScreenshotSource = 'devicectl' | 'idevicescreenshot' | 'simctl' | 'adb'
+
+/* ------------------------------------------------------------------ wire: logs, errors --- */
+
+export type LogSource = 'syslog_relay' | 'idevicesyslog' | 'logcat' | 'simctl'
+
+export type LogEndReason = 'eof' | 'device-gone' | 'client-gone' | 'replaced' | 'shutdown' | 'error'
+
+export type LogMsg =
+  | { t: 'hello'; device: string; source: LogSource; at: number }
+  | { t: 'lines'; lines: string[] }
+  | { t: 'notice'; text: string }
+  | { t: 'ping'; at: number }
+  | { t: 'end'; reason: LogEndReason; code?: string; message?: string }
+
+export interface ErrorBody {
+  error: {
+    code: string
+    /** Plain English, for codes the page has no wording for. */
+    message: string
+    tool?: string
+    install?: string
+    tokenId?: string
+    state?: HelperState
+    blockers?: string[]
+    /** ANDROID_CONNECT_FAILED, ANDROID_PAIR_FAILED: why, for the page's wording (§4.7). */
+    reason?: string
+    /** …and what adb itself said, cleaned. */
+    detail?: string
+  }
+}
+
+/* ---------------------------------------------------------- wire: Wi-Fi (§4.7) --- */
+
+/**
+ * POST /api/android/connect {host, port?}: 200 once adb said "connected to" or "already
+ * connected to". adb lists the device a moment later, usually `unauthorized` until the
+ * device allows this Mac; the row is included once the tracker lists it.
+ */
+export interface AndroidConnectResult {
+  result: 'connected' | 'already-connected'
+  /** The network serial adb lists it under: `192.168.1.20:5555`, `[fe80::1%en0]:5555`. */
+  serial: string
+  /** adb's own words, cleaned: "connected to 192.168.1.20:5555". */
+  message: string
+  /** Its row once the tracker lists it, or null. */
+  device: HelperDevice | null
+}
+
+/** POST /api/android/pair {host, port, code}: Wireless debugging's "Pair device with pairing code". */
+export interface AndroidPairResult {
+  result: 'paired'
+  /** The pairing address, normalised. The device then offers its own connect port. */
+  host: string
+  port: number
+  /** "Successfully paired to 192.168.1.20:37123 [guid=adb-…]". */
+  message: string
+}
+
+/** POST /api/android/disconnect {serial}. */
+export interface AndroidDisconnectResult {
+  result: 'disconnected'
+  serial: string
+  /** "disconnected 192.168.1.20:5555". */
+  message: string
+}
+
+/* ------------------------------------------------------------- wire: preflight (§12c) --- */
+
+export type PreflightStatus = 'ok' | 'warning' | 'blocking' | 'unchecked'
+
+export type PreflightAction =
+  'connect' | 'pair' | 'open-local' | 'reload' | 'start-adb' | 'retry' | 'recheck'
+
+export type PreflightFix =
+  | { kind: 'command'; command: string; note?: string }
+  | { kind: 'link'; href: string; label: string }
+  | { kind: 'step'; text: string }
+  | { kind: 'action'; action: PreflightAction; label: string }
+
+export type Capability =
+  | 'helper'
+  | 'ios.list'
+  | 'ios.detail'
+  | 'ios.screenshot'
+  | 'ios.screenshot.legacy'
+  | 'ios.logs'
+  | 'ios.fallback'
+  | 'android.webusb'
+  | 'android.helper'
+  /** Android devices on the network, through the adb server (§4.7). */
+  | 'android.wifi'
+  | 'android.aab'
+  | 'simulators'
+
+export interface PreflightItem {
+  id: string
+  group: 'browser' | 'helper' | 'mac' | 'ios' | 'android' | 'device'
+  /** Short noun phrase; may carry a version. */
+  label: string
+  status: PreflightStatus
+  /** ONE plain sentence. */
+  sentence: string
+  /** 0–2, most direct first. */
+  fixes: PreflightFix[]
+  /** Facts such as a version, a path or server rows. Helper items only: paths are auth-gated. */
+  detail?: string
+  neededFor: Capability[]
+  optional?: boolean
+  deviceId?: string
+}
+
+/** The helper's own facts, the `helper` part of a DoctorReport minus what preflight detects. */
+export interface HelperAbout {
+  name: string
+  version: string
+  protocol: number
+  node: string
+  openssl: string
+  platform: string
+  arch: string
+  port: number
+  startedAt: number
+  local: boolean
+  tokenPersistent: boolean
+  /** The command-line flags in effect; never a token. */
+  flags: string[]
+  sha256: string
+}
+
+export interface DoctorReport {
+  helper: HelperAbout & { macos: string | null }
+  lanes: Lanes
+  /** Groups 'mac' | 'ios' | 'android', worded by the helper (§12b). */
+  items: PreflightItem[]
+  checkedAt: number
+}
+
+/* ------------------------------------------------------------ internal: lanes (§1.4) --- */
+
+export type LaneName = 'ios' | 'android' | 'simulators'
+
+/** §1.12, in milliseconds unless the name says otherwise. Tests shorten them. */
+export interface Timeouts {
+  /** HTTP: a request whose headers or body never finish. Never cuts a streaming response. */
+  requestTimeout: number
+  headersTimeout: number
+  /** usbmuxd */
+  muxRequest: number
+  muxConnectUsb: number
+  muxConnectNetwork: number
+  /** lockdown */
+  lockdownRequest: number
+  lockdownTls: number
+  probeTotal: number
+  detailTotal: number
+  domain: number
+  /** Xcode and system tools */
+  devicectlScreenshot: number
+  devicectlHelp: number
+  plistBuddy: number
+  xcodeSelect: number
+  xcodebuildLicense: number
+  /** libimobiledevice */
+  ideviceinfo: number
+  idevicescreenshot: number
+  /** simctl */
+  simctlList: number
+  simctlScreenshot: number
+  /** adb host protocol */
+  adbConnect: number
+  adbRequest: number
+  adbExec: number
+  adbScreencap: number
+  adbStartPoll: number
+  /**
+   * `host:connect:` (§4.7): the server dials the device, then waits up to 10 s for its
+   * handshake; more than that here, so adb's own answer arrives before ours.
+   */
+  adbNetworkConnect: number
+  adbPair: number
+  /** --doctor and /api/doctor */
+  doctorCheck: number
+  doctorSlowCheck: number
+  doctorTotal: number
+  /** Logs */
+  logFirstByte: number
+  logSilenceSwitch: number
+  logBatch: number
+  /** How long the HTTP layer waits for a lane to say hello before answering 504. */
+  logHello: number
+  /** Local mode */
+  upstream: number
+  htmlRevalidate: number
+  /** SIGTERM → SIGKILL */
+  killGrace: number
+  /** Bounds on whole operations */
+  rescan: number
+  retry: number
+  /** Startup */
+  banner: number
+  portProbe: number
+  /** Caches */
+  toolsCache: number
+  doctorCache: number
+  /** An authenticated request in this window makes the helper "active" (§1.3 cadences). */
+  active: number
+}
+
+/**
+ * Where a lane's log lines go. The HTTP layer owns batching, pings, the `end` record, the
+ * stream caps and noticing that the client left; a lane only produces lines.
+ */
+export interface LogSink {
+  /** Call once, before any line: until then an error is still an ordinary JSON error. */
+  readonly hello: (source: LogSource) => void
+  /** Lines are cleaned and capped again here. false = back-pressure: await drain(). */
+  readonly push: (lines: string[]) => boolean
+  readonly drain: () => Promise<void>
+  /** A line for the tester, such as "Switched to idevicesyslog". */
+  readonly notice: (text: string) => void
+}
+
+/**
+ * One platform. Operations are plain functions, never methods leaning on `this`. Lanes
+ * throw HelperError; a ToolError from ctx.runTool is mapped by the HTTP layer.
+ */
+export interface Lane<F = unknown> {
+  readonly name: LaneName
+  /** Begin watching (sockets, timers). Must not block and must not throw. */
+  readonly start: () => void
+  /** Close sockets, abort work, clear timers. ctx.signal has already aborted. */
+  readonly stop: () => Promise<void>
+  /** Re-list now (Refresh, R). The bridge bounds it at 5 s and aborts the signal then. */
+  readonly rescan: (opts?: { signal?: AbortSignal }) => Promise<void>
+  readonly detail: (id: string, signal: AbortSignal) => Promise<DetailResponse>
+  readonly screenshot: (
+    id: string,
+    signal: AbortSignal,
+  ) => Promise<{ png: Buffer; source: ScreenshotSource }>
+  /** Resolves when the source ends. The signal aborts on client-gone, replaced, shutdown. */
+  readonly logs: (id: string, sink: LogSink, signal: AbortSignal) => Promise<void>
+  /** Re-check one device (read-only). The bridge bounds it at 10 s. */
+  readonly retry: (id: string, signal: AbortSignal) => Promise<void>
+  /** Read-only facts for preflight (§12). Cheap and synchronous. */
+  readonly facts: () => F
+  /** --doctor only: a read-only probe of each attached device, printed line by line. */
+  readonly probeForDoctor?: (write: (line: string) => void) => Promise<void>
+}
+
+/**
+ * The Android lane also starts Google's adb server (§4.5) and connects, pairs and
+ * disconnects devices on the local network (§4.7), each on an explicit click only. The
+ * HTTP layer validates the page's input (parseNetworkHost & co.) before calling these.
+ */
+export interface AndroidLane extends Lane<AndroidLaneFacts> {
+  readonly startServer: (signal: AbortSignal) => Promise<void>
+  readonly connectNetwork: (
+    target: { host: string; port: number },
+    signal: AbortSignal,
+  ) => Promise<Omit<AndroidConnectResult, 'device'>>
+  readonly pairNetwork: (
+    target: { host: string; port: number; code: string },
+    signal: AbortSignal,
+  ) => Promise<Pick<AndroidPairResult, 'message'>>
+  readonly disconnectNetwork: (
+    serial: string,
+    signal: AbortSignal,
+  ) => Promise<Pick<AndroidDisconnectResult, 'message'>>
+}
+
+export interface LaneSet {
+  ios?: Lane<IosLaneFacts>
+  android?: AndroidLane
+  simulators?: Lane<SimulatorLaneFacts>
+}
+
+/** §4b tool discovery, cached 30 s. refresh() after the tester installs something. */
+export interface ToolsCache {
+  readonly get: () => Promise<Toolbox>
+  readonly refresh: () => Promise<Toolbox>
+}
+
+/** What the bridge hands each lane. Everything a lane needs from outside comes through here. */
+export interface LaneContext {
+  /**
+   * Replace the lane's rows. The registry diffs, bumps `rev` and prints transitions.
+   * `departures`: why a row that leaves with this list left, by id ("disconnected"), for its
+   * terminal line.
+   */
+  readonly publish: (
+    lane: LaneName,
+    rows: HelperDevice[],
+    departures?: Readonly<Record<string, string>>,
+  ) => void
+  /** Merge into Lanes[lane]. */
+  readonly setLane: <K extends LaneName>(lane: K, patch: Partial<Lanes[K]>) => void
+  readonly tools: ToolsCache
+  /**
+   * runTool with cwd = workDir, childEnv() and --verbose timing filled in, already going
+   * through the one-shot limiter (4 at a time): never wrap it in `limit`, which would wait
+   * for a second slot while holding the first.
+   */
+  readonly runTool: RunTool
+  /** streamTool with the same defaults. */
+  readonly streamTool: StreamTool
+  /**
+   * The same 4-at-a-time limiter, for one-shot work that is not ctx.runTool (a tool spawned
+   * some other way). Never around ctx.runTool.
+   */
+  readonly limit: <T>(fn: () => Promise<T>) => Promise<T>
+  /** An authenticated request arrived in the last 30 s: run the §1.3 cadences. */
+  readonly isActive: () => boolean
+  /** One terminal line, timestamped by the bridge. Never tokens, headers or log text. */
+  readonly log: (line: string) => void
+  readonly timeouts: Timeouts
+  /** This run's private directory (0700). Exists once the bridge listens or runs --doctor. */
+  readonly workDir: string
+  /** A fresh private subdirectory of workDir for one operation, removed afterwards. */
+  readonly withTempDir: <T>(fn: (dir: string) => Promise<T>) => Promise<T>
+  /** Aborts on shutdown. */
+  readonly signal: AbortSignal
+  readonly options: BridgeOptions
+  readonly now: () => number
+  /** process.env minus the variables that redirect device tools, plus NO_COLOR and `extra`. */
+  readonly childEnv: (extra?: Record<string, string>) => NodeJS.ProcessEnv
+}
+
+export interface LaneFactories {
+  ios?: ((ctx: LaneContext) => Lane<IosLaneFacts>) | null
+  android?: ((ctx: LaneContext) => AndroidLane) | null
+  simulators?: ((ctx: LaneContext) => Lane<SimulatorLaneFacts>) | null
+}
+
+/** What preflight (§12, WP4) gets from the bridge. */
+export interface PreflightContext {
+  readonly options: BridgeOptions
+  readonly tools: ToolsCache
+  readonly lanes: LaneSet
+  readonly lanesState: () => Lanes
+  readonly devices: () => HelperDevice[]
+  readonly runTool: RunTool
+  readonly timeouts: Timeouts
+  readonly workDir: string
+  readonly signal: AbortSignal
+  readonly now: () => number
+  readonly about: () => HelperAbout
+}
+
+/* --------------------------------------------------------------- internal: options --- */
+
+/** §1.6. createBridge() fills every field it is not given. */
+export interface BridgeOptions {
+  /** 8787; 0 in tests. */
+  port: number
+  /** Generated when absent (or read from the kept file with keepToken). */
+  token: string | undefined
+  keepToken: boolean
+  newToken: boolean
+  home: string
+  /** process.env.PATH. Relative entries are ignored by which(). */
+  searchPath: string
+  /** undefined = the §1.5 extra directories; tests pass [] so no real tool leaks in. */
+  extraDirs: string[] | undefined
+  platform: NodeJS.Platform
+  arch: string
+  nodeVersion: string
+  opensslVersion: string
+  getuid: (() => number) | undefined
+  usbmuxdSocket: string
+  adbPort: number
+  tunneldPort: number
+  upstream: string
+  xcodeSelectPath: string
+  plistBuddyPath: string
+  javaHomePath: string
+  openPath: string
+  swVersPath: string
+  applicationsDir: string
+  coreDeviceDir: string
+  coreSimulatorDir: string
+  systemVersionPlist: string
+  open: boolean
+  wifi: boolean
+  simulators: boolean
+  android: boolean
+  local: boolean
+  dev: boolean
+  verbose: boolean
+  timeouts: Timeouts
+  heartbeatMs: number
+  now: () => number
+  /** Terminal output (stdout), one line per call, no newline. */
+  log: (line: string) => void
+  /** Bugs and unexpected failures (stderr). */
+  errorLog: (line: string) => void
+  /** The environment tools inherit, and where ANDROID_HOME and friends are read. */
+  env: NodeJS.ProcessEnv
+  /** Where the per-run workDir is created ($TMPDIR). */
+  tmpDir: string
+  /** The file whose SHA-256 /api/health reports; defaults to this module's file. */
+  selfPath: string | undefined
+  /** Lane factories; tests replace them, null disables a lane. */
+  lanes: LaneFactories
+  /**
+   * Tool discovery (§4b). Tests replace it with a fixed Toolbox so a lane can be exercised
+   * with, say, a ready Xcode, before or without the real discovery.
+   */
+  resolveTools: (opts: ToolOptions) => Promise<Toolbox>
+  /** The fetch local mode uses for the upstream; tests may inject one. */
+  fetch: typeof fetch
+}
+
+export type BridgeInput = Partial<Omit<BridgeOptions, 'timeouts' | 'lanes'>> & {
+  timeouts?: Partial<Timeouts>
+  lanes?: LaneFactories
+}
+
+/** Used by the process runner to let a bridge track only its own children. */
+export type ChildSet = Set<ChildProcess>

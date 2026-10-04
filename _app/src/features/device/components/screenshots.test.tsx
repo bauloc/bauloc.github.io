@@ -260,6 +260,7 @@ const shot = (size: number): Shot => ({
   url: 'blob:shot-1',
   at: new Date(2026, 9, 4, 14, 5, 9),
   fileName: 'pixel-9_2026-10-04T14-05-09+07-00.png',
+  black: false,
 })
 
 function renderCard(over: Partial<Parameters<typeof Screenshots>[0]> = {}) {
@@ -297,9 +298,20 @@ describe('Screenshots: Take Screenshot', () => {
     expect(button).toHaveFocus()
   })
 
-  it('is off when the device cannot take screenshots', () => {
-    renderCard({ canCapture: false })
-    expect(screen.getByRole('button', { name: 'Take Screenshot' })).toBeDisabled()
+  it('is off when the device cannot take screenshots, and says why', () => {
+    // aria-disabled, as the header's button: focusable, so its reason can be read.
+    const props = renderCard({
+      canCapture: false,
+      captureTitle: 'Screenshots are unavailable for this device — see the note above.',
+    })
+    const button = screen.getByRole('button', { name: 'Take Screenshot' })
+    expect(button).toHaveAttribute('aria-disabled', 'true')
+    expect(button).toHaveAttribute(
+      'title',
+      'Screenshots are unavailable for this device — see the note above.',
+    )
+    fireEvent.click(button)
+    expect(props.onCapture).not.toHaveBeenCalled()
   })
 })
 

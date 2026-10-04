@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RouterProvider, createRouter } from '@tanstack/react-router'
 
+import { capturePairFragment } from './features/device/helper/pair-fragment'
 import { routeTree } from './routeTree.gen'
 import './styles/globals.css'
 
@@ -15,6 +16,14 @@ if (window.location.pathname.endsWith('/index.html')) {
   const directory = pathname.slice(0, -'index.html'.length)
   window.history.replaceState(window.history.state, '', `${directory}${search}${hash}`)
 }
+
+/*
+  The Device Lab helper opens /device/#pair=<token>&port=<port>. The token is taken out of the
+  address before the router exists, so no route, history entry or component ever holds it; it
+  waits in sessionStorage until the page has checked it against the helper. Safari, which can
+  never reach the helper from https, is sent to the helper's own copy of the page instead.
+*/
+capturePairFragment()
 
 /*
   Browser history, no basepath: this is a GitHub *user* site served from the domain root,

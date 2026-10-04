@@ -47,12 +47,13 @@ function fakeBackend(kind: Backend['kind'] = 'webusb') {
     backend,
     detail,
     screenshot,
-    set(...list: [string, DeviceState][]) {
-      devices = list.map(([id, state]) =>
+    set(...list: [string, DeviceState, string[]?][]) {
+      devices = list.map(([id, state, blockers = []]) =>
         normalizeDevice({
           id,
           backend: kind,
           state,
+          blockers,
           name: id,
           capabilities: { install: state === 'ready' },
           android: {
@@ -113,6 +114,28 @@ describe('createDeviceLab', () => {
 
     lane.set(['a', 'offline'])
     expect(lab.getSnapshot().detail.status).toBe('idle')
+  })
+
+  it('re-reads the detail behind the shown one when a ready device’s blockers change', async () => {
+    const lane = fakeBackend()
+    const lab = createDeviceLab([lane.backend])
+    await lab.start()
+    // The only ready device: selected on its own, and its detail read.
+    lane.set(['a', 'ready', ['IOS_DEVELOPER_MODE_OFF']])
+    await flush()
+    expect(lab.getSnapshot().selectedId).toBe('a')
+    expect(lane.detail).toHaveBeenCalledTimes(1)
+
+    // The same list again reads nothing; Developer Mode turned on does, without a loading flash.
+    lane.set(['a', 'ready', ['IOS_DEVELOPER_MODE_OFF']])
+    expect(lane.detail).toHaveBeenCalledTimes(1)
+    lane.detail.mockRejectedValueOnce(new Error('IOS_UNREACHABLE'))
+    lane.set(['a', 'ready'])
+    expect(lane.detail).toHaveBeenCalledTimes(2)
+    expect(lab.getSnapshot().detail.status).toBe('ready')
+    // A quiet read that fails keeps what was shown.
+    await flush()
+    expect(lab.getSnapshot().detail).toMatchObject({ status: 'ready', deviceId: 'a' })
   })
 
   it('drops a slow detail reply for a device that is no longer selected', async () => {
@@ -232,6 +255,46 @@ describe('createDeviceLab', () => {
     ])
   })
 
+  describe('a device two lanes list (model.mergeDevices)', () => {
+    /** One row each from WebUSB, the helper and the mock, in the page's lane order. */
+    async function lanes(
+      usb: DeviceState | null,
+      agent: DeviceState | null,
+      mock: DeviceState | null = null,
+    ) {
+      const [u, a, m] = [fakeBackend('webusb'), fakeBackend('agent'), fakeBackend('mock')]
+      const lab = createDeviceLab([u.backend, a.backend, m.backend])
+      await lab.start()
+      if (usb) u.set(['pixel', usb])
+      if (agent) a.set(['pixel', agent])
+      if (mock) m.set(['pixel', mock])
+      const rows = lab.getSnapshot().devices
+      expect(rows).toHaveLength(1)
+      return `${rows[0]?.backend ?? ''}:${rows[0]?.state ?? ''}`
+    }
+
+    it('takes the helper’s ready row over WebUSB’s held one: the adb server owns the phone', async () => {
+      expect(await lanes('held', 'ready')).toBe('agent:ready')
+    })
+
+    it('takes the helper’s row over a held one whatever its state', async () => {
+      expect(await lanes('held', 'unauthorized')).toBe('agent:unauthorized')
+    })
+
+    it('takes the more usable state', async () => {
+      expect(await lanes('offline', 'ready')).toBe('agent:ready')
+      expect(await lanes('ready', 'offline')).toBe('webusb:ready')
+    })
+
+    it('keeps lane order on a tie', async () => {
+      expect(await lanes('ready', 'ready')).toBe('webusb:ready')
+    })
+
+    it('never lets the mock beat a real lane, even when the real row is worse', async () => {
+      expect(await lanes(null, 'untrusted', 'ready')).toBe('agent:untrusted')
+    })
+  })
+
   it(`keeps the newest ${String(SHOT_LIMIT)} screenshots and releases the rest`, async () => {
     const lane = fakeBackend()
     const lab = createDeviceLab([lane.backend])
@@ -244,6 +307,27 @@ describe('createDeviceLab', () => {
     lab.clearShots('a')
     expect(lab.getSnapshot().shots).toEqual([])
     expect(revokeObjectURL).toHaveBeenCalledTimes(SHOT_LIMIT + 2)
+  })
+
+  it('keeps an all-black screenshot, marks it, and says why and what to do', async () => {
+    const lane = fakeBackend()
+    const looksBlack = vi.fn<(blob: Blob) => Promise<boolean>>()
+    looksBlack.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    const lab = createDeviceLab([lane.backend], { looksBlack })
+    await lab.start()
+    lane.set(['a', 'ready'])
+    expect(await lab.capture('a')).toBeNull()
+    expect(lab.getSnapshot().shots[0]?.black).toBe(true)
+    expect(lab.getSnapshot().announcement.text).toBe(
+      'Screenshot captured from a, all black. The screen was off or locked: wake and unlock the device, then take it again.',
+    )
+    expect(await lab.capture('a')).toBeNull()
+    expect(lab.getSnapshot().shots.map((s) => s.black)).toEqual([false, true])
+    expect(lab.getSnapshot().announcement.text).toBe('Screenshot captured from a.')
+    // A look that fails says nothing, as before.
+    looksBlack.mockRejectedValueOnce(new Error('decode'))
+    expect(await lab.capture('a')).toBeNull()
+    expect(lab.getSnapshot().shots[0]?.black).toBe(false)
   })
 
   it('reports a failed screenshot in words, not codes', async () => {

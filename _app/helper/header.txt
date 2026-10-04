@@ -1,0 +1,52 @@
+Device Lab helper {{VERSION}} (bauloc-device-bridge)
+
+Device Lab (https://bauloc.github.io/device/) shows identifiers, screenshots and logs for
+the phones plugged into this Mac. Android works straight from Chrome over WebUSB. macOS
+keeps the iPhone's USB connection for itself, so no browser can reach it: this helper
+bridges that gap, and Android too when the browser has no WebUSB. It is one file with no
+dependencies, and it runs only while its Terminal window is open.
+
+Run it    node ~/device-bridge.mjs            (Node 18 or newer; --help lists the options)
+Stop it   Ctrl+C in that window. Nothing it started keeps running, except an adb server
+          you asked it to start: it never kills one, and says how to stop it.
+
+What it does
+  - Listens on 127.0.0.1 only (port 8787), and serves the live Device Lab page there too,
+    for Safari, which never lets a secure page reach this Mac.
+  - iPhones: lists them through macOS's own usbmuxd and reads them through lockdown with
+    the pairing this Mac already has; screenshots through Xcode's devicectl; logs through
+    syslog_relay. iOS Simulators with --simulators.
+  - Android: shares Google's adb server when one is running. It starts one only when you
+    click "Start adb server" on the page, and never stops it.
+
+What it never does
+  - Listen on anything but 127.0.0.1, or send telemetry.
+  - Run sudo, pair or unpair a device, show a Trust prompt itself, change a device
+    setting, mount or download a developer disk image, install apps, or kill adb.
+  - Return the pair record, IMEI, phone numbers, MAC addresses or any key not on its
+    allowlists.
+
+Every request meets these checks, in this order
+  1. Host must be 127.0.0.1:<port> or localhost:<port>              (DNS rebinding: 421)
+  2. Origin, when sent, must be https://bauloc.github.io or this helper
+     (or the dev servers with --dev)                                (other sites: 403)
+  3. A cross-site request without Origin is refused, except a top-level navigation to
+     /device/ (an <img> or a form from another site: 403)
+  4. OPTIONS answers the CORS preflight; GET /api/health is public and holds no secret
+  5. Every other /api/* needs "Authorization: Bearer <token>". The token is new on every
+     start (unless --keep-token), printed in the terminal only, and compared in constant
+     time. Before sending it, the page makes the helper prove it holds the token.
+  6. A device id must have a strict shape AND be in the live device list. Tools run as
+     spawn(file, argv), never through a shell, with timeouts, output caps and their whole
+     process group killed when the page stops waiting.
+
+The source is TypeScript in _app/helper/src, bundled into this file by rolldown; each
+"//#region" below is one of those modules. A "§" in the comments is a section of the design,
+_app/helper/SPEC.md; the "§" that opens a module's own comment numbers this file's sections
+(the contents below, and SPEC §1.2).
+  Review the source  https://github.com/bauloc/bauloc.github.io/tree/master/_app/helper/src
+  The design         https://github.com/bauloc/bauloc.github.io/blob/master/_app/helper/SPEC.md
+  This file          https://github.com/bauloc/bauloc.github.io/blob/master/device/agent/device-bridge.mjs
+
+Contents (line numbers in this file)
+{{CONTENTS}}

@@ -18,8 +18,9 @@ export type { InstallPlan } from './archive/plan'
 
 /*
   ONE interface, several lanes: WebUSB (Android in the browser, nothing to install), the
-  local helper (iOS, plus Android where WebUSB cannot run — not built yet), and the mock
-  (?mock=1, fixture devices, for building and demoing every state without a phone).
+  local helper (agent.ts: iPhones, simulators, and Android through Google's adb server where
+  WebUSB cannot claim the phone), and the mock (?mock=1, fixture devices, for building and
+  demoing every state without a phone).
 
   Backends never render. They keep a cache and tell subscribers it changed; the UI reads
   list() and decides what to draw. A new backend can surface a new blocker code without the
@@ -256,6 +257,65 @@ export const DEVICE_ERRORS = {
   ZIP_SIZE_MISMATCH: 'A file inside the archive is damaged. Download it again.',
   ZIP_TOO_LARGE: 'A file inside the archive is too large to read.',
   ZIP_NO_INFLATE: 'This browser can’t unpack compressed archives. Update Chrome or Edge.',
+
+  // The local helper (agent.ts, spec §7.5). The page raises the HELPER_* codes itself
+  // (helper/client.ts); the rest are the helper's own error codes, as it sends them.
+  HELPER_UNREACHABLE:
+    'The local helper stopped answering. Start it again; this page reconnects by itself.',
+  HELPER_UNAUTHORIZED:
+    'The helper restarted. Open the new link it printed to pair this page again.',
+  HELPER_STREAM_STALLED: 'The helper stopped sending the log. Start it again.',
+  HELPER_BAD_REPLY:
+    'The helper answered something this page can’t read. Reload the page, or update the helper.',
+  HELPER_FOREIGN:
+    'Something else answers on the helper’s port. Start the helper on another port with --port.',
+  HELPER_STOPPING: 'The local helper is stopping. Start it again; this page reconnects by itself.',
+  UNAUTHORIZED: 'The helper restarted. Open the new link it printed to pair this page again.',
+  DEVICE_NOT_FOUND: 'The device is no longer connected.',
+  DEVICE_GONE: 'The device is no longer connected.',
+  BUSY: 'A screenshot of this device is already being taken.',
+  TOO_MANY_STREAMS: 'Too many logs are open. Stop one, then start this one.',
+  STREAM_REPLACED: 'This log was opened again in another tab or window, so it stopped here.',
+  TOOL_MISSING: 'A required tool is missing. Open the environment check for the install command.',
+  TOOL_TIMEOUT: 'The device took too long to answer. Try again.',
+  TOOL_FAILED: 'The helper’s tool failed. Try again, or reconnect the cable.',
+  IOS_UNTRUSTED: 'Tap Trust on the iPhone first.',
+  IOS_LOCKED: 'Unlock the device, then try again.',
+  IOS_DEVELOPER_MODE_OFF: 'Developer Mode is off on this device.',
+  IOS_DDI_REQUIRED: 'Mount the developer disk image first — see the note above.',
+  // Raised by lockdown (detail, logs) as well as devicectl, and often over a Wi‑Fi link that
+  // comes and goes: the row can stay ready, so this is a "try again", not a broken device.
+  IOS_UNREACHABLE:
+    'The device isn’t reachable right now. Unlock it, keep it on the cable (or the same Wi‑Fi), and try again.',
+  IOS_LOCKDOWN_FAILED: 'The device isn’t answering.',
+  XCODE_REQUIRED: 'Screenshots on iOS 17 and newer need Xcode on this Mac.',
+  XCODE_SETUP_REQUIRED: 'Xcode needs to finish setting up. Open it once.',
+  SCREENSHOT_UNSUPPORTED: 'This device cannot take screenshots.',
+  ANDROID_UNAUTHORIZED: 'Allow USB debugging on the phone first.',
+  ANDROID_OFFLINE: 'The phone is not answering adb. Reseat the cable.',
+  ANDROID_OFF:
+    'This helper was started with --no-android, so it leaves Android alone. Start it without that option.',
+  ADB_SERVER_STOPPED: 'Google’s adb server stopped.',
+  ADB_START_FAILED: 'The adb server did not start. Open the environment check.',
+  LOGS_UNAVAILABLE: 'No log source works for this device.',
+  // Android over Wi‑Fi (§4.7). The Wi‑Fi dialog words each failure by its reason; these are
+  // for anywhere else (a toast, a log).
+  DEVICE_DROPPED:
+    'The device stopped answering. Over Wi‑Fi, check it is still on the same network.',
+  ANDROID_CONNECT_FAILED:
+    'Couldn’t connect over Wi‑Fi. Check the address, and that network debugging is on.',
+  ANDROID_PAIR_FAILED: 'Couldn’t pair. Check the code and the pairing port; both change each time.',
+  NETWORK_UNSUPPORTED:
+    'This helper can’t connect to Wi‑Fi devices. Download it again; the command replaces it.',
+  HELPER_TIMEOUT: 'The helper took too long to answer. Try again.',
+  // The helper's router: a page newer than the helper, or a bug. Updating the helper is the fix.
+  BAD_ID: 'The helper can’t use this device’s id. Refresh the list.',
+  BAD_REQUEST: 'The helper refused the request. Reload the page, or update the helper.',
+  NOT_FOUND: 'This helper doesn’t know that request. Update the helper.',
+  METHOD_NOT_ALLOWED: 'This helper doesn’t know that request. Update the helper.',
+  PAYLOAD_TOO_LARGE: 'The request was too large for the helper.',
+  INTERNAL:
+    'Something went wrong inside the helper. Try again; its Terminal window has the details.',
 } as const satisfies Readonly<Record<AndroidErrorCode | ZipErrorCode, string>> &
   Readonly<Record<string, string>>
 

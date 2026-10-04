@@ -1,5 +1,5 @@
 import type { Tone } from '../model'
-import type { BrowserName, CheckGroup, CheckId, CheckStatus, Fix } from './types'
+import type { BrowserName, CheckGroup, CheckStatus, Fix, FixedCheckId } from './types'
 
 /*
   Every word the checklist shows. The sentences are the plan's (PLAN §3.2–3.4), kept as
@@ -21,10 +21,16 @@ export const GROUP_TITLES: Readonly<Record<CheckGroup, string>> = {
   browser: 'This browser',
   phone: 'Phone',
   helper: 'Helper',
+  mac: 'This Mac',
+  ios: 'iPhone tools',
+  android: 'Android tools',
+  device: 'Devices',
+  wifi: 'Wi‑Fi devices',
+  optional: 'Optional tools',
   feature: 'Features',
 }
 
-export const LABELS: Readonly<Record<CheckId, string>> = {
+export const LABELS: Readonly<Record<FixedCheckId, string>> = {
   'browser.secure': 'Secure page',
   'browser.webusb': 'WebUSB',
   'app.current': 'Device Lab version',
@@ -38,7 +44,9 @@ export const LABELS: Readonly<Record<CheckId, string>> = {
   'helper.lna': 'Browser may reach the helper',
   'helper.paired': 'Paired with the helper',
   'helper.version': 'Helper version',
+  'helper.update': 'Published helper',
   'helper.adbServer': 'adb server',
+  'mac.tools': 'This Mac’s tools',
   'aab.java': 'Java 11 or newer',
   'aab.bundletool': 'bundletool',
   'aab.key': 'Signing key',
@@ -51,6 +59,11 @@ export const LABELS: Readonly<Record<CheckId, string>> = {
   'install.apkmEncrypted': 'Unencrypted .apkm',
   'images.mediastore': 'Image list',
   'images.heic': 'Image preview',
+  'wifi.helper': 'Local helper',
+  'wifi.adbServer': 'Google’s adb server',
+  'wifi.localNetwork': 'This computer reaches the local network',
+  'wifi.reachable': 'Device answers on the network',
+  'wifi.authorized': 'Allowed on the device',
 }
 
 /** How a sentence names the browser: "Chrome may use Pixel 9." */
@@ -71,6 +84,8 @@ export const LINKS = {
   java: 'https://adoptium.net/',
   helperPage: 'http://127.0.0.1:8787/device/',
   helperDownload: 'https://bauloc.github.io/device/agent/device-bridge.mjs',
+  /** nodejs.org's download page: it detects the system and offers its installer. */
+  node: 'https://nodejs.org/en/download',
 } as const
 
 /**
@@ -129,7 +144,32 @@ export const FIX = {
   },
   helperPage: { label: 'Open the helper’s page', href: LINKS.helperPage, primary: true },
   pair: { label: 'Pair…', action: 'pair-helper', primary: true },
+  connectHelper: { label: 'Connect helper', action: 'connect-helper' },
+  useHelper: { label: 'Use the helper instead', action: 'connect-helper' },
+  startAdb: { label: 'Start adb server', action: 'start-adb', primary: true },
+  openWifi: { label: 'Connect over Wi‑Fi…', action: 'open-wifi' },
+  installAdb: {
+    label: 'Copy the install command',
+    copy: 'brew install --cask android-platform-tools',
+  },
+  updateAdb: {
+    label: 'Copy the update command',
+    copy: 'brew upgrade --cask android-platform-tools',
+  },
+  tvNetworkDebugging: {
+    label: 'Android TV',
+    path: 'Settings → Device Preferences → About → select Build 7 times; then Settings → Device Preferences → Developer options → Network debugging (on Google TV: Wireless debugging)',
+  },
+  phoneWirelessDebugging: {
+    label: 'Phone',
+    path: 'Settings → System → Developer options → Wireless debugging → On (Android 11 or newer)',
+  },
+  pairWithCode: {
+    label: 'Phone or Google TV',
+    path: 'Settings → System → Developer options → Wireless debugging → Pair device with pairing code',
+  },
   helperDownload: { label: 'Download the helper', href: LINKS.helperDownload },
+  getNode: { label: 'Get Node.js (LTS)', href: LINKS.node },
   java: { label: 'Get Java (Temurin 21 LTS)', href: LINKS.java },
   brewJava: { label: 'Copy “brew install --cask temurin”', copy: 'brew install --cask temurin' },
   downloadBundletool: { label: 'Download now', action: 'get-bundletool' },
@@ -146,6 +186,15 @@ export const FIX = {
 /** "Copy this page's link", for a page embedded where USB is blocked. */
 export function copyLinkFix(href: string): Fix {
   return { label: 'Copy this page’s link', copy: href, primary: true }
+}
+
+/** "Open the helper's page": the copy the helper serves itself, which needs no permission. */
+export function helperPageFix(port: number): Fix {
+  return {
+    label: 'Open the helper’s page',
+    href: `http://127.0.0.1:${String(port)}/device/`,
+    primary: true,
+  }
 }
 
 /** Chrome's site settings for this page, as an address to paste (edge://, opera:// alike). */
@@ -223,6 +272,10 @@ export const COPY = {
   permission: {
     ok: (browser: string, name: string) => `${browser} may use ${name}.`,
     none: 'No phone allowed yet. Click Add device and pick your phone in the browser’s list.',
+    notNeeded: (name: string) =>
+      `Not needed: ${name} is ready through the local helper, which doesn’t use WebUSB.`,
+    notUsed: (name: string) =>
+      `Not checked: ${name} goes through the local helper, which doesn’t use WebUSB. For an Android phone on a cable in this browser, click Add device.`,
     dismissed:
       'No phone was picked. If yours wasn’t in the list, check USB debugging and the cable.',
   },
@@ -267,7 +320,7 @@ export const COPY = {
       'The system didn’t let the browser open the phone. Unplug and replug it, then reconnect.',
   },
   helper: {
-    /** P1: the helper isn't built yet (decision 3). */
+    /** The .aab rows: building APKs from an .aab comes with a later helper version. */
     coming: 'Coming with the Device Lab helper.',
     waitAnswer: 'Checked once the helper answers.',
     waitPairing: 'Checked once this page is paired with the helper.',
@@ -357,5 +410,189 @@ export const COPY = {
     fallback: 'Showing folders only (Screenshots, Camera, Download). Dates are file times.',
     heic: (browser: string) =>
       `${browser} can’t show HEIC images. Save it to open it on this computer.`,
+  },
+  /*
+    The local helper (spec §12b), worded by the page: reaching it, its version, the pairing,
+    and the published file. The Mac's tools are worded by the helper itself.
+  */
+  reach: {
+    local: 'Not needed: the helper serves this page.',
+    /** What the helper's own page costs (spec §6.4). */
+    localCosts:
+      'This copy is a separate site: the theme, USB permissions and the browser’s adb key from bauloc.github.io don’t carry over. It needs internet access, and can’t reload once the helper stops.',
+    granted: 'Allowed to reach apps on this device.',
+    /** The grant is for the whole site, not the helper alone (spec §8, T12). */
+    grantedScope:
+      'The permission covers every page of this site and every app on this Mac that listens locally; the helper still answers only to its token.',
+    unsupported: 'This browser doesn’t ask for this permission.',
+    prompt: 'The browser will ask once to let this page reach apps on this device; choose Allow.',
+    denied: 'This browser blocks this page from reaching apps on this device.',
+    safari: 'Safari can’t reach the helper from this secure page.',
+  },
+  helperRunning: {
+    ok: (version: string, address: string) => `Helper ${version} answers on ${address}.`,
+    unchecked: 'Not checked yet.',
+    checking: (address: string) => `Looking for the helper on ${address}…`,
+    absent: (address: string) => `Nothing answers on ${address}.`,
+    /** A dev server: the helper refuses its origin unless it runs with --dev. */
+    absentDev: (address: string) =>
+      `Nothing answers on ${address}, or the helper was started without --dev.`,
+    lost: 'The helper stopped.',
+    foreign: (port: number) => `Another program answers on port ${String(port)}.`,
+    dismissed: 'The browser’s prompt was closed before the helper could be checked.',
+    /** Denied or Safari: a blocked request fails exactly like a stopped helper. */
+    blocked:
+      'Can’t tell while the browser blocks this page from reaching the helper. Not started yet? Start it with this command.',
+    node: 'The helper needs Node.js 18 or newer: node -v shows yours.',
+  },
+  helperVersion: {
+    ok: (protocol: number, version: string) => `Protocol ${String(protocol)}, version ${version}.`,
+    outdated: (version: string) =>
+      version
+        ? `This helper (${version}) is older than this page needs.`
+        : 'This helper is older than this page needs.',
+    newer: 'This page is older than the helper.',
+  },
+  pairing: {
+    ok: (tokenId: string, remembered: boolean) =>
+      `Paired · fingerprint ${tokenId} · ${remembered ? 'remembered on this computer' : 'this tab only'}.`,
+    unpaired: 'This page isn’t paired with the helper.',
+    stale: 'The helper restarted, so this page’s pairing ended.',
+    foreign: (port: number) =>
+      `The program on port ${String(port)} couldn’t prove it is your helper; nothing was sent.`,
+    waitVersion: 'Checked once the helper and this page agree on a version.',
+  },
+  update: {
+    ok: (version: string) => `Matches the published helper (${version}).`,
+    newer: (version: string) => `A newer helper (${version}) is published.`,
+    differs: 'This helper differs from the published file.',
+    unchecked: 'Couldn’t read the published helper, so this wasn’t compared.',
+  },
+  tools: {
+    notConnected:
+      'This Mac’s tools aren’t checked yet; start the helper to check Xcode, adb and the rest.',
+    pending: 'Checked once the helper reports this Mac’s tools.',
+    /** The helper answered, but only a paired page may read its tools. */
+    unpaired: 'Checked once this page is paired with the helper.',
+    /** android.adb-server stopped, in a browser without WebUSB (spec §12c relevance). */
+    adbServerNeeded:
+      'Without WebUSB, Android goes through Google’s adb server, which isn’t running.',
+  },
+  /** Android over Wi‑Fi (§4.7): the Wi‑Fi dialog and its checklist rows. */
+  wifi: {
+    helperOk: (tokenId: string) =>
+      `Running and paired (fingerprint ${tokenId}). Wi‑Fi devices go through it.`,
+    helperOff:
+      'Browsers can’t open network connections to a TV or a phone, so Wi‑Fi devices go through the local helper on this computer. Start it and pair this page.',
+    helperUnpaired: 'The helper is running, but this page isn’t paired with it yet.',
+    helperOld:
+      'This helper can’t connect to Wi‑Fi devices. Download it again; the command replaces it.',
+    adbUnchecked: 'Checked once the helper is connected.',
+    adbOk: 'Running. The helper reaches Wi‑Fi devices through it.',
+    adbStopped: 'Google’s adb server isn’t running, and Wi‑Fi devices go through it.',
+    adbStartNote:
+      'While it runs, Chrome’s WebUSB can’t use Android phones on a cable; adb kill-server gives them back.',
+    adbMissing: 'Google’s adb isn’t installed on this Mac, and Wi‑Fi devices go through it.',
+    adbOff: 'The helper was started with --no-android, so it can’t reach Android devices.',
+    adbOffStep: 'Stop the helper (Ctrl+C) and start it again without --no-android.',
+    reachUnchecked: 'Checked when you connect.',
+    reaching: (address: string) => `Connecting to ${address}…`,
+    pairing: (address: string) => `Pairing with ${address}…`,
+    reachOk: (address: string) => `${address} answered.`,
+    paired: (address: string) =>
+      `Paired with ${address}. Now connect, with the port the Wireless debugging screen shows next to “IP address & Port”.`,
+    unreachable: (address: string) => `Nothing answered at ${address}.`,
+    /** reason `blocked`: the connection never left this computer (§4.7). */
+    blocked: (address: string) =>
+      `This computer blocked the connection to ${address}, so the device never saw it. The problem is on this computer, not the TV or phone.`,
+    blockedVpn:
+      'Turn off the VPN (Cloudflare WARP, a work VPN), or let it reach the local network, then connect again.',
+    blockedMac:
+      'Stop the helper (Ctrl+C), start it again from the Terminal app, and choose Allow when macOS asks to find devices on your local network. Asked before: System Settings → Privacy & Security → Local Network → turn on Terminal.',
+    /** The same, next to the command that starts the helper: it is drawn above the steps. */
+    blockedMacCommand:
+      'Stop the helper (Ctrl+C), start it again from the Terminal app with the command above, and choose Allow when macOS asks to find devices on your local network. Asked before: System Settings → Privacy & Security → Local Network → turn on Terminal.',
+    reachBlocked: 'Checked once this computer can reach the local network.',
+    unreachableStep:
+      'Check that the device is on and awake, on the same Wi‑Fi as this computer, and that the address matches the one on its screen.',
+    timeout: (address: string) => `${address} didn’t answer in time.`,
+    refused: (host: string, port: number) =>
+      `${host} answered, but nothing accepts debugging on port ${String(port)}.`,
+    refusedStep:
+      'Turn on Network debugging (TV) or Wireless debugging (phone), then use the port that screen shows. A TV uses 5555.',
+    unresolved: (host: string) => `No device called ${host} was found on this network.`,
+    unresolvedStep:
+      'Use the IP address instead: Settings → Network & Internet → your Wi‑Fi on the device, or the Wireless debugging screen.',
+    needsPairing: (address: string) =>
+      `${address} uses Wireless debugging, which needs pairing with a code first.`,
+    pairWrong: 'The pairing code was wrong, or the pairing screen closed.',
+    pairWrongStep:
+      'Settings → System → Developer options → Wireless debugging → Pair device with pairing code, then type the new code and port (both change each time).',
+    pairUnsupported: 'This Mac’s adb is too old to pair with a code.',
+    failed: (address: string) => `adb couldn’t connect to ${address}.`,
+    pairFailed: (address: string) => `adb couldn’t pair with ${address}.`,
+    busy: (host: string) => `Already connecting to ${host}. Wait for that to finish.`,
+    adbSaid: (message: string) => `adb said: “${message}”`,
+    authUnchecked: 'Checked once the device answers.',
+    authWaiting: (name: string) =>
+      `${name} is waiting for you to choose Allow on “Allow debugging?”.`,
+    authOk: (name: string) => `${name} allows this computer. Detail, screenshots and logs work.`,
+    offline: (name: string) => `${name} stopped answering over Wi‑Fi.`,
+    offlineStep: 'Wake the device, check it is still on the same Wi‑Fi, then connect again.',
+    allowStep:
+      'Choose Allow on “Allow debugging?” (on a TV, with the remote), and tick Always allow from this computer.',
+    /** The address field's own problems, before anything is sent. */
+    hostEmpty: 'Enter the device’s IP address, as its screen shows it.',
+    hostInvalid: 'That isn’t an IP address. It looks like 192.168.1.20.',
+    hostPublic:
+      'Only devices on your local network: an address that starts with 192.168., 10., 172.16–31., 169.254. or 100.64–127.',
+    hostLoopback:
+      'That address is this computer. Enter the TV’s or phone’s address, from its network settings.',
+    hostName:
+      'Use the device’s IP address, or a name of up to 100 characters that ends in .local, .lan or .home.arpa.',
+    portInvalid: 'The port is a number from 1 to 65535.',
+    portEmpty: 'Enter the port the Wireless debugging screen shows.',
+    codeEmpty: 'Enter the six-digit code the device shows.',
+    codeInvalid: 'The pairing code is six digits.',
+    laterInstall:
+      'Installing over Wi‑Fi comes in a later version. For now, connect the device with a USB cable in Chrome or Edge.',
+    /** The detail pane, for a Wi‑Fi device: what isn't offered over Wi‑Fi yet. */
+    later:
+      'Over Wi‑Fi: details, screenshots and the log. Apps, Images and installing come in a later version; for them now, connect a USB cable in Chrome or Edge.',
+  },
+  /** Rows about the devices the helper lists (spec §12b, Devices). */
+  device: {
+    noneIos: 'Plug in an iPhone with a cable and unlock it.',
+    noneIosStep:
+      'When asked, tap Trust and enter the passcode. If nothing asks, open Finder and select the iPhone in the sidebar.',
+    noneAndroid: 'Plug in a phone with USB debugging on.',
+    noneAndroidStep:
+      'Settings → About phone → tap Build number 7 times, then Settings → System → Developer options → USB debugging.',
+    trustOk: 'Trusted.',
+    trust: 'This iPhone doesn’t trust this Mac yet.',
+    lockOk: 'Unlocked since it restarted.',
+    lock: 'The iPhone hasn’t been unlocked since it restarted.',
+    lockStep: 'Unlock it with the passcode.',
+    devModeOk: 'Developer Mode is on.',
+    devMode: 'Developer Mode is off, so screenshots are off.',
+    devModeStep: 'Settings → Privacy & Security → Developer Mode → On (it restarts).',
+    iosOk: (version: string) => `iOS ${version} is supported.`,
+    iosOld: 'iOS 14 and older are untested; some details may be missing.',
+    iosNew: (major: number) =>
+      `iOS ${String(major)} is newer than this helper knows; update the helper if something fails.`,
+    shotsOk: 'Screenshots work.',
+    shotsOff: 'Screenshots are off for this device.',
+    ddi: 'iOS 16 and older need Apple’s developer disk image mounted before a screenshot.',
+    ddiStep:
+      'Unlock the iPhone and open it once in Xcode’s Devices and Simulators window, then retry.',
+    androidAuth: 'The phone is waiting for you to allow USB debugging.',
+    androidAuthStep: 'Unlock it and tap Allow on “Allow USB debugging?” (tick Always allow).',
+    conflict: 'Google’s adb server is holding this phone.',
+    shared: 'Shared through Google’s adb server.',
+    sharedWifi: 'Connected over Wi‑Fi through Google’s adb server.',
+    offline: 'The phone isn’t answering.',
+    offlineStep: 'Reseat the cable and avoid USB hubs.',
+    /** Labels: "Ngọc’s iPhone: Trust". */
+    label: (name: string, what: string) => `${name}: ${what}`,
   },
 } as const

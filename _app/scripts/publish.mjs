@@ -101,9 +101,9 @@ const PROTECTED = [
   // console port, in the same commit as the path constants that read them: a console that
   // reads a missing index must not mistake it for an empty one and write that back.
   { path: 'data', required: true },
-  // Protected from the first commit, but created later in the migration: device/agent/
-  // arrives with the iOS helper. Never writable either way.
-  { path: path.join('device', 'agent'), required: false },
+  // The Device Lab helper testers download (device/agent/device-bridge.mjs). Built from
+  // _app/helper by `npm run helper:build` and committed by hand; never written by a publish.
+  { path: path.join('device', 'agent'), required: true },
 ]
 
 /** A published page slug. Also the name of a directory under terms/ and privacy/. */

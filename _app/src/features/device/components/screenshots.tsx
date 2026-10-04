@@ -1,4 +1,4 @@
-import { Camera, Copy, Download, Loader2, Trash2 } from 'lucide-react'
+import { Camera, Copy, Download, Loader2, MoonStar, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
+import { BLACK_SHOT_TEXT } from '../black-shot'
 import { fmtBytes, fmtClock } from '../model'
 import type { Shot } from '../store'
 
@@ -415,6 +416,8 @@ export function Screenshots({
   zoom,
   capturing,
   canCapture,
+  captureTitle,
+  captureDescribedBy,
   onCapture,
   onZoom,
   onClear,
@@ -425,6 +428,10 @@ export function Screenshots({
   capturing: boolean
   /** The device's lane can take screenshots. */
   canCapture: boolean
+  /** The header button's tooltip: what takes the screenshot, or why it can't (screenshotTitle). */
+  captureTitle?: string
+  /** The note that says why screenshots are unavailable, when there is one. */
+  captureDescribedBy?: string
   /** The header's Take Screenshot, and S: the same action. */
   onCapture: () => void
   onZoom: (zoom: number) => void
@@ -470,13 +477,13 @@ export function Screenshots({
           <Button
             variant="outline"
             size="sm"
-            disabled={!canCapture}
-            aria-disabled={capturing}
+            aria-disabled={capturing || !canCapture}
+            aria-describedby={canCapture ? undefined : captureDescribedBy}
             aria-keyshortcuts="S"
             className="aria-disabled:opacity-50"
-            title="Take a screenshot (S)"
+            title={captureTitle ?? 'Take a screenshot (S)'}
             onClick={() => {
-              if (!capturing) onCapture()
+              if (!capturing && canCapture) onCapture()
             }}
           >
             {capturing ? <Loader2 className="animate-spin" /> : <Camera />}
@@ -501,11 +508,24 @@ export function Screenshots({
                 <a href={shot.url} target="_blank" rel="noopener noreferrer" title="Open full size">
                   <img
                     src={shot.url}
-                    alt={`Screenshot of ${shot.deviceName} at ${fmtClock(shot.at)}`}
+                    alt={`Screenshot of ${shot.deviceName} at ${fmtClock(shot.at)}${shot.black ? ', all black' : ''}`}
                     loading="lazy"
                     className="block w-full"
                   />
                 </a>
+                {shot.black && (
+                  // Kept, since it is what the device returned; said, since black alone says nothing.
+                  <p className="flex gap-1.5 border-t border-amber-500/40 bg-amber-500/5 px-2 py-1.5 text-xs leading-snug">
+                    <MoonStar
+                      aria-hidden="true"
+                      className="mt-px size-3.5 shrink-0 text-amber-600 dark:text-amber-400"
+                    />
+                    <span>
+                      <span className="font-medium">All black.</span>{' '}
+                      <span className="text-muted-foreground">{BLACK_SHOT_TEXT}</span>
+                    </span>
+                  </p>
+                )}
                 <div className="flex items-center gap-1 border-t px-2 py-1.5">
                   <span className="text-muted-foreground flex-1 font-mono text-xs tabular-nums">
                     {fmtClock(shot.at)}

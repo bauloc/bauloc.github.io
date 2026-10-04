@@ -1,4 +1,5 @@
-import type { DeviceState } from '../model'
+import type { HelperStatus } from '../helper/connection'
+import type { Device, DeviceState } from '../model'
 
 /*
   The preflight checklist, as data: what Device Lab checks before a phone can be used and
@@ -6,6 +7,8 @@ import type { DeviceState } from '../model'
 
   Nothing in this folder renders or talks to a phone. env.ts and usb-diagnose.ts read the
   browser once into plain objects, checks.ts turns those into rows, copy.ts holds every word.
+  The local helper's rows are built the same way, from HelperConnection's status and the
+  helper's /api/doctor report (whose tool rows keep the helper's own words).
   Because the inputs are injected, every path — the missing prerequisites above all — runs
   in Vitest's node environment.
 */
@@ -16,10 +19,27 @@ import type { DeviceState } from '../model'
  */
 export type CheckStatus = 'ok' | 'warning' | 'blocking' | 'unchecked'
 
-/** The Environment check's sections: This browser · Phone: {name} · Helper · Features. */
-export type CheckGroup = 'browser' | 'phone' | 'helper' | 'feature'
+/**
+ * The Environment check's sections: This browser · Phone: {name} · Helper · This Mac · iPhone
+ * tools · Android tools · Devices · Optional tools · Features. `mac`, `ios` and `android` hold
+ * the rows the helper words (/api/doctor); `optional` holds its optional tools that nothing on
+ * this page needs right now (spec §12c), which never reach the Gate.
+ */
+export type CheckGroup =
+  | 'browser'
+  | 'phone'
+  | 'helper'
+  | 'mac'
+  | 'ios'
+  | 'android'
+  | 'device'
+  /** Android over Wi‑Fi, through the helper and Google's adb server. */
+  | 'wifi'
+  | 'optional'
+  | 'feature'
 
-export type CheckId =
+/** The rows the page words itself, each with a fixed label (copy.ts LABELS). */
+export type FixedCheckId =
   | 'browser.secure'
   | 'browser.webusb'
   | 'app.current'
@@ -33,7 +53,10 @@ export type CheckId =
   | 'helper.lna'
   | 'helper.paired'
   | 'helper.version'
+  | 'helper.update'
   | 'helper.adbServer'
+  /** Stands in for the helper's tool rows until it can report them. */
+  | 'mac.tools'
   | 'aab.java'
   | 'aab.bundletool'
   | 'aab.key'
@@ -46,6 +69,23 @@ export type CheckId =
   | 'install.apkmEncrypted'
   | 'images.mediastore'
   | 'images.heic'
+  | 'wifi.helper'
+  | 'wifi.adbServer'
+  /** Only after a connect this computer itself blocked (a VPN, macOS local network privacy). */
+  | 'wifi.localNetwork'
+  | 'wifi.reachable'
+  | 'wifi.authorized'
+
+/**
+ * A row the helper words (/api/doctor, spec §12b): `mac.node`, `ios.xcode`, `android.adb`… Its
+ * id, label and sentence are the helper's, so the terminal and the page say the same thing.
+ */
+export type ToolCheckId = `mac.${string}` | `ios.${string}` | `android.${string}`
+
+/** A row about one device the helper lists (`device.<id>.trust`), or none (`device.none.ios`). */
+export type DeviceCheckId = `device.${string}`
+
+export type CheckId = FixedCheckId | ToolCheckId | DeviceCheckId
 
 /**
  * A button the page wires up. `retry` reconnects the phone, as in DEVICE_HINTS; the rest are
@@ -60,10 +100,18 @@ export type FixAction =
   | 'release-other-tab'
   | 'pair-helper'
   | 'check-helper'
+  /** USER GESTURE: look for the helper, which may show the browser's permission prompt. */
+  | 'connect-helper'
+  /** Asks the helper to start Google's adb server (never done without this click). */
+  | 'start-adb'
+  /** Asks the helper to check this Mac's tools again (/api/doctor?refresh=1). */
+  | 'recheck'
   | 'get-bundletool'
   | 'create-key'
   | 'retry-images'
   | 'save-image'
+  /** Opens the Wi‑Fi dialog (Network device…), to connect again. */
+  | 'open-wifi'
 
 /**
  * What the tester can do about a row: copy a command, open a link, follow a settings path on
@@ -91,6 +139,23 @@ export interface CheckItem {
 /* ---------------------------------------------------------------- *
  * Inputs
  * ---------------------------------------------------------------- */
+
+/**
+ * The local helper as HelperConnection reports it, reduced to what the rows read. A
+ * HelperStatus is one.
+ */
+export type HelperProbe = Pick<
+  HelperStatus,
+  'phase' | 'promptLikely' | 'env' | 'permission' | 'health' | 'pairing' | 'lanes'
+>
+
+/** The helper file published at bauloc.github.io, as the Environment check read it. */
+export interface PublishedHelper {
+  /** `const VERSION = "…";` in the file. */
+  readonly version: string
+  /** 64 hex of the file, to compare with /api/health's sha256. */
+  readonly sha256: string
+}
 
 export type Os = 'mac' | 'windows' | 'linux' | 'chromeos' | 'android' | 'ios' | 'other'
 export type BrowserName = 'chrome' | 'edge' | 'opera' | 'firefox' | 'safari' | 'other'
@@ -173,9 +238,23 @@ export interface PhoneInput {
   readonly otherTab: boolean
   /** Who holds this phone's USB interface, when the helper knows. */
   readonly holder: UsbHolder | null
+  /**
+   * An Android device that is ready through the local helper (Google's adb server, a cable or
+   * Wi‑Fi), by name: with no WebUSB phone, this browser needs no phone of its own.
+   */
+  readonly helperPhone?: string | null
+  /**
+   * Any device the local helper lists (an iPhone, a simulator, an Android device that isn't
+   * ready), by name: with no phone of this browser's own and no Add device tried, WebUSB isn't
+   * in use, so its rows wait instead of warning.
+   */
+  readonly helperDevice?: string | null
 }
 
-/** GET /api/health, as the helper design has it. */
+/**
+ * The P1 plan's helper health, for the .aab rows: a helper that builds APKs from an .aab
+ * (`android.buildApks`) is a later helper version, so these stay the plan's shape until then.
+ */
 export interface HelperHealth {
   readonly version: string
   readonly protocol: number
@@ -186,8 +265,8 @@ export interface HelperHealth {
   readonly platform?: string
 }
 
-/** One look for the helper, made only on the tester's intent (PLAN §3.1). */
-export interface HelperProbe {
+/** The P1 plan's look at the helper, for the .aab rows (see HelperHealth). */
+export interface AabProbe {
   readonly lna: LnaPermission
   readonly browser: BrowserName
   /** /api/health's answer, or null when nothing answered. */
@@ -196,7 +275,7 @@ export interface HelperProbe {
   readonly tokenId: string | null
 }
 
-/** The Android part of GET /api/doctor (PLAN §4.3). */
+/** The P1 plan's Android doctor, for the .aab rows (see HelperHealth). */
 export interface AndroidDoctor {
   readonly java:
     | { readonly found: false }
@@ -251,8 +330,8 @@ export interface FeatureContext {
   readonly apkmEncrypted?: boolean
   /** .aab: the file's name, for the bundletool command. */
   readonly fileName?: string
-  /** .aab: the helper, as helperChecks() takes it. Null or absent: no helper. */
-  readonly probe?: HelperProbe | null
+  /** .aab: the helper that builds APKs (a later helper version). Null or absent: none. */
+  readonly probe?: AabProbe | null
   readonly doctor?: AndroidDoctor | null
   readonly images?: ImagesOutcome
   /** Viewer: the open image's MIME type. */
@@ -265,3 +344,29 @@ export interface FeatureContext {
  * rules, a Windows driver). Today classifyUsbError reports that as `held`.
  */
 export const USB_ACCESS_DENIED = 'USB_ACCESS_DENIED'
+
+/** The last Wi‑Fi connect or pair the tester asked for, as the Wi‑Fi rows read it. */
+export interface WifiAttempt {
+  readonly kind: 'connect' | 'pair'
+  readonly host: string
+  readonly port: number
+  readonly state: 'running' | 'ok' | 'failed'
+  /** failed: the helper's code (ANDROID_CONNECT_FAILED…) or the page's own. */
+  readonly code?: string
+  /** failed: the helper's `reason` (refused, unreachable, blocked, timeout, wrong-code…). */
+  readonly reason?: string
+  /** failed: the helper's sentence, for a code the page doesn't word. */
+  readonly message?: string
+  /** failed: adb's own words, as the helper passed them on. */
+  readonly detail?: string
+  /** ok, connect: the serial the device is listed under. */
+  readonly serial?: string
+}
+
+/** What the Wi‑Fi rows read (wifiChecks). */
+export interface WifiInput {
+  readonly helper: HelperProbe
+  readonly attempt: WifiAttempt | null
+  /** The Wi‑Fi device the rows are about: the attempt's, once listed, else one listed now. */
+  readonly device: Pick<Device, 'id' | 'name' | 'state'> | null
+}

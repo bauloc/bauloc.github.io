@@ -8,6 +8,7 @@ import {
   type DeviceState,
 } from '../model'
 import type { Backend } from './backend'
+import { iosDetail } from './ios'
 import { createMockAndroid } from './mock-android'
 
 /*
@@ -18,7 +19,9 @@ import { createMockAndroid } from './mock-android'
 
   It behaves like the real lanes where a tester would notice: Retry walks an unauthorized
   phone through authorizing to ready, an untrusted iPad to ready, screenshots are real PNGs,
-  and the log streams.
+  and the log streams (logcat for Android, syslog for the iPhone). The iPhone is what the local
+  helper reports on a Mac without Xcode: ready, identifiers and logs, but no screenshots
+  (XCODE_REQUIRED), and its detail goes through the helper's own formatter (ios.ts).
 
   The Android features (mock-android.ts) work on every ready Android fixture, with fake data
   and fake progress. Their failures are asked for like this:
@@ -57,7 +60,20 @@ interface Fixture {
   detail?: Omit<DeviceDetail, 'platform'>
   /** Android only: what connect would read. */
   android?: AndroidFacts
+  /** What the lane can do while the fixture is ready; everything when absent. */
+  capabilities?: { screenshot?: boolean; logs?: boolean }
 }
+
+/** Drops `platform`: a fixture's detail is the rest of a DeviceDetail. */
+const detailOf = ({ identity, software, hardware, status }: DeviceDetail) => ({
+  identity,
+  software,
+  hardware,
+  status,
+})
+
+/** The mock iPhone's id. Not the real phone's UDID: the mock never shadows a real lane's row. */
+const MOCK_IPHONE = '00008101-000A1B2C3D4E5F02'
 
 const PIXEL_GETPROP = [
   '[ro.product.model]: [Pixel 9]',
@@ -120,26 +136,49 @@ export const MOCK_FIXTURES: readonly Fixture[] = [
     },
   },
   {
-    id: '00008101-000A1B2C3D4E5F02',
+    id: MOCK_IPHONE,
     platform: 'ios',
     state: 'ready',
     connection: 'usb',
     name: 'Ngọc’s iPhone 12 Pro',
     model: 'iPhone 12 Pro',
-    osVersion: '26.5.2',
-    blockers: ['TUNNEL_REQUIRED'],
-    detail: {
-      identity: {
-        'Device name': 'Ngọc’s iPhone 12 Pro',
-        Model: 'iPhone 12 Pro',
-        'Model identifier': 'iPhone13,3',
-        Serial: 'F2LX0EXAMPLE',
-        Identifier: '00008101-000A1B2C3D4E5F02',
-      },
-      software: { iOS: '26.5.2', Build: '23F84', 'Developer Mode': 'On', Pairing: 'Paired' },
-      hardware: {},
-      status: { Connection: 'USB (mock)' },
-    },
+    osVersion: '27.0',
+    blockers: ['XCODE_REQUIRED'],
+    capabilities: { screenshot: false },
+    detail: detailOf(
+      iosDetail(
+        {
+          udid: MOCK_IPHONE,
+          connection: 'usb',
+          source: 'lockdown',
+          device: {
+            DeviceName: 'Ngọc’s iPhone 12 Pro',
+            DeviceClass: 'iPhone',
+            ProductType: 'iPhone13,3',
+            ProductVersion: '27.0',
+            BuildVersion: '24A437',
+            SerialNumber: 'F2LZZ0FAKE01',
+            HardwareModel: 'D53pAP',
+            ModelNumber: 'MGLQ3',
+            RegionInfo: 'LL/A',
+            CPUArchitecture: 'arm64e',
+            TimeZone: 'Asia/Ho_Chi_Minh',
+            UniqueChipID: '2844626588163842',
+          },
+          battery: { BatteryCurrentCapacity: 87, BatteryIsCharging: true },
+          disk: {
+            TotalDiskCapacity: 256_000_000_000,
+            TotalDataAvailable: 161_040_000_000,
+            AmountDataAvailable: 40_300_000_000,
+          },
+          international: { Language: 'en', Locale: 'en_VN' },
+          developerMode: true,
+          locked: false,
+          withheld: [],
+        },
+        'USB (mock)',
+      ),
+    ),
   },
   {
     id: 'R58MC0ABCDE',
@@ -239,14 +278,28 @@ const TAGS = [
 ]
 const LEVELS = ['D', 'I', 'I', 'I', 'W', 'E'] as const
 
+const p = (v: number, w = 2) => String(v).padStart(w, '0')
+
 /** One logcat line in `-v threadtime` format. */
 function fakeLogLine(n: number): string {
   const now = new Date()
-  const p = (v: number, w = 2) => String(v).padStart(w, '0')
   const stamp = `${p(now.getMonth() + 1)}-${p(now.getDate())} ${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}.${p(now.getMilliseconds(), 3)}`
   const level = LEVELS[n % LEVELS.length] ?? 'I'
   const tag = TAGS[n % TAGS.length] ?? 'App'
   return `${stamp}  1234  ${String(1234 + (n % 7))} ${level} ${tag}: mock event #${String(n)}`
+}
+
+const PROCESSES = ['SpringBoard', 'locationd', 'backboardd', 'mDNSResponder', 'Shop', 'kernel']
+const SYSLOG_LEVELS = ['Notice', 'Info', 'Debug', 'Notice', 'Error', 'Fault'] as const
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** One line as an iPhone's syslog_relay sends it. */
+function fakeSyslogLine(n: number): string {
+  const now = new Date()
+  const stamp = `${MONTHS[now.getMonth()] ?? 'Jan'} ${String(now.getDate()).padStart(2)} ${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}`
+  const level = SYSLOG_LEVELS[n % SYSLOG_LEVELS.length] ?? 'Notice'
+  const proc = PROCESSES[n % PROCESSES.length] ?? 'Shop'
+  return `${stamp} iPhone ${proc}[${String(400 + (n % 9))}] <${level}>: mock event #${String(n)}`
 }
 
 export function createMockBackend(): Backend {
@@ -317,9 +370,9 @@ export function createMockBackend(): Backend {
           osVersion: f.osVersion ?? '',
           blockers: s.blockers,
           capabilities: {
-            screenshot: ready,
+            screenshot: ready && (f.capabilities?.screenshot ?? true),
             identifiers: ready,
-            logs: ready && f.platform === 'android',
+            logs: ready && (f.capabilities?.logs ?? true),
             install: (facts?.sdk ?? 0) >= MIN_INSTALL_SDK,
             apps: !!facts,
             images: !!facts,
@@ -346,15 +399,26 @@ export function createMockBackend(): Backend {
     async screenshot(id) {
       await delay(500)
       if (!isReady(id)) throw new Error('DEVICE_NOT_READY')
-      return renderScreen(fixture(id).name)
+      const f = fixture(id)
+      // As the helper answers for an iPhone it can't capture: the blocker's code.
+      if (f.capabilities?.screenshot === false)
+        throw new Error(f.blockers[0] ?? 'SCREENSHOT_UNSUPPORTED')
+      return renderScreen(f.name)
     },
 
     // An unauthorized phone, once retried, authorizes and becomes ready, as a real one does
     // after the tester taps Allow. An offline one stays offline: retrying does not fix a cable.
+    // A ready one is checked again and stays as it is: retrying does not install Xcode.
     async retry(id) {
       const f = fixture(id)
       if (f.state === 'offline') {
         await delay(600)
+        return
+      }
+      if (f.state === 'ready' && f.blockers.length > 0) {
+        await delay(600)
+        states.set(id, { state: f.state, blockers: f.blockers })
+        emit()
         return
       }
       states.set(id, {
@@ -371,12 +435,13 @@ export function createMockBackend(): Backend {
 
     async logs(id, onLines, signal) {
       if (!isReady(id)) throw new Error('DEVICE_NOT_READY')
+      const line = fixture(id).platform === 'ios' ? fakeSyslogLine : fakeLogLine
       let n = 0
-      onLines(Array.from({ length: 40 }, () => fakeLogLine(n++)))
+      onLines(Array.from({ length: 40 }, () => line(n++)))
       while (!signal.aborted) {
         await delay(700)
         if (signal.aborted) break
-        onLines(Array.from({ length: 1 + (n % 3) }, () => fakeLogLine(n++)))
+        onLines(Array.from({ length: 1 + (n % 3) }, () => line(n++)))
       }
     },
   }

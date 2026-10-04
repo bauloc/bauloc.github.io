@@ -1,0 +1,30 @@
+{
+  "info" : {
+    "arguments" : [
+      "devicectl",
+      "device",
+      "capture",
+      "screenshot",
+      "--device",
+      "00008101-000A1B2C3D4E5F02",
+      "--destination",
+      "shot.png",
+      "--json-output",
+      "shot.json"
+    ],
+    "commandType" : "devicectl.device.capture.screenshot",
+    "environment" : {
+
+    },
+    "jsonVersion" : 5,
+    "outcome" : "success",
+    "version" : "642.16"
+  },
+  "result" : {
+    "destination" : "file:///tmp/device-bridge-run/shot.png",
+    "deviceIdentifier" : "5A1E7C3D-0B2F-4C6A-9D8E-1F2A3B4C5D6E",
+    "height" : 2532,
+    "imageFormat" : "png",
+    "width" : 1170
+  }
+}

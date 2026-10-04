@@ -36,8 +36,16 @@ export function parseGetprop(text: string): Record<string, string> {
   return out
 }
 
-/** The detail pane for an Android device, from the outputs of DETAIL_COMMANDS. */
-export function androidDetail(o: DetailOutputs, serial: string): DeviceDetail {
+/**
+ * The detail pane for an Android device, from the outputs of DETAIL_COMMANDS. `connection` names
+ * the lane that read them: the helper passes its own ("USB (adb server)"), and the default keeps
+ * WebUSB's answers identical to the legacy page's (parity.json).
+ */
+export function androidDetail(
+  o: DetailOutputs,
+  serial: string,
+  connection = 'USB (WebUSB)',
+): DeviceDetail {
   const p = parseGetprop(o.getprop)
   const prop = (key: string) => p[key] ?? ''
 
@@ -100,7 +108,7 @@ export function androidDetail(o: DetailOutputs, serial: string): DeviceDetail {
           ? `${fmtBytes(kFree * 1024)} free of ${fmtBytes(kTotal * 1024)}` +
             (Number.isFinite(kUsed) ? ` (${String(Math.round((kUsed / kTotal) * 100))}% used)` : '')
           : '',
-      Connection: 'USB (WebUSB)',
+      Connection: connection,
       'ANDROID_ID note': 'This is the shell user’s ANDROID_ID — an app reports a different value.',
     },
     raw: { getprop: o.getprop },

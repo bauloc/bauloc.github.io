@@ -19,7 +19,8 @@ function sentences(node: unknown, path = 'COPY'): [string, string][] {
 
 describe('copy', () => {
   it.each(sentences(COPY))('%s reads as a sentence', (_, text) => {
-    expect(text).toMatch(/^[A-Z“]/)
+    // A capital, or a name that starts small (iOS).
+    expect(text).toMatch(/^(?:[A-Z“]|iOS\b)/)
     expect(text).toMatch(/[.:]$/)
     expect(text).not.toMatch(/'/)
     expect(text).not.toMatch(/ {2}/)

@@ -1,7 +1,7 @@
 import '@fontsource-variable/geist'
 
-import { Activity, FlaskConical } from 'lucide-react'
-import { lazy, useEffect, useEffectEvent, useRef, useState } from 'react'
+import { Activity, FlaskConical, Loader2, Unplug, Wifi } from 'lucide-react'
+import { lazy, useEffect, useEffectEvent, useRef, useState, useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
 
 import { ThemeToggle } from '@/components/theme-toggle'
@@ -9,15 +9,25 @@ import { Toaster } from '@/components/toaster'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
+import { createAgentBackend } from './backends/agent'
 import { DEVICE_ERRORS, deviceErrorMessage, type Backend } from './backends/backend'
 import { createMockBackend } from './backends/mock'
 import { createWebUsbBackend } from './backends/webusb'
+import { BLACK_SHOT_TEXT } from './black-shot'
 import type { FixWiring } from './components/checklist'
-import { DeviceDetailPane, type DetailTab } from './components/device-detail'
+import {
+  DeviceDetailPane,
+  WifiNote,
+  screenshotVia,
+  type DetailTab,
+} from './components/device-detail'
 import { DeviceList } from './components/device-list'
-import { DoctorDialog } from './components/doctor-dialog'
+import { aboutRows, DoctorDialog } from './components/doctor-dialog'
 import { Gate } from './components/gate'
+import { HelperChip, type HelperHandlers } from './components/helper-chip'
+import { HelperNotice } from './components/helper-notice'
 import { deviceCheck } from './components/hint-card'
+import { PairDialog } from './components/pair-dialog'
 import {
   InstallButton,
   InstallDialog,
@@ -28,11 +38,38 @@ import {
 import { JobsStrip, jobPhaseText } from './components/jobs-strip'
 import { LogConsole } from './components/log-console'
 import { StateDot } from './components/status'
+import { WifiDialog } from './components/wifi-dialog'
+import {
+  createHelperConnection,
+  type HelperConnection,
+  type HelperPhase,
+} from './helper/connection'
+import { resolveHelperEnv } from './helper/env'
+import { targetOfSerial } from './helper/network'
+import { readPendingPair, takePairFragment } from './helper/pair-fragment'
+import type { DoctorReport } from './helper/protocol'
+import { helperAnnouncement, pairError, rememberNote } from './helper/status'
+import { readStoredPort, readStoredToken } from './helper/token'
+import { createLogSessions, RESUME_WINDOW_TEXT, type LogEvent } from './log-sessions'
 import { installPhoneOf, type Device } from './model'
-import { browserChecks, featureChecks, helperChecks, phoneChecks } from './preflight/checks'
+import {
+  browserChecks,
+  deviceChecks,
+  featureChecks,
+  gateChecks,
+  helperChecks,
+  inlineChecks,
+  isToolId,
+  phoneChecks,
+  sortChecks,
+  TOOL_BLOCKERS,
+  wifiChecks,
+  wifiHelperReady,
+  type HelperCheckContext,
+} from './preflight/checks'
 import { COPY } from './preflight/copy'
-import { environmentNow, onStaleBuild, readEnvironment } from './preflight/env'
-import type { BrowserEnv, CheckItem, FixAction } from './preflight/types'
+import { environmentNow, onStaleBuild, readEnvironment, readPublishedHelper } from './preflight/env'
+import type { BrowserEnv, CheckItem, FixAction, PublishedHelper } from './preflight/types'
 import { findMyPhone, scanGranted } from './preflight/usb-diagnose'
 import { readZoom, saveZoom } from './prefs'
 import {
@@ -43,6 +80,7 @@ import {
   type DeviceLabSnapshot,
   type Job,
 } from './store'
+import { createWifi } from './wifi'
 
 // The tabs' code (and media.ts, the badge reader) loads with the tab, never with the page.
 const AppsTab = lazy(() => import('./components/apps-tab').then((m) => ({ default: m.AppsTab })))
@@ -55,10 +93,26 @@ function isMock(): boolean {
   return new URLSearchParams(window.location.search).get('mock') === '1'
 }
 
-function createLab(): DeviceLab {
-  const lanes = [createWebUsbBackend()]
+/**
+ * The store and the local helper's connection, built together because the helper is one of the
+ * store's lanes. Both constructors are free of side effects (StrictMode builds this twice): the
+ * helper is looked for only when the store starts its lanes, and only as §6.3 allows.
+ */
+function createLabAndHelper(): { lab: DeviceLab; helper: HelperConnection } {
+  const pending = readPendingPair()
+  const stored = readStoredToken()
+  const env = resolveHelperEnv(
+    window.location,
+    window.DVC_BOOT,
+    { pairPort: pending?.port ?? null, tokenPort: stored?.port ?? null, port: readStoredPort() },
+    navigator.userAgent,
+    navigator.vendor,
+  )
+  const helper = createHelperConnection(env)
+  const lanes: Backend[] = [createWebUsbBackend(), createAgentBackend(helper)]
+  // Last: its fixtures reuse real ids, and the merge rule makes it lose to a real lane anyway.
   if (isMock()) lanes.push(createMockBackend())
-  return createDeviceLab(lanes)
+  return { lab: createDeviceLab(lanes), helper }
 }
 
 const TEXT_INPUTS = new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number'])
@@ -88,17 +142,80 @@ function inMenu(target: EventTarget | null): boolean {
 /** How often the checklist looks at the clock while a phone waits on "Allow USB debugging?". */
 const AUTHORIZING_TICK_MS = 5_000
 
-/** The Android phone the checklist is about: the selected one, else the first listed. */
+/** An iPhone screenshot taking longer than this gets a "still working" toast (spec §6.8). */
+export const SLOW_CAPTURE_MS = 4_000
+const SLOW_CAPTURE_TEXT =
+  'Still working — the first screenshot of an iPhone can take up to 20 seconds.'
+/** The toast for a helper that stopped: one at a time, gone once it is back. */
+const LOST_TOAST = 'helper-lost'
+
+/** Whether a capture goes through the helper to a real iPhone, which can be slow the first time. */
+export const slowCapture = (device: Pick<Device, 'platform' | 'backend' | 'connection'>) =>
+  device.platform === 'ios' && device.backend === 'agent' && device.connection !== 'simulator'
+
+/**
+ * The Android phone the checklist's phone rows are about: the selected one, else the first
+ * listed. Those rows are about this browser reaching the phone over USB, so a phone the helper
+ * serves (through Google's adb server) is not one: the Devices rows cover it.
+ */
 function checklistPhone(devices: readonly Device[], selected: Device | null): Device | null {
-  if (selected?.platform === 'android') return selected
-  return devices.find((d) => d.platform === 'android') ?? null
+  const usb = (d: Device | null): d is Device => d?.platform === 'android' && d.backend !== 'agent'
+  if (usb(selected)) return selected
+  return devices.find(usb) ?? null
+}
+
+/**
+ * An Android device the helper serves and that is ready (a cable through Google's adb server,
+ * or Wi‑Fi): with one, this browser needs no phone of its own over WebUSB.
+ */
+function helperPhoneName(devices: readonly Device[]): string | null {
+  const d = devices.find(
+    (x) => x.backend === 'agent' && x.platform === 'android' && x.state === 'ready',
+  )
+  return d ? d.name || d.id : null
+}
+
+/** Any device the helper lists, by name: with only these, this browser's WebUSB isn't in use. */
+function helperDeviceName(devices: readonly Device[]): string | null {
+  const d = devices.find((x) => x.backend === 'agent')
+  return d ? d.name || d.id : null
+}
+
+/** An Android device the helper reaches over Wi‑Fi. */
+const isWifiAndroid = (d: Device | null): boolean =>
+  d?.platform === 'android' && d.backend === 'agent' && d.connection === 'network'
+
+/**
+ * The one kind Disconnect applies to: a Wi‑Fi device listed by its address, as a connect
+ * lists it. Not one adb found by itself over mDNS (adb-…._adb-tls-connect._tcp), which
+ * `adb disconnect` can't drop: Wireless debugging's own switch, on the device, does.
+ */
+const canDisconnect = (d: Device): boolean => isWifiAndroid(d) && targetOfSerial(d.id) !== null
+
+/** What the page says when a log drops, comes back, gives up or fails (log-sessions.ts). */
+function logEventText(event: LogEvent): string | null {
+  const name = event.device.name || event.device.id
+  switch (event.kind) {
+    case 'dropped':
+      return `Lost the connection to ${name}. Its log picks up again if it comes back within ${RESUME_WINDOW_TEXT}.`
+    case 'resumed':
+      return `${name} is back. Its log resumed.`
+    case 'gave-up':
+      return event.reason === 'unlisted'
+        ? `${name} left the device list, so its log stopped.`
+        : `${name} didn’t come back, so its log stopped.`
+    case 'failed':
+      return null
+  }
 }
 
 /** Why a drop or Install app can't go to this device, or null when it can. */
-function installRefusal(device: Device | null, backend: Backend | undefined): string | null {
+export function installRefusal(device: Device | null, backend: Backend | undefined): string | null {
   if (!device) return 'Select a ready Android phone first, then drop the file again.'
-  if (device.platform === 'ios')
-    return 'Installing on iPhone and iPad needs the Device Lab helper, which isn’t built yet.'
+  if (device.platform === 'ios') return 'Installing on iPhone and iPad isn’t supported yet.'
+  if (device.platform === 'android' && device.connection === 'network') {
+    return COPY.wifi.laterInstall
+  }
   if (!backend?.install) return 'This connection can’t install apps.'
   if (device.state !== 'ready')
     return `${device.name} isn’t ready. Fix what its card says, then try again.`
@@ -156,12 +273,13 @@ export const carriesFiles = (e: DragEvent): boolean =>
 function doctorItems(
   env: BrowserEnv,
   phoneItems: readonly CheckItem[],
+  helperItems: readonly CheckItem[],
   phone: Device | null,
 ): CheckItem[] {
   return [
     ...browserChecks(env),
     ...phoneItems,
-    ...helperChecks(null, null),
+    ...sortChecks(helperItems),
     ...featureChecks('summary', {
       phone: phone ? installPhoneOf(phone) : null,
       inflate: env.inflate,
@@ -188,13 +306,45 @@ function installActions(lab: DeviceLab, backend: Backend, id: string): InstallAc
 /**
  * `/device/` — Device Lab: the phones plugged into this computer, their identifiers,
  * screenshots and logs, and for Android their apps, images and installs. Android works
- * straight from Chrome or Edge over WebUSB; iOS needs a local helper that is not built yet.
- * Redesigned on its port to match XConsole (shadcn/ui, light and dark), with the legacy
- * page's behaviour kept.
+ * straight from Chrome or Edge over WebUSB; iPhones (and Android without WebUSB) through the
+ * local helper, device-bridge.mjs, which the tester runs on their Mac. Redesigned on its port
+ * to match XConsole (shadcn/ui, light and dark), with the legacy page's behaviour kept.
  */
 export function DeviceLabPage() {
-  const [lab] = useState(createLab)
+  const [{ lab, helper }] = useState(createLabAndHelper)
+  const [wifi] = useState(() => createWifi({ connection: helper }))
+  // Logs outlive their console: a device that drops says so in its log, and resumes (§7.8).
+  const [logs] = useState(() =>
+    createLogSessions({
+      onEvent: (event) => {
+        if (event.kind === 'failed') {
+          toast.error('The log stopped', { description: deviceErrorMessage(event.error) })
+          return
+        }
+        const text = logEventText(event)
+        if (text) lab.announce(text)
+      },
+    }),
+  )
   const snap = useDeviceLabSnapshot(lab)
+  const wifiSnap = useSyncExternalStore(wifi.subscribe, wifi.getSnapshot, wifi.getSnapshot)
+  const waitingLogId = useSyncExternalStore(logs.subscribe, logs.waitingId, logs.waitingId)
+  const status = useSyncExternalStore(helper.subscribeStatus, helper.getStatus, helper.getStatus)
+  const helperDevices = useSyncExternalStore(
+    helper.subscribeDevices,
+    helper.getDevices,
+    helper.getDevices,
+  )
+  // Remembered Wi‑Fi devices take the names they are listed under.
+  useEffect(() => {
+    wifi.sync(helperDevices)
+  }, [wifi, helperDevices])
+  const [pair, setPair] = useState({ open: false, key: 0 })
+  const [doctor, setDoctor] = useState<DoctorReport | null>(null)
+  // Undefined until the Environment check has read the published file.
+  const [published, setPublished] = useState<PublishedHelper | null | undefined>(undefined)
+  const [rechecking, setRechecking] = useState(false)
+  const [startingAdb, setStartingAdb] = useState(false)
   const [doctorOpen, setDoctorOpen] = useState(false)
   const [zoom, setZoom] = useState(readZoom)
   const [env, setEnv] = useState(() => environmentNow())
@@ -202,6 +352,7 @@ export function DeviceLabPage() {
   const [finding, setFinding] = useState(false)
   const [tab, setTab] = useState<DetailTab>('overview')
   const [installs, setInstalls] = useState<Installs>({})
+  const [wifiOpen, setWifiOpen] = useState(false)
   const [now, setNow] = useState(Date.now)
   const filterRef = useRef<HTMLInputElement>(null)
   const webusb = lab.backends.some((b) => b.kind === 'webusb' && b.isAvailable())
@@ -261,9 +412,40 @@ export function DeviceLabPage() {
   if (listedInstalls !== installs) setInstalls(listedInstalls)
 
   const selected = snap.devices.find((d) => d.id === snap.selectedId) ?? null
-  const goneId = snap.selectedId !== null && !selected ? snap.selectedId : null
+  // A selection that left the list, or (with nothing selected) a device whose log waits for it.
+  const goneId =
+    snap.selectedId !== null && !selected ? snap.selectedId : selected ? null : waitingLogId
   const backendOf = (device: Device | null) =>
     device ? lab.backends.find((b) => b.kind === device.backend) : undefined
+  const logShownId = selected?.id ?? goneId
+  // A Wi‑Fi device that went: one click connects it again (the tester's click, as always).
+  const goneTarget = goneId ? targetOfSerial(goneId) : null
+  const logView = useSyncExternalStore(
+    logs.subscribe,
+    () => logs.view(logShownId ?? ''),
+    () => logs.view(logShownId ?? ''),
+  )
+
+  // The logs follow the list: a device that left (or stopped being ready) drops its log into
+  // waiting, one that came back resumes it. One log per tab: selecting another ends the rest.
+  useEffect(() => {
+    logs.sync(snap.devices, (d) => lab.backends.find((b) => b.kind === d.backend))
+  }, [logs, lab, snap.devices])
+  useEffect(() => {
+    if (snap.selectedId !== null) logs.keepOnly(snap.selectedId)
+  }, [logs, snap.selectedId])
+  // Back while its log waits, with nothing selected (the list was empty): select it again.
+  useEffect(() => {
+    if (snap.selectedId === null && waitingLogId !== null) {
+      if (snap.devices.some((d) => d.id === waitingLogId)) lab.select(waitingLogId)
+    }
+  }, [lab, snap.selectedId, snap.devices, waitingLogId])
+  useEffect(
+    () => () => {
+      logs.dispose()
+    },
+    [logs],
+  )
   const selectedBackend = backendOf(selected)
   const phone = checklistPhone(snap.devices, selected)
   const authorizingSince = phone ? (snap.authorizingSince[phone.id] ?? null) : null
@@ -281,7 +463,8 @@ export function DeviceLabPage() {
 
   // What the raw USB devices say (a phone with USB debugging off is invisible to Add device).
   // Read while the Gate shows and whenever something is plugged in or out; it never prompts.
-  const gate = snap.devices.length === 0
+  // A log waiting for its device keeps the grid up, so the log can say what happened.
+  const gate = snap.devices.length === 0 && waitingLogId === null
   useEffect(() => {
     const usb = 'usb' in navigator ? navigator.usb : null
     if (!usb) return
@@ -322,7 +505,7 @@ export function DeviceLabPage() {
         {
           description:
             message === 'WEBUSB_UNSUPPORTED'
-              ? 'Firefox and Safari do not implement WebUSB. Use Chrome or Edge.'
+              ? 'Firefox and Safari do not implement WebUSB. Use Chrome or Edge, or the local helper.'
               : message || 'Unknown error',
         },
       )
@@ -348,9 +531,30 @@ export function DeviceLabPage() {
   }
 
   const capture = (id: string) => {
-    const name = snap.devices.find((d) => d.id === id)?.name ?? id
+    const device = snap.devices.find((d) => d.id === id)
+    const name = device?.name ?? id
+    // The first devicectl capture of an iPhone takes seconds (once, 18): say it is still going.
+    const slowId = `slow-capture-${id}`
+    const slow =
+      device && slowCapture(device)
+        ? setTimeout(() => {
+            toast(SLOW_CAPTURE_TEXT, { id: slowId })
+          }, SLOW_CAPTURE_MS)
+        : null
     void lab.capture(id).then((failure) => {
-      if (failure !== null) toast.error(`Screenshot of ${name} failed`, { description: failure })
+      if (slow !== null) {
+        clearTimeout(slow)
+        toast.dismiss(slowId)
+      }
+      if (failure !== null) {
+        toast.error(`Screenshot of ${name} failed`, { description: failure })
+        return
+      }
+      // Taken, but all black: kept in the list, and the tester told why at once.
+      const shot = lab.getSnapshot().shots[0]
+      if (shot?.deviceId === id && shot.black) {
+        toast.warning(`The screenshot of ${name} is all black`, { description: BLACK_SHOT_TEXT })
+      }
     })
   }
 
@@ -375,7 +579,11 @@ export function DeviceLabPage() {
     if (e.key === '/') {
       e.preventDefault()
       filterRef.current?.focus()
-    } else if ((e.key === 's' || e.key === 'S') && selected?.state === 'ready') {
+    } else if (
+      (e.key === 's' || e.key === 'S') &&
+      selected?.state === 'ready' &&
+      selected.capabilities.screenshot
+    ) {
       e.preventDefault()
       capture(selected.id)
     } else if (e.key === 'r' || e.key === 'R') {
@@ -393,6 +601,179 @@ export function DeviceLabPage() {
     }
   }, [])
 
+  /* -- The local helper -- */
+
+  const connected = status.phase === 'connected'
+  // A report from an earlier connection says nothing about the helper running now.
+  const report = connected ? doctor : null
+
+  // Said once per change, in the live region; "stopped" is a toast too, because the chip that
+  // would show it is hidden on narrow screens. Only for a tester who wants the helper.
+  const lastPhase = useRef<HelperPhase>(status.phase)
+  const onPhase = useEffectEvent((phase: HelperPhase) => {
+    const before = lastPhase.current
+    lastPhase.current = phase
+    const said = helperAnnouncement(before, phase, status.intent)
+    if (said) lab.announce(said)
+    if (phase === 'lost' && before !== 'lost' && status.intent) {
+      toast.error('Local helper stopped', {
+        id: LOST_TOAST,
+        description: 'Start it again; this page reconnects by itself.',
+      })
+    }
+    if (phase === 'connected') toast.dismiss(LOST_TOAST)
+  })
+  useEffect(() => {
+    onPhase(status.phase)
+  }, [status.phase])
+
+  // The helper's link opened in this very tab: only the fragment changed, so main.tsx didn't see
+  // it. It is taken out of the address and checked now, keeping this tab's "Remember" choice.
+  const onPairLink = useEffectEvent(() => {
+    const link = takePairFragment()
+    if (!link) return
+    const port = link.port === null ? '' : `&port=${String(link.port)}`
+    helper.pair(`#pair=${link.token}${port}`, status.remember).then(
+      (result) => {
+        if (!result.ok)
+          toast.error('Couldn’t pair with the helper', { description: pairError(result, status) })
+      },
+      () => undefined,
+    )
+  })
+  useEffect(() => {
+    const handle = () => {
+      onPairLink()
+    }
+    window.addEventListener('hashchange', handle)
+    return () => {
+      window.removeEventListener('hashchange', handle)
+    }
+  }, [])
+
+  // This Mac's tools (/api/doctor, cached 30 s by the connection): for the Gate's checklist, the
+  // Environment check, and a selected device whose blocker needs a tool (Xcode…).
+  const wantsTools =
+    selected?.backend === 'agent' && selected.blockers.some((code) => TOOL_BLOCKERS.has(code))
+  const needDoctor = connected && (doctorOpen || gate || wantsTools)
+  // The lanes' state: when it changes the connection drops its cached report, so read it again.
+  const lanesKey = JSON.stringify(status.lanes)
+  useEffect(() => {
+    if (!needDoctor) return
+    let live = true
+    helper.doctor().then(
+      (next) => {
+        if (live && next) setDoctor(next)
+      },
+      () => undefined,
+    )
+    return () => {
+      live = false
+    }
+  }, [helper, needDoctor, lanesKey])
+
+  // The published helper, to say whether this one is current: Environment check only.
+  const runningSha = connected ? (status.health?.sha256 ?? null) : null
+  useEffect(() => {
+    if (!doctorOpen || runningSha === null) return
+    let live = true
+    void readPublishedHelper().then((next) => {
+      if (live) setPublished(next)
+    })
+    return () => {
+      live = false
+    }
+  }, [doctorOpen, runningSha])
+
+  const openPair = () => {
+    setPair((p) => ({ open: true, key: p.key + 1 }))
+  }
+  const openWifi = () => {
+    setWifiOpen(true)
+  }
+
+  // Only ever on the tester's click, like every Wi‑Fi operation.
+  const disconnectWifi = (serial: string) => {
+    const name = snap.devices.find((d) => d.id === serial)?.name || serial
+    // Disconnecting on purpose is no drop: its log stops rather than waiting for it.
+    logs.stop(serial)
+    void wifi.disconnect(serial).then((failure) => {
+      if (failure === null) lab.announce(`${name} disconnected.`)
+      else
+        toast.error(`Couldn’t disconnect ${name}`, {
+          description: deviceErrorMessage(new Error(failure)),
+        })
+    })
+  }
+  const openCheck = () => {
+    setDoctorOpen(true)
+  }
+
+  const recheck = () => {
+    if (rechecking) return
+    setRechecking(true)
+    helper.pollNow()
+    const tools = connected ? helper.doctor(true) : Promise.resolve(null)
+    const file = doctorOpen && runningSha !== null ? readPublishedHelper() : null
+    Promise.all([tools, readEnvironment(), file])
+      .then(([next, nextEnv, nextFile]) => {
+        if (next) setDoctor(next)
+        setEnv(nextEnv)
+        if (file) setPublished(nextFile)
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        setRechecking(false)
+      })
+  }
+
+  // Only ever on this click: a running adb server takes Android phones away from WebUSB.
+  const startAdb = () => {
+    if (startingAdb) return
+    setStartingAdb(true)
+    helper
+      .startAdb()
+      .then(
+        () => {
+          lab.announce('Google’s adb server is running.')
+          if (connected) void helper.doctor(true).then((next) => next && setDoctor(next))
+        },
+        (error: unknown) => {
+          toast.error('Couldn’t start the adb server', { description: deviceErrorMessage(error) })
+        },
+      )
+      .finally(() => {
+        setStartingAdb(false)
+      })
+  }
+
+  const forget = () => {
+    helper.forget()
+    setDoctor(null)
+    lab.announce('This page is no longer paired with the helper.')
+  }
+
+  const helperOn: HelperHandlers = {
+    connect: helper.connect,
+    pair: openPair,
+    check: openCheck,
+    reload: () => {
+      window.location.reload()
+    },
+  }
+
+  const helperBase: HelperCheckContext = {
+    browser: env.browser,
+    webusb,
+    devices: snap.devices,
+  }
+  const helperItems = helperChecks(status, report, helperBase)
+  // The helper's tool rows (This Mac, iPhone tools, Android tools), for the device rows.
+  const toolItems = helperItems.filter((item) => isToolId(item.id))
+  const inline = selected && report ? inlineChecks(selected, toolItems) : []
+  // The Gate lists the helper's checklist once the tester wants the helper, or it runs.
+  const gateItems = connected || status.intent ? gateChecks(helperItems) : []
+
   const environment: BrowserEnv = appUpdated ? { ...env, appUpdated } : env
   const browserItems = browserChecks(environment)
   const phoneItems = phoneChecks({
@@ -406,6 +787,8 @@ export function DeviceLabPage() {
     // Neither is known yet: the other-tab channel and the helper's doctor come later.
     otherTab: false,
     holder: null,
+    helperPhone: helperPhoneName(snap.devices),
+    helperDevice: helperDeviceName(snap.devices),
   })
   const reload = () => {
     window.location.reload()
@@ -413,12 +796,21 @@ export function DeviceLabPage() {
   const pending: FixAction[] = []
   if (finding) pending.push('find-phone')
   if (phone && snap.retrying.includes(phone.id)) pending.push('retry')
+  if (rechecking) pending.push('recheck')
+  if (startingAdb) pending.push('start-adb')
   const wiring: FixWiring = {
     on: {
       'add-device': add,
       'find-phone': findPhone,
       reload,
       ...(phone ? { retry: () => lab.retry(phone.id) } : {}),
+      'connect-helper': helper.connect,
+      'pair-helper': openPair,
+      'check-helper': helper.pollNow,
+      'start-adb': startAdb,
+      'open-wifi': openWifi,
+      recheck,
+      doctor: openCheck,
     },
     pending,
   }
@@ -484,6 +876,40 @@ export function DeviceLabPage() {
     }
   }, [])
 
+  // The log: the selected device's while it can stream one, or a log that is waiting for its
+  // device, or one that ended and still has something to read.
+  const canLog =
+    selected?.state === 'ready' &&
+    selected.capabilities.logs === true &&
+    selectedBackend?.logs !== undefined
+  const logDevice = selected ?? logView.device
+  const keepsLog = logView.phase !== 'idle' || logView.lines.length > 0
+  const logConsole =
+    logDevice && (canLog || keepsLog) ? (
+      <LogConsole
+        key={logDevice.id}
+        device={logDevice}
+        sessions={logs}
+        onStart={
+          canLog && selected && selectedBackend
+            ? () => {
+                logs.start(selected, selectedBackend)
+              }
+            : undefined
+        }
+      />
+    ) : null
+
+  // The Wi‑Fi rows, in the Environment check, once Wi‑Fi is in play.
+  const wifiDevice =
+    snap.devices.find((d) => d.id === wifiSnap.attempt?.serial) ??
+    snap.devices.find(isWifiAndroid) ??
+    null
+  const wifiItems =
+    wifiSnap.attempt !== null || snap.devices.some(isWifiAndroid)
+      ? wifiChecks({ helper: status, attempt: wifiSnap.attempt, device: wifiDevice })
+      : []
+
   return (
     <div data-page="device" data-shell="console" className="flex min-h-dvh flex-col">
       {/* Keyed by sequence, so a repeated message is a new node and is spoken again. */}
@@ -516,14 +942,7 @@ export function DeviceLabPage() {
             <StateDot tone={laneTone} />
             {laneText}
           </Badge>
-          <Badge
-            variant="outline"
-            className="gap-1.5"
-            title="The local helper adds iOS support. Not built yet."
-          >
-            <StateDot tone="off" />
-            Helper not detected
-          </Badge>
+          <HelperChip status={status} devices={helperDevices} on={helperOn} />
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           {mock && (
@@ -559,119 +978,170 @@ export function DeviceLabPage() {
         onRefused={refuseDrop}
       >
         <main>
-          {snap.devices.length === 0 ? (
-            <Gate browser={browserItems} phone={phoneItems} wiring={wiring} os={env.os} />
+          {gate ? (
+            <Gate
+              browser={browserItems}
+              phone={phoneItems}
+              wiring={wiring}
+              os={env.os}
+              helper={status}
+              helperOn={helperOn}
+              checklist={gateItems}
+              onWifi={openWifi}
+            />
           ) : (
-            <div className="mx-auto grid w-full max-w-7xl items-start gap-6 lg:grid-cols-[22rem_1fr]">
-              {/* At lg the list stays in view and scrolls on its own, as the legacy pane did, so
+            <>
+              <div className="mx-auto mb-4 w-full max-w-7xl empty:hidden">
+                <HelperNotice status={status} on={helperOn} />
+              </div>
+              <div className="mx-auto grid w-full max-w-7xl items-start gap-6 lg:grid-cols-[22rem_1fr]">
+                {/* At lg the list stays in view and scrolls on its own, as the legacy pane did, so
                   a long list is never cut off below the fold. The padding keeps focus rings whole. */}
-              <div className="lg:sticky lg:top-20 lg:-m-1 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto lg:p-1">
-                <DeviceList
-                  filterRef={filterRef}
-                  devices={snap.devices}
-                  selectedId={snap.selectedId}
-                  canAdd={webusb}
-                  activity={activityOf(snap.jobs)}
-                  onSelect={(id) => {
-                    lab.select(id)
+                <div className="lg:sticky lg:top-20 lg:-m-1 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto lg:p-1">
+                  <DeviceList
+                    filterRef={filterRef}
+                    devices={snap.devices}
+                    selectedId={snap.selectedId}
+                    activity={activityOf(snap.jobs)}
+                    onSelect={(id) => {
+                      lab.select(id)
+                    }}
+                    onAddUsb={webusb ? add : undefined}
+                    onAddWifi={openWifi}
+                    onRefresh={() => lab.refresh()}
+                  />
+                </div>
+                <DeviceDetailPane
+                  device={selected}
+                  goneId={goneId}
+                  goneAction={
+                    goneTarget &&
+                    wifiHelperReady(status) && (
+                      <Button
+                        variant="outline"
+                        aria-disabled={wifiSnap.attempt?.state === 'running' || undefined}
+                        className="aria-disabled:opacity-50"
+                        onClick={() => {
+                          if (wifiSnap.attempt?.state !== 'running') void wifi.connect(goneTarget)
+                        }}
+                      >
+                        {wifiSnap.attempt?.state === 'running' ? (
+                          <Loader2 className="animate-spin" />
+                        ) : (
+                          <Wifi />
+                        )}
+                        Connect again
+                      </Button>
+                    )
+                  }
+                  detail={snap.detail}
+                  shots={selected ? snap.shots.filter((s) => s.deviceId === selected.id) : []}
+                  zoom={zoom}
+                  capturing={snap.capturing}
+                  retrying={selected ? snap.retrying.includes(selected.id) : false}
+                  check={selected && selected === phone ? deviceCheck(selected, phoneItems) : null}
+                  inline={inline}
+                  captureVia={selected ? screenshotVia(selected, status.lanes) : null}
+                  wiring={wiring}
+                  tab={tab}
+                  onTab={setTab}
+                  onStale={markStale}
+                  actions={
+                    selected && canDisconnect(selected) ? (
+                      <Button
+                        variant="outline"
+                        aria-disabled={wifiSnap.disconnecting !== null || undefined}
+                        className="aria-disabled:opacity-50"
+                        title="Disconnect this Wi‑Fi device (adb disconnect)"
+                        onClick={() => {
+                          if (wifiSnap.disconnecting === null) disconnectWifi(selected.id)
+                        }}
+                      >
+                        {wifiSnap.disconnecting === selected.id ? (
+                          <Loader2 className="animate-spin" />
+                        ) : (
+                          <Unplug />
+                        )}
+                        Disconnect
+                      </Button>
+                    ) : (
+                      selected?.platform === 'android' &&
+                      selectedBackend?.install && (
+                        <InstallButton
+                          disabled={refusal !== null}
+                          title={
+                            refusal ??
+                            'Install an .apk, .apks, .xapk, .apkm or .aab, or drop one here'
+                          }
+                          onFiles={(files) => {
+                            showInstall(selected.id, files)
+                          }}
+                        />
+                      )
+                    )
+                  }
+                  note={selected && <WifiNote device={selected} />}
+                  jobs={
+                    <JobsStrip
+                      jobs={selectedJobs}
+                      onDismiss={(id) => {
+                        lab.dismissJob(id)
+                      }}
+                      onShow={(job) => {
+                        showInstall(job.deviceId)
+                      }}
+                    />
+                  }
+                  log={logConsole}
+                  apps={
+                    selected &&
+                    selectedBackend && (
+                      <AppsTab
+                        device={selected}
+                        lane={selectedBackend}
+                        reloadKey={snap.appsRevision[selected.id] ?? 0}
+                        timeZone={timeZoneOf(snap, selected.id)}
+                        act={(pkg, action) => lab.appAction(selected.id, pkg, action)}
+                        onAnnounce={(text) => {
+                          lab.announce(text)
+                        }}
+                      />
+                    )
+                  }
+                  images={
+                    selected &&
+                    selectedBackend && (
+                      <ImagesTab
+                        device={selected}
+                        backend={selectedBackend}
+                        zoom={zoom}
+                        onZoom={(z) => {
+                          setZoom(z)
+                          saveZoom(z)
+                        }}
+                      />
+                    )
+                  }
+                  onCapture={() => {
+                    if (selected) capture(selected.id)
                   }}
-                  onAdd={add}
-                  onRefresh={() => lab.refresh()}
+                  onRetry={() => (selected ? lab.retry(selected.id) : Promise.resolve())}
+                  onReloadDetail={() => {
+                    lab.reloadDetail()
+                  }}
+                  onDoctor={() => {
+                    setDoctorOpen(true)
+                  }}
+                  onZoom={(z) => {
+                    setZoom(z)
+                    saveZoom(z)
+                  }}
+                  onClearShots={() => {
+                    if (selected) lab.clearShots(selected.id)
+                  }}
                 />
               </div>
-              <DeviceDetailPane
-                device={selected}
-                goneId={goneId}
-                detail={snap.detail}
-                shots={selected ? snap.shots.filter((s) => s.deviceId === selected.id) : []}
-                zoom={zoom}
-                capturing={snap.capturing}
-                retrying={selected ? snap.retrying.includes(selected.id) : false}
-                check={selected?.platform === 'android' ? deviceCheck(selected, phoneItems) : null}
-                wiring={wiring}
-                tab={tab}
-                onTab={setTab}
-                onStale={markStale}
-                actions={
-                  selected?.platform === 'android' &&
-                  selectedBackend?.install && (
-                    <InstallButton
-                      disabled={refusal !== null}
-                      title={
-                        refusal ?? 'Install an .apk, .apks, .xapk, .apkm or .aab, or drop one here'
-                      }
-                      onFiles={(files) => {
-                        showInstall(selected.id, files)
-                      }}
-                    />
-                  )
-                }
-                jobs={
-                  <JobsStrip
-                    jobs={selectedJobs}
-                    onDismiss={(id) => {
-                      lab.dismissJob(id)
-                    }}
-                    onShow={(job) => {
-                      showInstall(job.deviceId)
-                    }}
-                  />
-                }
-                log={
-                  selected?.state === 'ready' &&
-                  selected.capabilities.logs &&
-                  selectedBackend?.logs && (
-                    <LogConsole key={selected.id} device={selected} backend={selectedBackend} />
-                  )
-                }
-                apps={
-                  selected &&
-                  selectedBackend && (
-                    <AppsTab
-                      device={selected}
-                      lane={selectedBackend}
-                      reloadKey={snap.appsRevision[selected.id] ?? 0}
-                      timeZone={timeZoneOf(snap, selected.id)}
-                      act={(pkg, action) => lab.appAction(selected.id, pkg, action)}
-                      onAnnounce={(text) => {
-                        lab.announce(text)
-                      }}
-                    />
-                  )
-                }
-                images={
-                  selected &&
-                  selectedBackend && (
-                    <ImagesTab
-                      device={selected}
-                      backend={selectedBackend}
-                      zoom={zoom}
-                      onZoom={(z) => {
-                        setZoom(z)
-                        saveZoom(z)
-                      }}
-                    />
-                  )
-                }
-                onCapture={() => {
-                  if (selected) capture(selected.id)
-                }}
-                onRetry={() => (selected ? lab.retry(selected.id) : Promise.resolve())}
-                onReloadDetail={() => {
-                  lab.reloadDetail()
-                }}
-                onDoctor={() => {
-                  setDoctorOpen(true)
-                }}
-                onZoom={(z) => {
-                  setZoom(z)
-                  saveZoom(z)
-                }}
-                onClearShots={() => {
-                  if (selected) lab.clearShots(selected.id)
-                }}
-              />
-            </div>
+            </>
           )}
         </main>
       </InstallDropZone>
@@ -708,9 +1178,69 @@ export function DeviceLabPage() {
       <DoctorDialog
         open={doctorOpen}
         onOpenChange={setDoctorOpen}
-        items={doctorItems(environment, phoneItems, phone)}
+        items={doctorItems(
+          environment,
+          phoneItems,
+          [
+            // The published file is compared only here, once the check has read it.
+            ...helperChecks(status, report, {
+              ...helperBase,
+              ...(doctorOpen && published !== undefined ? { published } : {}),
+            }),
+            ...deviceChecks(snap.devices, { connected, webusb, tools: toolItems }),
+            ...wifiItems,
+          ],
+          phone,
+        )}
         phoneName={phone?.name}
         wiring={wiring}
+        about={aboutRows({
+          status,
+          doctor: report,
+          version: env.version,
+          mock,
+          devices: snap.devices,
+        })}
+        remember={
+          // Never on the helper's own page: its origin is whatever listens on the port next.
+          status.pairing && status.env.mode === 'hosted'
+            ? {
+                on: status.pairing.remembered,
+                note: rememberNote(status.pairing.tokenPersistent),
+                onChange: helper.setRemember,
+              }
+            : null
+        }
+        onRecheck={recheck}
+        rechecking={rechecking}
+        onForget={status.pairing ? forget : undefined}
+      />
+      <WifiDialog
+        open={wifiOpen}
+        onOpenChange={setWifiOpen}
+        os={env.os}
+        status={status}
+        helperOn={helperOn}
+        wiring={wiring}
+        wifi={wifiSnap}
+        devices={snap.devices}
+        onConnect={wifi.connect}
+        onPair={wifi.pair}
+        onDisconnect={disconnectWifi}
+        onForget={wifi.forget}
+        onShow={(id) => {
+          lab.select(id)
+          setWifiOpen(false)
+        }}
+      />
+      <PairDialog
+        key={pair.key}
+        open={pair.open}
+        onOpenChange={(open) => {
+          setPair((p) => ({ ...p, open }))
+        }}
+        status={status}
+        onPair={helper.pair}
       />
       <Toaster />
     </div>

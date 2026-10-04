@@ -1,6 +1,10 @@
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  HELPER_VERSION_LINE,
   environmentNow,
   isStaleBuildError,
   lnaPermission,
@@ -9,6 +13,7 @@ import {
   parseBrowser,
   parseOs,
   readEnvironment,
+  readPublishedHelper,
   type EnvSource,
 } from './env'
 import type { BrowserEnv } from './types'
@@ -296,5 +301,49 @@ describe('a deploy under an open tab', () => {
     stop()
     target.dispatchEvent(new Event('vite:preloadError'))
     expect(listener).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('readPublishedHelper', () => {
+  const FILE =
+    '#!/usr/bin/env node\n// device-bridge\nconst VERSION = "1.0.0";\nconst PROTOCOL = 1;\n'
+  const reply = (body: string, status = 200) =>
+    vi.fn<typeof fetch>(() => Promise.resolve(new Response(body, { status })))
+
+  it('reads the version line and hashes the file as published', async () => {
+    const fetchImpl = reply(FILE)
+    const published = await readPublishedHelper(fetchImpl, 'https://example.test/x.mjs')
+    const expected = createHash('sha256').update(FILE).digest('hex')
+    expect(published).toEqual({ version: '1.0.0', sha256: expected })
+    const init = fetchImpl.mock.calls[0]?.[1]
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe('https://example.test/x.mjs')
+    expect(init).toMatchObject({
+      cache: 'no-store',
+      credentials: 'omit',
+      referrerPolicy: 'no-referrer',
+    })
+  })
+
+  it('asks bauloc.github.io by default', async () => {
+    const fetchImpl = reply(FILE)
+    await readPublishedHelper(fetchImpl)
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe(
+      'https://bauloc.github.io/device/agent/device-bridge.mjs',
+    )
+  })
+
+  it('is null when the file isn’t there, isn’t the helper, or can’t be fetched', async () => {
+    expect(await readPublishedHelper(reply('Not found', 404))).toBeNull()
+    expect(await readPublishedHelper(reply("export const VERSION = '1.0.0'"))).toBeNull()
+    expect(
+      await readPublishedHelper(
+        vi.fn<typeof fetch>(() => Promise.reject(new TypeError('offline'))),
+      ),
+    ).toBeNull()
+  })
+
+  it('matches the version line the built helper really has', () => {
+    const built = readFileSync('../device/agent/device-bridge.mjs', 'utf8')
+    expect(HELPER_VERSION_LINE.exec(built)?.[1]).toMatch(/^\d+\.\d+\.\d+/)
   })
 })

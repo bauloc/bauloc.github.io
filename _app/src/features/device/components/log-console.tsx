@@ -1,5 +1,5 @@
-import { ArrowDownToLine, ClipboardCopy, Eraser, Play, Square } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { ArrowDownToLine, ClipboardCopy, Eraser, Loader2, Play, Square } from 'lucide-react'
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -14,90 +14,66 @@ import {
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/cn'
 
-import type { Backend } from '../backends/backend'
-import { deviceErrorMessage } from '../backends/backend'
-import type { Device } from '../model'
+import { clockSeconds, type LogDevice, type LogSessions } from '../log-sessions'
+import { logSourceName, type LogLevel } from './log-level'
 
-/** The log keeps this many lines; older ones scroll away for good. */
-export const LOG_LIMIT = 2000
+export { LOG_LIMIT } from '../log-sessions'
+export { logLevel, logSourceName, type LogLevel } from './log-level'
 
-/** `-v threadtime`: "MM-DD HH:MM:SS.mmm  PID  TID L Tag: message". The level letter colours the line. */
-const LEVEL = /^\S+\s+\S+\s+\d+\s+\d+\s+([VDIWEF])\s/
-
-const LEVEL_CLASS: Record<string, string> = {
+const LEVEL_CLASS: Readonly<Record<LogLevel, string>> = {
   E: 'text-red-600 dark:text-red-400',
   F: 'text-red-600 dark:text-red-400 font-semibold',
   W: 'text-amber-700 dark:text-amber-400',
   D: 'text-muted-foreground',
-  V: 'text-muted-foreground',
+  '': '',
 }
 
-interface Line {
-  seq: number
-  text: string
+/** What the card's description says about the stream, after its source and line count. */
+export function logStatusText(phase: 'idle' | 'running' | 'waiting', until: number | null): string {
+  if (phase === 'waiting') {
+    return until === null
+      ? 'waiting for the device to come back'
+      : `waiting for the device until ${clockSeconds(until)}`
+  }
+  return 'newest at the bottom'
 }
 
 /**
- * The device log (logcat), streamed while open. Deliberately not a live region: narrating
- * every line to a screen reader is unusable — the console is role="log" with aria-live off.
+ * The device log (logcat, an iPhone's syslog or a simulator's log). The stream itself lives in
+ * LogSessions, so a device that drops for a moment keeps its log, says so in it, and resumes;
+ * this card only shows it. Deliberately not a live region: narrating every line to a screen
+ * reader is unusable — the console is role="log" with aria-live off, and the page announces a
+ * drop and a resume once each instead.
  */
-export function LogConsole({ device, backend }: { device: Device; backend: Backend }) {
-  const [running, setRunning] = useState(false)
-  const [lines, setLines] = useState<Line[]>([])
+export function LogConsole({
+  device,
+  sessions,
+  onStart,
+}: {
+  /** The device, or what is known of it while it is away. */
+  device: LogDevice
+  sessions: LogSessions
+  /** Starts the log; undefined while the device can't stream one (away, not ready). */
+  onStart?: () => void
+}) {
+  const view = useSyncExternalStore(
+    sessions.subscribe,
+    () => sessions.view(device.id),
+    () => sessions.view(device.id),
+  )
+  const { lines, phase } = view
   const [filter, setFilter] = useState('')
   const [follow, setFollow] = useState(true)
   const viewport = useRef<HTMLDivElement>(null)
   /** Whether the reader is at the bottom; scrolled up to read, new lines must not yank them down. */
   const atBottom = useRef(true)
-  const seq = useRef(0)
-  const abort = useRef<AbortController | null>(null)
-
-  // Stop the stream when the device changes or the console unmounts.
-  useEffect(
-    () => () => {
-      abort.current?.abort()
-    },
-    [device.id],
-  )
 
   useLayoutEffect(() => {
     const el = viewport.current
     if (el && follow && atBottom.current) el.scrollTop = el.scrollHeight
   }, [lines, follow])
 
-  const start = () => {
-    if (!backend.logs) return
-    const controller = new AbortController()
-    abort.current = controller
-    setRunning(true)
-    backend
-      .logs(
-        device.id,
-        (incoming) => {
-          // Lines already in flight when Stop was pressed belong to a stream that is over.
-          if (controller.signal.aborted) return
-          setLines((current) => {
-            const next = current.concat(incoming.map((text) => ({ seq: ++seq.current, text })))
-            return next.length > LOG_LIMIT ? next.slice(next.length - LOG_LIMIT) : next
-          })
-        },
-        controller.signal,
-      )
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          toast.error('The log stopped', { description: deviceErrorMessage(error) })
-      })
-      .finally(() => {
-        if (abort.current === controller) setRunning(false)
-      })
-  }
-
-  const stop = () => {
-    abort.current?.abort()
-    abort.current = null
-    setRunning(false)
-  }
-
+  const running = phase !== 'idle'
   const needle = filter.trim().toLowerCase()
   const shown = needle ? lines.filter((l) => l.text.toLowerCase().includes(needle)) : lines
 
@@ -105,16 +81,28 @@ export function LogConsole({ device, backend }: { device: Device; backend: Backe
     <Card className="gap-3">
       <CardHeader>
         <CardTitle>Device log</CardTitle>
-        <CardDescription>
-          logcat, newest at the bottom · {lines.length.toLocaleString('en')} lines
+        <CardDescription className="flex flex-wrap items-center gap-x-1.5">
+          {phase === 'waiting' && (
+            <Loader2 aria-hidden="true" className="size-3.5 shrink-0 animate-spin" />
+          )}
+          <span>
+            {logSourceName(device)}, {logStatusText(phase, view.until)} ·{' '}
+            {lines.length.toLocaleString('en')} lines
+          </span>
         </CardDescription>
         <CardAction className="flex gap-2">
           {running ? (
-            <Button size="sm" variant="outline" onClick={stop}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                sessions.stop(device.id)
+              }}
+            >
               <Square /> Stop
             </Button>
           ) : (
-            <Button size="sm" onClick={start} disabled={!backend.logs}>
+            <Button size="sm" onClick={onStart} disabled={!onStart}>
               <Play /> Start
             </Button>
           )}
@@ -167,7 +155,7 @@ export function LogConsole({ device, backend }: { device: Device; backend: Backe
             aria-disabled={lines.length === 0}
             className="aria-disabled:opacity-50"
             onClick={() => {
-              setLines([])
+              sessions.clear(device.id)
             }}
           >
             <Eraser /> Clear
@@ -189,17 +177,21 @@ export function LogConsole({ device, backend }: { device: Device; backend: Backe
             <p className="text-muted-foreground p-2">
               {lines.length
                 ? 'No line matches the filter.'
-                : running
-                  ? 'Waiting for lines…'
-                  : 'Press Start to stream the device log.'}
+                : phase === 'waiting'
+                  ? 'Waiting for the device to come back…'
+                  : running
+                    ? 'Waiting for lines…'
+                    : 'Press Start to stream the device log.'}
             </p>
           ) : (
             shown.map((l) => (
               <div
                 key={l.seq}
                 className={cn(
-                  'break-all whitespace-pre-wrap',
-                  LEVEL_CLASS[LEVEL.exec(l.text)?.[1] ?? ''],
+                  'whitespace-pre-wrap',
+                  // The page's own notes are sentences: they wrap at words, log lines anywhere.
+                  l.note ? 'text-muted-foreground wrap-break-word italic' : 'break-all',
+                  !l.note && LEVEL_CLASS[l.level],
                 )}
               >
                 {l.text}
