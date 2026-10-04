@@ -77,6 +77,14 @@ function isTyping(): boolean {
   )
 }
 
+/**
+ * True inside an open menu, any of them: there a letter is typeahead, the menu's own way to
+ * jump to an item, never the page's S, R or /.
+ */
+function inMenu(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('[role="menu"], [role="menubar"]') !== null
+}
+
 /** How often the checklist looks at the clock while a phone waits on "Allow USB debugging?". */
 const AUTHORIZING_TICK_MS = 5_000
 
@@ -354,10 +362,11 @@ export function DeviceLabPage() {
   }
 
   // The legacy shortcuts: / filter, S screenshot, R refresh. Never while typing, with a
-  // modifier, or behind an open dialog — the page there is inert to the pointer too.
+  // modifier, in a menu, or behind an open dialog — the page there is inert to the pointer too.
   const onKey = useEffectEvent((e: KeyboardEvent) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return
     if (doctorOpen || document.querySelector('[role="dialog"], [role="alertdialog"]')) return
+    if (inMenu(e.target) || inMenu(document.activeElement)) return
     if (isTyping()) {
       if (e.key === 'Escape' && document.activeElement instanceof HTMLElement)
         document.activeElement.blur()

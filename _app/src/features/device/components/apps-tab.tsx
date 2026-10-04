@@ -1,6 +1,7 @@
 import {
   ArrowDownUp,
   ClipboardCopy,
+  Download,
   Eraser,
   Info,
   MoreHorizontal,
@@ -11,8 +12,19 @@ import {
   Square,
   Trash2,
   TriangleAlert,
+  X,
 } from 'lucide-react'
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
@@ -37,9 +49,11 @@ import {
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { untilAborted } from '@/lib/abort'
 import { cn } from '@/lib/cn'
 
 import { appMatches, installerName, sortApps, type AppSort } from '../backends/android/packages'
+import { packApp, type PackedApp, type PulledApk } from '../backends/archive/xapk'
 import {
   deviceErrorMessage,
   type AppAction,
@@ -53,17 +67,21 @@ import {
   AppAvatar,
   AppSheet,
   ConfirmAppAction,
+  EXPORT_LABEL,
+  ExportMeter,
   actionMessages,
-  apkFileName,
+  UNINSTALL_WAITS,
   badgeView,
-  downloadName,
+  canStartExport,
+  canUninstall,
+  exportShortText,
   fmtVersion,
   releaseBadgeView,
-  storedZip,
+  useFocusAfterUnmount,
   type AppsLane,
   type BadgeView,
   type DestructiveAction,
-  type DownloadProgress,
+  type ExportProgress,
   type PendingConfirm,
 } from './app-sheet'
 
@@ -74,8 +92,12 @@ import {
   for the page's life by package, version code and update time. Until one arrives (or when an
   app has none Device Lab can draw) the row shows the package name and an initial.
 
-  Destructive actions (Clear data, Uninstall) always go through ConfirmAppAction. Downloads are
-  run here rather than in the sheet, so closing the sheet does not cancel one.
+  Destructive actions (Clear data, Uninstall) always go through ConfirmAppAction. Exports (from
+  a row's menu or the sheet) are run here rather than in the sheet, so closing the sheet does
+  not cancel one; the row shows its progress and a Cancel.
+
+  Rows are memoized and every callback they get keeps its identity, so opening the sheet, a
+  menu or a dialog, a badge arriving or an export ticking re-renders only the row it is about.
 */
 
 export type { AppsLane } from './app-sheet'
@@ -264,6 +286,13 @@ const SORTS: readonly { value: AppSort; label: string }[] = [
 
 const isSort = (value: string): value is AppSort => SORTS.some((s) => s.value === value)
 
+/** The app after `pkg` in the list as shown, or before it when it was the last; null when alone. */
+export function neighbourOf(shown: readonly AppRow[], pkg: string): string | null {
+  const at = shown.findIndex((r) => r.packageName === pkg)
+  if (at < 0) return null
+  return (shown[at + 1] ?? shown[at - 1])?.packageName ?? null
+}
+
 /** "1 app", "12 apps", "3 of 12 apps". */
 export function countText(shown: number, total: number): string {
   const noun = total === 1 ? 'app' : 'apps'
@@ -315,7 +344,66 @@ function saveBlob(blob: Blob, fileName: string) {
   }, 60_000)
 }
 
-const APK_TYPE = 'application/vnd.android.package-archive'
+/** The toast under "Saved …": what the file is and how to install it again. */
+export function savedCopy(packed: Pick<PackedApp, 'kind' | 'apks'>): string {
+  if (packed.kind === 'apk') {
+    return 'To install it again, drop it on Device Lab or use adb install.'
+  }
+  return `The app’s ${String(packed.apks)} APKs in one .xapk. To install it, drop it on Device Lab, or open it with SAI or APKPure on the phone. adb install can’t install an .xapk.`
+}
+
+/* ---------------------------------------------------------------- *
+ * Exports in flight
+ * ---------------------------------------------------------------- */
+
+/*
+ * Kept outside the tab, per device: an export goes on when the tab is left (the file is saved
+ * and the toast shows wherever the user is), and the tab shows it again, with its Cancel, when
+ * it comes back.
+ */
+const exportControllers = new Map<string, AbortController>()
+const exportProgress = new Map<string, ReadonlyMap<string, ExportProgress>>()
+const exportListeners = new Set<() => void>()
+const NO_EXPORTS: ReadonlyMap<string, ExportProgress> = new Map()
+const exportKey = (deviceId: string, pkg: string) => `${deviceId}\n${pkg}`
+
+function subscribeExports(listener: () => void): () => void {
+  exportListeners.add(listener)
+  return () => {
+    exportListeners.delete(listener)
+  }
+}
+
+/** This device's exports by package. A new Map only when one of them moved. */
+const exportsOf = (deviceId: string) => exportProgress.get(deviceId) ?? NO_EXPORTS
+
+function setExportProgress(deviceId: string, pkg: string, progress: ExportProgress | null) {
+  const next = new Map(exportsOf(deviceId))
+  if (progress) next.set(pkg, progress)
+  else next.delete(pkg)
+  if (next.size > 0) exportProgress.set(deviceId, next)
+  else exportProgress.delete(deviceId)
+  for (const listener of exportListeners) listener()
+}
+
+/** Cancels every export in flight, of one device or of all. */
+export function cancelExports(deviceId?: string) {
+  for (const [key, controller] of exportControllers) {
+    if (deviceId === undefined || key.startsWith(`${deviceId}\n`)) controller.abort()
+  }
+}
+
+/**
+ * A function whose identity never changes but always runs the latest `fn`: what a memoized row
+ * is handed, so the tab's re-renders don't reach rows that did not change.
+ */
+function useStableCallback<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
+  const latest = useRef(fn)
+  useLayoutEffect(() => {
+    latest.current = fn
+  })
+  return useCallback((...args: A) => latest.current(...args), [])
+}
 
 /* ---------------------------------------------------------------- *
  * One row
@@ -323,26 +411,39 @@ const APK_TYPE = 'application/vnd.android.package-archive'
 
 type RowAction = Exclude<AppAction, DestructiveAction>
 
-function AppListItem({
-  row,
-  view,
-  busy,
-  canAct,
-  onOpen,
-  onAction,
-  onConfirm,
-  onVisible,
-}: {
+interface AppListItemProps {
   row: AppRow
   view: BadgeView | null | undefined
   busy: AppAction | undefined
+  /** This app's export, while one runs. */
+  exporting: ExportProgress | undefined
   canAct: boolean
-  onOpen: () => void
-  onAction: (action: RowAction) => void
-  onConfirm: (action: DestructiveAction) => void
+  canExport: boolean
+  onOpen: (packageName: string) => void
+  onAction: (row: AppRow, action: RowAction) => void
+  onConfirm: (row: AppRow, action: DestructiveAction) => void
+  onExport: (row: AppRow) => void
+  onCancelExport: (packageName: string) => void
   onVisible: (row: AppRow, visible: boolean) => void
-}) {
+}
+
+/** Memoized: every prop is a value of this row or a callback that keeps its identity. */
+const AppListItem = memo(function AppListItem({
+  row,
+  view,
+  busy,
+  exporting,
+  canAct,
+  canExport,
+  onOpen,
+  onAction,
+  onConfirm,
+  onExport,
+  onCancelExport,
+  onVisible,
+}: AppListItemProps) {
   const ref = useRef<HTMLLIElement>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
   const name = view?.label ?? row.packageName
   const visibility = useEffectEvent((visible: boolean) => {
     onVisible(row, visible)
@@ -365,7 +466,7 @@ function AppListItem({
     <DropdownMenuItem
       disabled={busy !== undefined}
       onSelect={() => {
-        onAction(action)
+        onAction(row, action)
       }}
     >
       <Icon /> {label}
@@ -373,13 +474,22 @@ function AppListItem({
   )
 
   return (
-    <li ref={ref} className="flex items-center gap-1 pr-2">
+    // content-visibility: with hundreds of apps, opening any overlay restyles the whole page
+    // (the scroll lock, pointer-events on <body>); rows off screen are skipped. It also clips
+    // paint to the row, so the row's focus ring is drawn inset.
+    <li
+      ref={ref}
+      data-package={row.packageName}
+      className="relative flex items-center gap-1 pr-2 [contain-intrinsic-size:auto_58px] [content-visibility:auto]"
+    >
       <button
         type="button"
-        onClick={onOpen}
+        onClick={() => {
+          onOpen(row.packageName)
+        }}
         className={cn(
           'hover:bg-accent/50 flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2.5 text-left transition-colors',
-          'focus-visible:ring-ring/50 outline-none focus-visible:ring-[3px]',
+          'focus-visible:ring-ring/50 outline-none focus-visible:ring-[3px] focus-visible:ring-inset',
         )}
       >
         <AppAvatar packageName={row.packageName} view={view} />
@@ -393,15 +503,37 @@ function AppListItem({
             {row.enabled === false && <RowBadge>Disabled</RowBadge>}
             {row.stopped === true && <RowBadge>Stopped</RowBadge>}
           </span>
-          <span className="text-muted-foreground mt-0.5 block truncate text-xs">
-            {rowMeta(row, view)}
+          <span
+            className={cn(
+              'text-muted-foreground mt-0.5 block truncate text-xs',
+              exporting && 'tabular-nums',
+            )}
+          >
+            {exporting ? exportShortText(exporting) : rowMeta(row, view)}
           </span>
         </span>
       </button>
-      {canAct && (
+      {exporting && (
+        <>
+          <ExportMeter
+            progress={exporting}
+            label={`Export of ${name}`}
+            className="absolute right-2 bottom-0.5 left-[3.625rem] h-0.5"
+          />
+          <CancelExport
+            name={name}
+            onCancel={() => {
+              onCancelExport(row.packageName)
+            }}
+            returnFocus={() => trigger.current?.focus()}
+          />
+        </>
+      )}
+      {(canAct || canExport) && (
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <Button
+              ref={trigger}
               variant="ghost"
               size="icon"
               className="size-8 shrink-0"
@@ -412,9 +544,24 @@ function AppListItem({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-48">
-            {item('launch', 'Open', Play)}
-            {item('stop', 'Force stop', Square)}
-            {item('info', 'App info on phone', Info)}
+            {canAct && (
+              <>
+                {item('launch', 'Open', Play)}
+                {item('stop', 'Force stop', Square)}
+                {item('info', 'App info on phone', Info)}
+              </>
+            )}
+            {canExport && (
+              // One export per app at a time; its progress and Cancel are on the row.
+              <DropdownMenuItem
+                disabled={!canStartExport(busy, exporting)}
+                onSelect={() => {
+                  onExport(row)
+                }}
+              >
+                <Download /> {EXPORT_LABEL}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               onSelect={() => {
                 navigator.clipboard.writeText(row.packageName).then(
@@ -428,32 +575,67 @@ function AppListItem({
             >
               <ClipboardCopy /> Copy package name
             </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              variant="destructive"
-              disabled={busy !== undefined}
-              onSelect={() => {
-                onConfirm('clear')
-              }}
-            >
-              <Eraser /> Clear data…
-            </DropdownMenuItem>
-            {/* System apps can't be uninstalled for good, so the entry isn't offered. */}
-            {!row.system && (
-              <DropdownMenuItem
-                variant="destructive"
-                disabled={busy !== undefined}
-                onSelect={() => {
-                  onConfirm('uninstall')
-                }}
-              >
-                <Trash2 /> Uninstall…
-              </DropdownMenuItem>
+            {canAct && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  disabled={busy !== undefined}
+                  onSelect={() => {
+                    onConfirm(row, 'clear')
+                  }}
+                >
+                  <Eraser /> Clear data…
+                </DropdownMenuItem>
+                {/* System apps can't be uninstalled for good, so the entry isn't offered. */}
+                {!row.system && (
+                  <DropdownMenuItem
+                    variant="destructive"
+                    disabled={!canUninstall(busy, exporting)}
+                    title={exporting ? UNINSTALL_WAITS : undefined}
+                    onSelect={() => {
+                      onConfirm(row, 'uninstall')
+                    }}
+                  >
+                    <Trash2 /> Uninstall…
+                  </DropdownMenuItem>
+                )}
+              </>
             )}
           </DropdownMenuContent>
         </DropdownMenu>
       )}
     </li>
+  )
+})
+
+/**
+ * The row's Cancel while an export runs. It goes away when the export ends; if it had focus
+ * then, focus moves to the row's menu button instead of falling to <body>.
+ */
+function CancelExport({
+  name,
+  onCancel,
+  returnFocus,
+}: {
+  name: string
+  onCancel: () => void
+  returnFocus: () => void
+}) {
+  const ref = useRef<HTMLButtonElement>(null)
+  useFocusAfterUnmount(ref, returnFocus)
+  return (
+    <Button
+      ref={ref}
+      variant="ghost"
+      size="icon"
+      className="size-8 shrink-0"
+      aria-label={`Cancel export of ${name}`}
+      title="Cancel export"
+      onClick={onCancel}
+    >
+      <X />
+    </Button>
   )
 }
 
@@ -514,7 +696,7 @@ export interface AppsTabProps {
    * it the tab calls the lane itself and announces through `onAnnounce`.
    */
   act?: (pkg: string, action: AppAction) => Promise<string | null>
-  /** The page's polite live region (the store's announce), for downloads and lane actions. */
+  /** The page's polite live region (the store's announce), for exports and lane actions. */
   onAnnounce?: (text: string) => void
 }
 
@@ -539,8 +721,17 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
   const [openPkg, setOpenPkg] = useState<string | null>(null)
   const [busy, setBusy] = useState<ReadonlyMap<string, AppAction>>(new Map())
   const [confirm, setConfirm] = useState<PendingConfirm | null>(null)
-  const [downloads, setDownloads] = useState<ReadonlyMap<string, DownloadProgress>>(new Map())
-  const transfers = useRef(new Map<string, AbortController>())
+  /**
+   * After an uninstall, where focus goes: the uninstalled app's row is gone, and focus would
+   * fall to <body>, losing the user's place in the list. `pkg` is the row that takes it; null
+   * when no row is left to take it (the only one shown was uninstalled), and the filter or
+   * Refresh does.
+   */
+  const focusAfter = useRef<{ readonly pkg: string | null } | null>(null)
+  const listEl = useRef<HTMLUListElement>(null)
+  const filterEl = useRef<HTMLInputElement>(null)
+  const refreshEl = useRef<HTMLButtonElement>(null)
+  const exporting = useSyncExternalStore(subscribeExports, () => exportsOf(device.id))
   const queue = useRef<BadgeQueue | null>(null)
   /**
    * Packages whose row is on screen now. A row that stays in view gets no new visibility
@@ -602,21 +793,13 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
     }
   }, [device.id, lane])
 
-  /* Downloads end with the tab: the bytes would have nowhere to go. */
-  useEffect(() => {
-    const running = transfers.current
-    return () => {
-      for (const controller of running.values()) controller.abort()
-    }
-  }, [])
-
-  const onVisible = (row: AppRow, visible: boolean) => {
+  const onVisible = useStableCallback((row: AppRow, visible: boolean) => {
     if (visible) onScreen.current.add(row.packageName)
     else onScreen.current.delete(row.packageName)
     if (badges.has(row.packageName)) return
     if (visible) queue.current?.want(row)
     else queue.current?.drop(row.packageName)
-  }
+  })
 
   const shown = useMemo(
     () =>
@@ -663,6 +846,8 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
   const runAction = async (row: AppRow, action: AppAction) => {
     const pkg = row.packageName
     if (!lane.appAction || busy.has(pkg)) return
+    // The menu and the sheet hold Uninstall back during an export of the app; so does this.
+    if (action === 'uninstall' && exportControllers.has(exportKey(device.id, pkg))) return
     const words = actionMessages(action, nameOf(row), device.name)
     setBusy((current) => new Map(current).set(pkg, action))
     try {
@@ -676,6 +861,7 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
       // Clearing data force-stops the app too.
       if (action === 'stop' || action === 'clear') patchRow(pkg, { stopped: true })
       if (action === 'uninstall') {
+        focusAfter.current = { pkg: neighbourOf(shown, pkg) }
         patchRow(pkg, null)
         setOpenPkg((open) => (open === pkg ? null : open))
         // And ask the phone again, quietly: the list is the phone's, not a guess. Through the
@@ -692,36 +878,56 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
     }
   }
 
-  const startDownload = async (row: AppRow, detail: AppDetail) => {
+  /**
+   * Pulls every APK `pm path` lists and saves them as one file: the APK itself, or an .xapk for
+   * a split app. From a row the APKs are listed first; the sheet passes the details it read.
+   */
+  const startExport = async (row: AppRow, known?: AppDetail) => {
     const pkg = row.packageName
-    const pull = lane.pull
-    if (!pull || transfers.current.has(pkg) || detail.apks.length === 0) return
+    const { pull, app } = lane
+    // Everything below outlives the tab: it uses only what it captured here.
+    const deviceId = device.id
+    const key = exportKey(deviceId, pkg)
+    if (!pull || (!known && !app) || exportControllers.has(key)) return
     const controller = new AbortController()
-    transfers.current.set(pkg, controller)
+    const { signal } = controller
+    exportControllers.set(key, controller)
     const name = nameOf(row)
-    const sizes = detail.apks.map((a) => a.size)
-    const received = detail.apks.map(() => 0)
+    const icon = badges.get(pkg)?.icon
+    const show = (progress: ExportProgress) => {
+      setExportProgress(deviceId, pkg, progress)
+    }
+    /** At most every 100 ms, except when `force`d: a fast pull reports far more often. */
     let shownAt = 0
-    const report = (force: boolean) => {
+    const showSoon = (progress: ExportProgress, force: boolean) => {
       const now = performance.now()
       if (!force && now - shownAt < 100) return
       shownAt = now
-      const total = sizes.every((s) => s !== null)
-        ? sizes.reduce<number>((n, s) => n + (s ?? 0), 0)
-        : null
-      const progress: DownloadProgress = {
-        received: received.reduce((n, r) => n + r, 0),
-        total,
-        files: detail.apks.length,
-      }
-      setDownloads((current) => new Map(current).set(pkg, progress))
+      show(progress)
     }
-    report(true)
+    show({ phase: 'reading', received: 0, total: null, files: 0 })
+    onAnnounce?.(`Exporting ${name}.`)
     try {
-      const files: { name: string; blob: Blob }[] = []
+      const detail = known ?? (app ? await untilAborted(app(deviceId, pkg), signal) : null)
+      signal.throwIfAborted()
+      if (!detail || detail.apks.length === 0) {
+        throw new Error('Android listed no APK files for this app.')
+      }
+      const files = detail.apks.length
+      const sizes = detail.apks.map((a) => a.size)
+      const received = detail.apks.map(() => 0)
+      const report = (force: boolean) => {
+        const total = sizes.every((s) => s !== null)
+          ? sizes.reduce<number>((n, s) => n + (s ?? 0), 0)
+          : null
+        const got = received.reduce((n, r) => n + r, 0)
+        showSoon({ phase: 'pulling', received: got, total, files }, force)
+      }
+      report(true)
+      const pulled: PulledApk[] = []
       for (const [i, apk] of detail.apks.entries()) {
         const blob = await pull(
-          device.id,
+          deviceId,
           apk.path,
           (got, total) => {
             received[i] = got
@@ -729,40 +935,85 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
             if (total > 0) sizes[i] = total
             report(false)
           },
-          controller.signal,
+          signal,
         )
         received[i] = blob.size
         sizes[i] = blob.size
-        files.push({ name: apkFileName(apk.path), blob })
+        pulled.push({ path: apk.path, blob })
       }
-      report(true)
-      const version =
-        detail.versionName ?? (detail.versionCode === null ? '' : String(detail.versionCode))
-      const fileName = downloadName(pkg, version, files.length)
-      const single = files.length === 1 ? files[0] : undefined
-      const out = single ? new Blob([single.blob], { type: APK_TYPE }) : await storedZip(files)
-      saveBlob(out, fileName)
-      toast.success(`Saved ${fileName}`, {
-        description: single
-          ? undefined
-          : `A .zip of the app’s ${String(files.length)} APKs. Drop it on Device Lab to install it again.`,
-      })
-      onAnnounce?.(`Saved ${fileName}.`)
+      const packed = await packApp(
+        {
+          packageName: pkg,
+          name,
+          versionCode: detail.versionCode,
+          versionName: detail.versionName,
+          minSdk: detail.minSdk,
+          targetSdk: detail.targetSdk,
+        },
+        pulled,
+        {
+          icon: icon?.kind === 'bitmap' ? icon.blob : null,
+          signal,
+          onProgress: (done, total) => {
+            showSoon({ phase: 'packing', received: done, total, files }, done === 0)
+          },
+        },
+      )
+      signal.throwIfAborted()
+      saveBlob(packed.blob, packed.fileName)
+      toast.success(`Saved ${packed.fileName}`, { description: savedCopy(packed) })
+      onAnnounce?.(`Saved ${packed.fileName}.`)
     } catch (error) {
-      if (controller.signal.aborted) onAnnounce?.('Download cancelled.')
-      else toast.error(`Couldn’t download ${name}`, { description: deviceErrorMessage(error) })
+      if (signal.aborted) onAnnounce?.('Export cancelled.')
+      else toast.error(`Couldn’t export ${name}`, { description: deviceErrorMessage(error) })
     } finally {
-      transfers.current.delete(pkg)
-      setDownloads((current) => {
-        const next = new Map(current)
-        next.delete(pkg)
-        return next
-      })
+      exportControllers.delete(key)
+      setExportProgress(deviceId, pkg, null)
     }
+  }
+
+  /* What the rows are handed: callbacks that keep their identity across the tab's renders. */
+  const openApp = useStableCallback((pkg: string) => {
+    focusAfter.current = null
+    setOpenPkg(pkg)
+  })
+  const rowAction = useStableCallback((row: AppRow, action: RowAction) => {
+    void runAction(row, action)
+  })
+  const rowConfirm = useStableCallback((row: AppRow, action: DestructiveAction) => {
+    focusAfter.current = null
+    setConfirm({ row, name: nameOf(row), action })
+  })
+  const rowExport = useStableCallback((row: AppRow) => {
+    void startExport(row)
+  })
+  const cancelExport = useStableCallback((pkg: string) => {
+    exportControllers.get(exportKey(device.id, pkg))?.abort()
+  })
+
+  /** The row's own button (the one that opens the sheet), while the row is listed. */
+  const rowButton = (pkg: string) =>
+    Array.from(listEl.current?.children ?? [])
+      .find((el) => el instanceof HTMLElement && el.dataset.package === pkg)
+      ?.querySelector<HTMLElement>(':scope > button') ?? null
+
+  /**
+   * onCloseAutoFocus for the sheet and the confirmation, once an uninstall took a row away: the
+   * next row, else the filter that still holds the query that left it alone, else Refresh.
+   */
+  const focusNeighbour = (event: Event) => {
+    const after = focusAfter.current
+    if (after === null) return
+    const target =
+      after.pkg === null ? (filter ? filterEl.current : refreshEl.current) : rowButton(after.pkg)
+    if (!target) return
+    event.preventDefault()
+    target.focus()
   }
 
   const openRow = rows?.find((r) => r.packageName === openPkg) ?? null
   const canAct = Boolean(lane.appAction)
+  const canExport = Boolean(lane.pull && lane.app)
 
   let body
   if (!lane.apps) {
@@ -809,23 +1060,21 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
     body = (
       // Keyed by attempt: after a refresh every row reports itself on screen again, so badges
       // that failed before are asked for once more.
-      <ul key={attempt} aria-label="Installed apps" className="-mx-2.5 flex flex-col">
+      <ul ref={listEl} key={attempt} aria-label="Installed apps" className="-mx-2.5 flex flex-col">
         {shown.map((row) => (
           <AppListItem
             key={row.packageName}
             row={row}
             view={badges.get(row.packageName)}
             busy={busy.get(row.packageName)}
+            exporting={exporting.get(row.packageName)}
             canAct={canAct}
-            onOpen={() => {
-              setOpenPkg(row.packageName)
-            }}
-            onAction={(action) => {
-              void runAction(row, action)
-            }}
-            onConfirm={(action) => {
-              setConfirm({ row, name: nameOf(row), action })
-            }}
+            canExport={canExport}
+            onOpen={openApp}
+            onAction={rowAction}
+            onConfirm={rowConfirm}
+            onExport={rowExport}
+            onCancelExport={cancelExport}
             onVisible={onVisible}
           />
         ))}
@@ -845,6 +1094,7 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
         <CardAction>
           {/* aria-disabled, not disabled: disabling the focused button drops focus to <body>. */}
           <Button
+            ref={refreshEl}
             variant="outline"
             size="sm"
             aria-disabled={refreshing || list.status === 'loading' || !lane.apps || !ready}
@@ -861,6 +1111,7 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
       <CardContent className="flex flex-col gap-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Input
+            ref={filterEl}
             type="search"
             placeholder="Filter by name, package or installer"
             aria-label="Filter apps"
@@ -932,7 +1183,7 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
         row={openRow}
         view={openRow ? badges.get(openRow.packageName) : undefined}
         busy={openRow ? busy.get(openRow.packageName) : undefined}
-        download={openRow ? downloads.get(openRow.packageName) : undefined}
+        exporting={openRow ? exporting.get(openRow.packageName) : undefined}
         timeZone={timeZone}
         onOpenChange={(open) => {
           if (!open) setOpenPkg(null)
@@ -941,14 +1192,16 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
           if (openRow) void runAction(openRow, action)
         }}
         onConfirm={(action) => {
+          focusAfter.current = null
           if (openRow) setConfirm({ row: openRow, name: nameOf(openRow), action })
         }}
-        onDownload={(detail) => {
-          if (openRow) void startDownload(openRow, detail)
+        onExport={(detail) => {
+          if (openRow) void startExport(openRow, detail)
         }}
-        onCancelDownload={() => {
-          if (openRow) transfers.current.get(openRow.packageName)?.abort()
+        onCancelExport={() => {
+          if (openRow) cancelExport(openRow.packageName)
         }}
+        onCloseAutoFocus={focusNeighbour}
       />
       <ConfirmAppAction
         device={device}
@@ -960,6 +1213,7 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
         onConfirm={(pending) => {
           void runAction(pending.row, pending.action)
         }}
+        onCloseAutoFocus={focusNeighbour}
       />
     </Card>
   )

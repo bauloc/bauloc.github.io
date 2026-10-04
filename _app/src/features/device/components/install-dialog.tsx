@@ -34,6 +34,7 @@ import {
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/cn'
+import { useHeldWhileClosing } from '@/lib/use-held-while-closing'
 
 import {
   deviceErrorMessage,
@@ -748,6 +749,8 @@ export function InstallDialog({
   const [session, setSession] = useState<Session>(() => freshSession(files))
   const [seen, setSeen] = useState(files)
   const [confirm, setConfirm] = useState<Confirm | null>(null)
+  // What the confirmation fades out with; its action reads the live `confirm`.
+  const shownConfirm = useHeldWhileClosing(confirm !== null, confirm)
   const [clock, setClock] = useState(0)
   const openRef = useRef(open)
   /** Files arrived while the install ran: the dialog moves on to them once it ends. */
@@ -1404,23 +1407,25 @@ export function InstallDialog({
     }
   }
 
-  const confirmCopy =
-    confirm === null
+  const copyOf = (c: Confirm | null) =>
+    c === null
       ? null
-      : confirm.kind === 'replace'
+      : c.kind === 'replace'
         ? {
             title: `Replace ${name} on ${device.name}?`,
             body:
-              confirm.reason === 'signature'
+              c.reason === 'signature'
                 ? 'The installed copy is signed with a different key (for example from Google Play), so Android can’t update it. Device Lab will uninstall it, which deletes its data on the phone, and then install this build.'
                 : 'A newer version is installed, and Android won’t put an older one over it. Device Lab will uninstall it, which deletes its data on the phone, and then install this build.',
             remove: pkg,
           }
         : {
-            title: `Uninstall ${confirm.pkg} from ${device.name}?`,
+            title: `Uninstall ${c.pkg} from ${device.name}?`,
             body: `This removes the app and all of its data on the phone: accounts, settings and files. It can’t be undone. Device Lab then installs ${name}.`,
-            remove: confirm.pkg,
+            remove: c.pkg,
           }
+  const confirmCopy = copyOf(confirm)
+  const shownCopy = copyOf(shownConfirm)
 
   return (
     <>
@@ -1445,13 +1450,13 @@ export function InstallDialog({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{confirmCopy?.title}</AlertDialogTitle>
-            <AlertDialogDescription>{confirmCopy?.body}</AlertDialogDescription>
+            <AlertDialogTitle>{shownCopy?.title}</AlertDialogTitle>
+            <AlertDialogDescription>{shownCopy?.body}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive hover:bg-destructive/90 text-white"
+              variant="destructive"
               onClick={() => {
                 const remove = confirmCopy?.remove
                 if (remove) void run({}, remove)

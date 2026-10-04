@@ -1,86 +1,23 @@
 import { describe, expect, it } from 'vitest'
 
-import { openZip } from '../backends/archive/zip'
 import {
   actionMessages,
-  apkFileName,
   argbCss,
   avatarTone,
+  badgeView,
+  canStartExport,
+  canUninstall,
   confirmCopy,
-  crc32,
-  downloadName,
-  downloadText,
+  exportNote,
+  exportPercent,
+  exportShortText,
+  exportText,
   fmtVersion,
   initials,
-  storedZip,
+  releaseBadgeView,
 } from './app-sheet'
 
-const bytes = (text: string) => new TextEncoder().encode(text)
-
-describe('crc32', () => {
-  it('gives the standard check value', () => {
-    expect(crc32(bytes('123456789'))).toBe(0xcbf43926)
-    expect(crc32(new Uint8Array())).toBe(0)
-  })
-
-  it('continues across pieces', () => {
-    const whole = crc32(bytes('The quick brown fox jumps over the lazy dog'))
-    expect(whole).toBe(0x414fa339)
-    expect(crc32(bytes(' over the lazy dog'), crc32(bytes('The quick brown fox jumps')))).toBe(
-      whole,
-    )
-  })
-})
-
-describe('storedZip', () => {
-  it('writes a zip the archive reader opens, byte for byte, with the names kept', async () => {
-    const base = new Uint8Array(70_000).map((_, i) => (i * 7) & 0xff)
-    const split = bytes('split payload')
-    const zip = await storedZip(
-      [
-        { name: 'base.apk', blob: new Blob([base]) },
-        { name: 'split_config.xxhdpi.apk', blob: new Blob([split]) },
-      ],
-      new Date(2026, 9, 4, 11, 30, 10),
-    )
-    expect(zip.type).toBe('application/zip')
-    expect(zip.size).toBe(30 * 2 + 46 * 2 + 22 + 2 * (8 + 23) + base.length + split.length)
-
-    const archive = await openZip(zip)
-    expect(archive.entries.map((e) => e.name)).toEqual(['base.apk', 'split_config.xxhdpi.apk'])
-    const [first, second] = archive.entries
-    if (!first || !second) throw new Error('entries missing')
-    expect(await archive.bytes(first)).toEqual(base)
-    expect(await archive.bytes(second)).toEqual(split)
-
-    // The CRC in the central directory is the data's.
-    const head = new DataView(await zip.arrayBuffer())
-    expect(head.getUint32(14, true)).toBe(crc32(base))
-  })
-
-  it('writes an empty archive as just the end record', async () => {
-    const zip = await storedZip([])
-    expect(zip.size).toBe(22)
-    expect((await openZip(zip)).entries).toEqual([])
-  })
-})
-
 describe('names and wording', () => {
-  it('takes the APK file name from a pm path', () => {
-    expect(apkFileName('/data/app/~~ab==/com.example.shop-cd==/split_config.xxhdpi.apk')).toBe(
-      'split_config.xxhdpi.apk',
-    )
-    expect(apkFileName('')).toBe('base.apk')
-  })
-
-  it('names downloads safely, .zip for split apps', () => {
-    expect(downloadName('com.example.shop', '1.4.0', 1)).toBe('com.example.shop-1.4.0.apk')
-    expect(downloadName('com.example.shop', '1.4 beta/2', 3)).toBe(
-      'com.example.shop-1.4_beta_2.zip',
-    )
-    expect(downloadName('com.example.shop', '', 1)).toBe('com.example.shop.apk')
-  })
-
   it('formats versions', () => {
     expect(fmtVersion('1.4.0', 812)).toBe('1.4.0 (812)')
     expect(fmtVersion(null, 812)).toBe('812')
@@ -130,10 +67,91 @@ describe('names and wording', () => {
     expect(clear.confirm).toBe('Clear data')
   })
 
-  it('words download progress with and without a known size', () => {
-    expect(downloadText({ received: 512, total: null, files: 1 })).toBe('Downloading 512 B…')
-    expect(downloadText({ received: 1024 * 1024, total: 4 * 1024 * 1024, files: 3 })).toBe(
-      'Downloading 1.0 MB of 4.0 MB (3 APKs) · 25%',
+  it('words an export from listing the APKs to packing them', () => {
+    expect(exportText({ phase: 'reading', received: 0, total: null, files: 0 })).toBe(
+      'Finding the APK files…',
     )
+    expect(exportText({ phase: 'pulling', received: 512, total: null, files: 1 })).toBe(
+      'Exporting 512 B…',
+    )
+    expect(
+      exportText({ phase: 'pulling', received: 1024 * 1024, total: 4 * 1024 * 1024, files: 3 }),
+    ).toBe('Exporting 1.0 MB of 4.0 MB (3 APKs) · 25%')
+    expect(exportText({ phase: 'packing', received: 0, total: null, files: 3 })).toBe(
+      'Packing 3 APKs into an .xapk…',
+    )
+    expect(exportText({ phase: 'packing', received: 3, total: 4, files: 3 })).toBe(
+      'Packing 3 APKs into an .xapk · 75%',
+    )
+  })
+
+  it('words it shorter for a row, the percentage first', () => {
+    expect(
+      exportShortText({
+        phase: 'pulling',
+        received: 1024 * 1024,
+        total: 4 * 1024 * 1024,
+        files: 3,
+      }),
+    ).toBe('Exporting · 25% of 4.0 MB')
+    expect(exportShortText({ phase: 'pulling', received: 512, total: null, files: 1 })).toBe(
+      'Exporting · 512 B',
+    )
+    expect(exportShortText({ phase: 'packing', received: 0, total: null, files: 3 })).toBe(
+      'Packing the .xapk…',
+    )
+    expect(exportShortText({ phase: 'packing', received: 1, total: 4, files: 3 })).toBe(
+      'Packing the .xapk · 25%',
+    )
+  })
+
+  it('measures an export only once its size is known', () => {
+    expect(exportPercent({ phase: 'reading', received: 0, total: null, files: 0 })).toBeNull()
+    expect(exportPercent({ phase: 'pulling', received: 5, total: null, files: 1 })).toBeNull()
+    expect(exportPercent({ phase: 'pulling', received: 999, total: 1000, files: 1 })).toBe(99)
+    expect(exportPercent({ phase: 'pulling', received: 2000, total: 1000, files: 1 })).toBe(100)
+  })
+
+  it('starts packing from 0, so a long checksum never shows as a full bar', () => {
+    expect(exportPercent({ phase: 'packing', received: 0, total: null, files: 2 })).toBeNull()
+    expect(exportPercent({ phase: 'packing', received: 0, total: 1000, files: 2 })).toBe(0)
+    expect(exportPercent({ phase: 'packing', received: 400, total: 1000, files: 2 })).toBe(40)
+    expect(exportPercent({ phase: 'packing', received: 1000, total: 1000, files: 2 })).toBe(100)
+  })
+
+  it('says what the export saves once the APKs are listed', () => {
+    expect(exportNote(null)).toBeNull()
+    expect(exportNote(0)).toBeNull()
+    expect(exportNote(1)).toBe('Saves one .apk.')
+    expect(exportNote(3)).toBe('Saves its 3 APKs as one .xapk.')
+  })
+
+  it('keeps an export and an uninstall of the same app apart; Clear data is not held back', () => {
+    const pulling = { phase: 'pulling', received: 0, total: 10, files: 2 } as const
+    expect(canUninstall(undefined, undefined)).toBe(true)
+    expect(canUninstall(undefined, pulling)).toBe(false)
+    expect(canUninstall('stop', undefined)).toBe(false)
+    expect(canStartExport(undefined, undefined)).toBe(true)
+    expect(canStartExport(undefined, pulling)).toBe(false)
+    expect(canStartExport('uninstall', undefined)).toBe(false)
+    // pm clear leaves the APKs alone, and a stop or launch doesn't touch them either.
+    expect(canStartExport('clear', undefined)).toBe(true)
+    expect(canStartExport('launch', undefined)).toBe(true)
+  })
+})
+
+describe('badgeView', () => {
+  it('keeps a bitmap icon’s bytes, for the .xapk an export writes', async () => {
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])
+    const view = badgeView({
+      label: ' Shop ',
+      icon: { kind: 'bitmap', mime: 'image/png', bytes: png },
+    })
+    expect(view.label).toBe('Shop')
+    if (view.icon?.kind !== 'bitmap') throw new Error('bitmap expected')
+    expect(view.icon.url).toMatch(/^blob:/)
+    expect(view.icon.blob.type).toBe('image/png')
+    expect(new Uint8Array(await view.icon.blob.arrayBuffer())).toEqual(png)
+    releaseBadgeView(view)
   })
 })
