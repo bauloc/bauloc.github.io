@@ -12,32 +12,41 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
-/** The facts the environment check reports, as label/value pairs (also its plain-text copy). */
-export function environmentRows(input: {
-  webusb: boolean
-  secure: boolean
-  mock: boolean
-  devices: number
-}): [string, string][] {
-  return [
-    ['Browser WebUSB', input.webusb ? 'available' : 'not implemented in this browser'],
-    ['Secure context', input.secure ? 'yes' : 'no — WebUSB requires HTTPS or localhost'],
-    ['Mock devices', input.mock ? 'on (?mock=1)' : 'off'],
-    ['UI version', __APP_VERSION__],
-    ['Devices seen', String(input.devices)],
-    ['Local helper', 'not running (iOS unavailable)'],
-  ]
+import { checklistText } from '../preflight/checks'
+import { STATUS_META } from '../preflight/copy'
+import type { CheckItem, CheckStatus } from '../preflight/types'
+import { Checklist, type FixWiring } from './checklist'
+
+const SUMMARY_ORDER: readonly CheckStatus[] = ['blocking', 'warning', 'unchecked']
+
+/** "2 Blocking · 1 Warning · 9 Not checked", or that everything is OK. */
+export function checklistSummary(items: readonly CheckItem[]): string {
+  const parts = SUMMARY_ORDER.flatMap((status) => {
+    const n = items.filter((item) => item.status === status).length
+    return n > 0 ? [`${String(n)} ${STATUS_META[status].label}`] : []
+  })
+  return parts.length > 0 ? parts.join(' · ') : 'Everything checked is OK.'
 }
 
-/** What this page can currently do, and why — the first thing to read when something does not work. */
+/**
+ * What this page can currently do, and why — the first thing to read when something does not
+ * work. Every checklist row, grouped This browser · Phone: {name} · Helper · Features, with
+ * "Copy as text" for a ticket (checklistText never prints the helper's token).
+ */
 export function DoctorDialog({
   open,
   onOpenChange,
-  rows,
+  items,
+  phoneName,
+  wiring,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  rows: readonly [string, string][]
+  /** browserChecks + phoneChecks + helperChecks + featureChecks('summary', …), in that order. */
+  items: readonly CheckItem[]
+  /** The phone the rows are about, for the "Phone: Pixel 9" heading. */
+  phoneName?: string
+  wiring?: FixWiring
 }) {
   // Opened from two places with no DialogTrigger, so Radix has nowhere to return focus to:
   // remember what had it, and put it back on close instead of leaving it on <body>.
@@ -45,6 +54,7 @@ export function DoctorDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        className="sm:max-w-2xl"
         onOpenAutoFocus={() => {
           opener.current =
             document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -56,21 +66,18 @@ export function DoctorDialog({
       >
         <DialogHeader>
           <DialogTitle>Environment check</DialogTitle>
-          <DialogDescription>What this page can currently do, and why.</DialogDescription>
+          <DialogDescription>
+            What this page can do right now, and what to fix. {checklistSummary(items)}
+          </DialogDescription>
         </DialogHeader>
-        <dl className="divide-y rounded-lg border">
-          {rows.map(([label, value]) => (
-            <div key={label} className="grid grid-cols-[9rem_1fr] gap-3 px-3 py-2 text-sm">
-              <dt className="text-muted-foreground">{label}</dt>
-              <dd className="font-medium">{value}</dd>
-            </div>
-          ))}
-        </dl>
+        <div className="-mx-6 max-h-[min(65dvh,40rem)] overflow-y-auto px-6">
+          <Checklist items={items} phoneName={phoneName} wiring={wiring} />
+        </div>
         <DialogFooter>
           <Button
             variant="outline"
             onClick={() => {
-              navigator.clipboard.writeText(rows.map(([k, v]) => `${k}: ${v}`).join('\n')).then(
+              navigator.clipboard.writeText(checklistText(items, phoneName)).then(
                 () => toast.success('Copied the environment check'),
                 () =>
                   toast.error('Copy failed', {

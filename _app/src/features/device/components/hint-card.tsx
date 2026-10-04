@@ -1,88 +1,135 @@
-import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
 
 import { STATE_META, type Device, type Hint } from '../model'
+import { COPY } from '../preflight/copy'
+import type { CheckId, CheckItem, Fix } from '../preflight/types'
+import { FixButton, PathFix, splitFixes, type FixWiring } from './checklist'
 import { TONE_SURFACE } from './status'
+
+/** Titles for the phone rows that can stand in for a device hint. */
+const CHECK_TITLES: Partial<Readonly<Record<CheckId, string>>> = {
+  'phone.notHeld': 'Something else is using this phone',
+  'phone.osAccess': 'This computer won’t let the browser open the phone',
+}
+
+/**
+ * The phone row that says more about this device's blocker than its hint does, or null:
+ * the system refusing to open the phone (Linux udev rules, a Windows driver), or who holds it
+ * when that is known (another tab, or a process the helper named). The generic "another
+ * program" row is left out: the hint already says that, with today's wording. Windows' row
+ * is not generic — it adds the maker's driver the hint doesn't know about — so it stays.
+ */
+export function deviceCheck(device: Device, phone: readonly CheckItem[]): CheckItem | null {
+  const access = phone.find((item) => item.id === 'phone.osAccess')
+  if (access?.status === 'blocking') return access
+  if (device.state !== 'held') return null
+  const held = phone.find((item) => item.id === 'phone.notHeld')
+  return held?.status === 'blocking' && held.sentence !== COPY.notHeld.held ? held : null
+}
+
+/** What the card says: the hint, with a known phone row's sentence, fixes and detail in its place. */
+export function hintContent(
+  hint: Hint | null,
+  check: CheckItem | null,
+): { title: string; body: string; fixes: readonly Fix[]; extra?: string } | null {
+  if (check) {
+    return {
+      title: CHECK_TITLES[check.id] ?? hint?.title ?? check.label,
+      body: check.sentence,
+      fixes: check.fixes ?? [],
+      ...(check.detail ? { extra: check.detail } : {}),
+    }
+  }
+  if (!hint) return null
+  return {
+    title: hint.title,
+    body: hint.body,
+    fixes: hint.fixes ?? [],
+    ...(hint.extra ? { extra: hint.extra } : {}),
+  }
+}
+
+function copyText(text: string) {
+  navigator.clipboard.writeText(text).then(
+    () => toast.success('Copied', { description: text }),
+    () =>
+      toast.error('Copy failed', {
+        description: 'Select the text and copy it by hand.',
+      }),
+  )
+}
 
 /**
  * What is wrong and what to DO about it: the device's first blocker, with its fixes as
- * buttons — copy a command, reconnect, open the environment check.
+ * buttons — copy a command, reconnect, open the environment check, open a guide — and any
+ * settings path to follow on the phone.
  */
 export function HintCard({
   device,
   hint,
+  check = null,
   retrying,
   onRetry,
   onDoctor,
+  wiring,
 }: {
   device: Device
-  hint: Hint
+  hint: Hint | null
+  /** From deviceCheck(): a phone row that knows more than the hint (who holds the phone). */
+  check?: CheckItem | null
   /** This device's Retry is in flight (the store tracks it, per device). */
   retrying: boolean
   onRetry: () => Promise<void>
   onDoctor: () => void
+  /** The checklist's other actions (`release-other-tab`…); one with no handler isn't shown. */
+  wiring?: FixWiring
 }) {
+  const content = hintContent(hint, check)
+  if (!content) return null
   const tone = STATE_META[device.state].tone
+  const { commands, paths, buttons } = splitFixes(content.fixes)
+  // Retry and the environment check are this card's own; the rest go through the wiring.
+  const own: FixWiring = {
+    ...wiring,
+    on: { ...wiring?.on, retry: onRetry, doctor: onDoctor },
+    pending: retrying ? [...(wiring?.pending ?? []), 'retry'] : wiring?.pending,
+  }
 
   return (
     <div role="note" className={cn('rounded-xl border p-4', TONE_SURFACE[tone])}>
-      <h3 className="font-semibold">{hint.title}</h3>
-      <p className="text-muted-foreground mt-1 text-sm leading-relaxed">{hint.body}</p>
-      {hint.fixes && hint.fixes.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {hint.fixes.map((fix) => {
-            const variant = fix.primary ? 'default' : 'outline'
-            if ('copy' in fix) {
-              return (
-                <Button
-                  key={fix.label}
-                  size="sm"
-                  variant={variant}
-                  onClick={() => {
-                    navigator.clipboard.writeText(fix.copy).then(
-                      () => toast.success('Copied', { description: fix.copy }),
-                      () =>
-                        toast.error('Copy failed', {
-                          description: 'Select the text and copy it by hand.',
-                        }),
-                    )
-                  }}
-                >
-                  {fix.label}
-                </Button>
-              )
-            }
-            if (fix.action === 'retry') {
-              return (
-                // aria-disabled, not disabled: disabling the focused button drops focus to <body>.
-                <Button
-                  key={fix.label}
-                  size="sm"
-                  variant={variant}
-                  aria-disabled={retrying}
-                  className="aria-disabled:opacity-50"
-                  onClick={() => {
-                    if (!retrying) void onRetry()
-                  }}
-                >
-                  {retrying && <Loader2 className="animate-spin" />}
-                  {retrying ? 'Reconnecting…' : fix.label}
-                </Button>
-              )
-            }
-            return (
-              <Button key={fix.label} size="sm" variant={variant} onClick={onDoctor}>
-                {fix.label}
-              </Button>
-            )
-          })}
+      <h3 className="font-semibold">{content.title}</h3>
+      <p className="text-muted-foreground mt-1 text-sm leading-relaxed">{content.body}</p>
+      {paths.length > 0 && (
+        <div className="mt-3 space-y-1">
+          {paths.map((fix) => (
+            <PathFix key={fix.label + fix.path} fix={fix} />
+          ))}
         </div>
       )}
-      {hint.extra && (
-        <p className="text-muted-foreground mt-3 text-xs leading-relaxed">{hint.extra}</p>
+      {commands.length + buttons.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {commands.map((fix) => (
+            <Button
+              key={fix.label}
+              size="sm"
+              variant={fix.primary ? 'default' : 'outline'}
+              onClick={() => {
+                copyText(fix.copy)
+              }}
+            >
+              {fix.label}
+            </Button>
+          ))}
+          {buttons.map((fix) => (
+            <FixButton key={fix.label} fix={fix} wiring={own} />
+          ))}
+        </div>
+      )}
+      {content.extra && (
+        <p className="text-muted-foreground mt-3 text-xs leading-relaxed">{content.extra}</p>
       )}
     </div>
   )

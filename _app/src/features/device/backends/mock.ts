@@ -1,11 +1,14 @@
 import {
   fmtBytes,
+  MIN_INSTALL_SDK,
   normalizeDevice,
+  type AndroidFacts,
   type Device,
   type DeviceDetail,
   type DeviceState,
 } from '../model'
 import type { Backend } from './backend'
+import { createMockAndroid } from './mock-android'
 
 /*
   The mock lane (?mock=1): fixture devices in every state that matters, so the whole UI —
@@ -16,6 +19,30 @@ import type { Backend } from './backend'
   It behaves like the real lanes where a tester would notice: Retry walks an unauthorized
   phone through authorizing to ready, an untrusted iPad to ready, screenshots are real PNGs,
   and the log streams.
+
+  The Android features (mock-android.ts) work on every ready Android fixture, with fake data
+  and fake progress. Their failures are asked for like this:
+
+  Installs: drop real files (the plan is real: archive/plan reads them), named
+  `<anything>-<trigger>.<ext>`. Sending runs at about 20 MB/s; Cancel works while sending.
+  - `-incompatible`         UPDATE_INCOMPATIBLE, while the app is installed (so "Uninstall and
+                            install" then works; com.bauloc.bundleprobe is installed to start)
+  - `-downgrade`            VERSION_DOWNGRADE, unless Allow downgrade is ticked
+  - `-deprecated-sdk`       DEPRECATED_SDK_VERSION, unless Install anyway is ticked
+  - `-missing-split`, `-no-abis`, `-older-sdk`, `-unsigned` (NO_CERTIFICATES), `-invalid`
+    (INVALID_APK), `-not-apk`, `-duplicate-permission`, `-conflicting-provider` (both name
+    com.example.notes.debug), `-no-space` (INSUFFICIENT_STORAGE), `-restricted`
+    (USER_RESTRICTED), `-aborted`, `-verification`, `-unknown`: that code
+  - `-warnings`             installed, "Completed with warning(s)"
+  - `-slow`                 installed after a 14 s commit ("Still installing…")
+  - `-disconnect`           the phone is unplugged halfway through sending (CONNECTION_LOST):
+                            it leaves the list, as a real one does, and 2 s later is plugged
+                            back in, connecting, then ready
+  Apps: com.example.flaky fails Open, Clear data and Uninstall; system apps refuse Uninstall;
+  System UI, Media Storage and Gboard have no screen to open. `&apps=failed` fails the list.
+  Images: `&images=failed` makes MediaStore refuse (the folder fallback still works);
+  `&images=empty` lists nothing. Some camera shots are HEIC (half with a thumbnail Android
+  made, half without), one is 14 MB (no preview) and one `-unreadable` can't be read.
 */
 
 interface Fixture {
@@ -28,6 +55,8 @@ interface Fixture {
   osVersion?: string
   blockers: string[]
   detail?: Omit<DeviceDetail, 'platform'>
+  /** Android only: what connect would read. */
+  android?: AndroidFacts
 }
 
 const PIXEL_GETPROP = [
@@ -47,6 +76,13 @@ export const MOCK_FIXTURES: readonly Fixture[] = [
     model: 'Pixel 9',
     osVersion: '17',
     blockers: [],
+    android: {
+      sdk: 37,
+      release: '17',
+      manufacturer: 'Google',
+      brand: 'google',
+      abis: ['arm64-v8a'],
+    },
     detail: {
       identity: {
         'Device name': 'Pixel 9',
@@ -112,6 +148,13 @@ export const MOCK_FIXTURES: readonly Fixture[] = [
     connection: 'usb',
     name: 'Galaxy S21',
     blockers: ['ANDROID_UNAUTHORIZED'],
+    android: {
+      sdk: 34,
+      release: '14',
+      manufacturer: 'samsung',
+      brand: 'samsung',
+      abis: ['arm64-v8a', 'armeabi-v7a', 'armeabi'],
+    },
   },
   {
     id: '00008120-000A1B2C3D4E5F01',
@@ -128,8 +171,19 @@ export const MOCK_FIXTURES: readonly Fixture[] = [
     connection: 'network',
     name: 'Redmi Note 12',
     blockers: ['ANDROID_OFFLINE'],
+    android: {
+      sdk: 33,
+      release: '13',
+      manufacturer: 'Xiaomi',
+      brand: 'Redmi',
+      abis: ['arm64-v8a', 'armeabi-v7a', 'armeabi'],
+    },
   },
 ]
+
+/** How long a `-disconnect` phone stays unplugged, then how long it takes to reconnect. */
+export const MOCK_UNPLUGGED_MS = 2000
+export const MOCK_RECONNECT_MS = 1000
 
 const delay = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -200,7 +254,30 @@ export function createMockBackend(): Backend {
     if (!f) throw new Error('DEVICE_NOT_READY')
     return f
   }
-  const isReady = (id: string) => states.get(id)?.state === 'ready'
+  /** Fixtures pulled out of the "USB port": not listed at all, as a real unplugged phone. */
+  const unplugged = new Set<string>()
+  const isReady = (id: string) => !unplugged.has(id) && states.get(id)?.state === 'ready'
+  const android = createMockAndroid({
+    isReady,
+    facts: (id) => MOCK_FIXTURES.find((f) => f.id === id)?.android,
+    // A real unplug drops the device from the lane's list, so the page sees it go and come back
+    // under the same id; leaving it listed as 'absent' would hide that path.
+    disconnect(id) {
+      const was = states.get(id)
+      if (!was || unplugged.has(id)) return
+      unplugged.add(id)
+      emit()
+      setTimeout(() => {
+        unplugged.delete(id)
+        states.set(id, { state: 'connecting', blockers: [] })
+        emit()
+        setTimeout(() => {
+          states.set(id, was)
+          emit()
+        }, MOCK_RECONNECT_MS)
+      }, MOCK_UNPLUGGED_MS)
+    },
+  })
 
   return {
     kind: 'mock',
@@ -219,9 +296,10 @@ export function createMockBackend(): Backend {
     },
 
     list: () =>
-      MOCK_FIXTURES.map((f) => {
+      MOCK_FIXTURES.filter((f) => !unplugged.has(f.id)).map((f) => {
         const s = states.get(f.id) ?? { state: f.state, blockers: f.blockers }
         const ready = s.state === 'ready'
+        const facts = ready ? f.android : undefined
         return normalizeDevice({
           id: f.id,
           backend: 'mock',
@@ -236,7 +314,11 @@ export function createMockBackend(): Backend {
             screenshot: ready,
             identifiers: ready,
             logs: ready && f.platform === 'android',
+            install: (facts?.sdk ?? 0) >= MIN_INSTALL_SDK,
+            apps: !!facts,
+            images: !!facts,
           },
+          ...(facts ? { android: facts } : {}),
         })
       }),
 
@@ -278,6 +360,8 @@ export function createMockBackend(): Backend {
       states.set(id, { state: 'ready', blockers: [] })
       emit()
     },
+
+    ...android,
 
     async logs(id, onLines, signal) {
       if (!isReady(id)) throw new Error('DEVICE_NOT_READY')
