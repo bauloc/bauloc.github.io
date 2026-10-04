@@ -46,6 +46,18 @@
  * An iPhone over Wi-Fi drops and comes back with `unplug ios` and `plug ios`: its log ends
  * with device-gone, as the real lane's does.
  *
+ * "On this network" (§4.8, GET /api/android/nearby): what the fake network advertises. The
+ * page only lists it; connecting is still its Connect or Pair…, answered by the TV above:
+ *   net tv on|off            the TV above advertises adb (Network debugging) at its address;
+ *                            with `tv pairing on`, Wireless debugging instead (Pair… until paired)
+ *   net pairscreen on|off    its "Pair device with pairing code" screen is open (pairing port)
+ *   net phone on|off         a Pixel 9 with Wireless debugging at 192.168.1.57, listed only:
+ *                            it is not on the fake network, so connecting it fails as unreachable
+ *   net blocked on|off       this Mac can't reach the local network: the scan's mDNS query is
+ *                            refused at once (EHOSTUNREACH), as from VS Code's terminal on macOS
+ *                            or behind a VPN; what adb lists is still reported
+ *   net slow on|off          each look takes 3 s (the real one listens for 2 s)
+ *
  * The fakes are TypeScript; they are bundled with rolldown into a temporary file first, with
  * `vitest` replaced by a stub (the harness registers its cleanup with afterAll), so this runs
  * on plain Node.
@@ -178,6 +190,8 @@ const world = {
     pairPort: 37099,
     code: '482913',
   },
+  /** What the fake network advertises over mDNS (§4.8). */
+  net: { tv: true, pairscreen: false, phone: false, blocked: false, slow: false },
 }
 
 const XCODE_STATE = { ready: 'ready', missing: 'not-installed', setup: 'needs-first-launch' }
@@ -330,6 +344,63 @@ async function tvDisconnect(serial) {
 }
 
 let tvAway = null
+
+/** The phone `net phone on` puts on the network: advertised, never reachable. */
+const NET_PHONE = { host: '192.168.1.57', port: 41235, pairPort: 37123 }
+
+/** GET /api/android/nearby, as the real lane answers it: what mDNS heard, and what adb lists. */
+async function nearbyResult(refresh, signal) {
+  const { tv, net } = world
+  const scannedAt = Date.now()
+  await wait(net.slow ? 3_000 : refresh ? 1_000 : 200, signal)
+  const listed = world.adb === 'on' && tv.listed
+  const tvEntry = (kind, port) => ({
+    id: `${kind}:${tv.host}:${port}`,
+    host: tv.host,
+    port,
+    kind,
+    instance: tv.pairing ? 'adb-FAKE42TV0001-AbCdEf' : 'adb-fake42tv0001',
+    name: 'Living Room TV',
+    serial: tv.pairing ? 'FAKE42TV0001' : 'fake42tv0001',
+    tv: true,
+    connected: listed && kind !== 'pairing',
+    ...(listed && kind !== 'pairing' ? { deviceId: TV_SERIAL() } : {}),
+    ...(kind === 'adb' ? {} : { paired: tv.paired }),
+  })
+  // Blocked: the helper's own query never left, so only what adb lists already is reported.
+  if (net.blocked) {
+    return {
+      devices: listed ? [tvEntry(tv.pairing ? 'wireless' : 'adb', tv.port)] : [],
+      scannedAt,
+      error: {
+        reason: 'blocked',
+        message: 'This computer can’t reach the local network, so it can’t look for devices on it.',
+        detail: 'send EHOSTUNREACH 224.0.0.251:5353',
+      },
+    }
+  }
+  const devices = []
+  if (net.tv) {
+    devices.push(tvEntry(tv.pairing ? 'wireless' : 'adb', tv.port))
+    if (tv.pairing && net.pairscreen) devices.push(tvEntry('pairing', tv.pairPort))
+  }
+  if (net.phone) {
+    const phone = (kind, port) => ({
+      id: `${kind}:${NET_PHONE.host}:${port}`,
+      host: NET_PHONE.host,
+      port,
+      kind,
+      instance: 'adb-55090FAKE0026D-nK25Qn',
+      name: '',
+      serial: '55090FAKE0026D',
+      tv: false,
+      connected: false,
+      paired: false,
+    })
+    devices.push(phone('wireless', NET_PHONE.port), phone('pairing', NET_PHONE.pairPort))
+  }
+  return { devices, scannedAt }
+}
 
 const none = () => ({ screenshot: false, identifiers: false, logs: false, install: false })
 
@@ -536,6 +607,7 @@ const androidLane = fakes.fakeAndroidLane({
   connectNetwork: (target, signal) => tvConnect(target, signal),
   pairNetwork: (target) => tvPair(target),
   disconnectNetwork: (serial) => tvDisconnect(serial),
+  nearby: (refresh, signal) => nearbyResult(refresh, signal),
 })
 const simLane = fakes.fakeSimulatorLane({
   state: simLaneState(),
@@ -664,7 +736,8 @@ const HELP = `  plug ios|android|sim     unplug ios|android|sim
   adb on|off|missing       android ready|auth|offline
   simulators on|off        status        help        quit
   tv answer ok|refused|unreachable|blocked|timeout|slow
-  tv allow|deny|drop|back|forget        tv pairing on|off`
+  tv allow|deny|drop|back|forget        tv pairing on|off
+  net tv|pairscreen|phone|blocked|slow on|off      (what "On this network" hears)`
 
 function describeWorld() {
   return [
@@ -674,6 +747,12 @@ function describeWorld() {
       world.tv.pairing
         ? ` · Wireless debugging: pair at ${world.tv.host}:${world.tv.pairPort} with ${world.tv.code}${world.tv.paired ? ' (paired)' : ''}`
         : ''
+    }`,
+    `Network: ${
+      Object.entries(world.net)
+        .filter(([, on]) => on)
+        .map(([k]) => k)
+        .join(', ') || 'nothing advertised'
     }`,
   ].join('\n')
 }
@@ -780,6 +859,14 @@ async function run(lineText) {
         return console.log('tv answer …|allow|deny|drop|back|pairing on|off|forget')
       }
       break
+    }
+    case 'net': {
+      const value = lineText.trim().toLowerCase().split(/\s+/)[2]
+      if (!(arg in world.net) || !['on', 'off'].includes(value))
+        return console.log('net tv|pairscreen|phone|blocked|slow on|off')
+      world.net[arg] = value === 'on'
+      // The page hears it on its next look (Refresh, or within 30 s).
+      return console.log(describeWorld())
     }
     default:
       return console.log(`Unknown command "${cmd}". Type help.`)

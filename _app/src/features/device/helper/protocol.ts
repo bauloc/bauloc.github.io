@@ -30,6 +30,8 @@ export type HelperFeature =
   | 'android.start-server'
   /** POST /api/android/connect, /pair and /disconnect: Android devices over Wi‑Fi. */
   | 'android.connect'
+  /** GET /api/android/nearby: the Android devices that advertise debugging on the network. */
+  | 'android.discover'
   | 'local'
   | 'simulators'
   | 'wifi'
@@ -612,6 +614,166 @@ export function parseDisconnectReply(value: unknown): DisconnectReply | null {
   if (!isRecord(value) || value.result !== 'disconnected') return null
   const serial = typeof value.serial === 'string' ? value.serial : ''
   return DEVICE_ID.android.test(serial) ? { result: 'disconnected', serial } : null
+}
+
+/*
+  Discovery (feature `android.discover`, §4.8): what the helper heard on the local network over
+  mDNS, plus what adb lists already. Nothing here is connected: the page offers each one, and
+  the tester's click goes through connect or pair above.
+*/
+
+/**
+ * What a device advertises: `adb` is `_adb._tcp` (a TV's Network debugging, `adb tcpip`),
+ * `wireless` is `_adb-tls-connect._tcp` (Wireless debugging, on) and `pairing` is
+ * `_adb-tls-pairing._tcp` (its "Pair device with pairing code" screen, open now).
+ */
+export type NearbyKind = 'adb' | 'wireless' | 'pairing'
+
+export interface NearbyDevice {
+  /** The helper's id for it, `<kind>:<host:port>`: unique in one answer. */
+  readonly id: string
+  readonly kind: NearbyKind
+  /**
+   * An address on the local network, as connect takes it: private, link-local or carrier-grade
+   * NAT only (helper/network.ts checkHost). A device with no such address is never offered.
+   */
+  readonly host: string
+  readonly port: number
+  /** The mDNS instance name ("adb-55090DLAQ0026D-nK25Qn"), or ''. */
+  readonly instance: string
+  /** The adb serial the instance name carries ("55090DLAQ0026D"), or ''. */
+  readonly serial: string
+  /** What the device calls itself elsewhere on the network ("SONY KD-43X8050H"), or ''. */
+  readonly name: string
+  /** Its model, when something it advertises says so, or ''. */
+  readonly model: string
+  /** The same address also advertises Android TV Remote or Google Cast. */
+  readonly tv: boolean
+  /** adb lists it already (by address, mDNS name or serial, a cable too). */
+  readonly connected: boolean
+  /** Its row's id in the device list, when `connected` and the helper said. */
+  readonly deviceId: string | null
+  /**
+   * `wireless` and `pairing`: adb lists it over the network, which Wireless debugging allows
+   * only once paired. false is "not known to be paired", not "unpaired".
+   */
+  readonly paired: boolean
+}
+
+/**
+ * Why the helper's own look couldn't run; adb's list may still have found devices. `blocked`:
+ * this computer refused the mDNS query (a VPN, or macOS keeping the helper off the local
+ * network), the same cause as a connect's `blocked` (§4.7). `no-network`: no interface is on a
+ * network. `failed`: anything else.
+ */
+export type NearbyFailure = 'blocked' | 'no-network' | 'failed'
+
+/** GET /api/android/nearby[?refresh=1]. */
+export interface NearbyReply {
+  readonly devices: readonly NearbyDevice[]
+  /** When the look these devices come from started (ms since the epoch); 0 when not said. */
+  readonly scannedAt: number
+  readonly error?: {
+    readonly reason: NearbyFailure
+    /** The helper's sentence and its fix, for a reason the page has no words for. */
+    readonly message: string
+    /** What the socket said: "send EHOSTUNREACH 224.0.0.251:5353". */
+    readonly detail: string
+  }
+}
+
+/** At most this many devices from one answer: a network is never this busy. */
+const MAX_NEARBY = 64
+
+/** "adb-55090DLAQ0026D-nK25Qn" → "55090DLAQ0026D"; "adb-b120be004010859" → "b120be004010859". */
+export function serialOfInstance(instance: string): string {
+  const m = /^adb-([A-Za-z0-9]{4,64})(?:-[A-Za-z0-9]{1,16})?$/.exec(instance)
+  return m?.[1] ?? ''
+}
+
+/** Controls, and the marks that reorder or hide text (bidi overrides, zero-width): never printed. */
+function isVisible(char: string): boolean {
+  const n = char.codePointAt(0) ?? 0
+  return !(
+    n < 0x20 ||
+    (n >= 0x7f && n < 0xa0) ||
+    (n >= 0x200b && n <= 0x200f) ||
+    (n >= 0x202a && n <= 0x202e) ||
+    (n >= 0x2066 && n <= 0x2069)
+  )
+}
+
+/** A name for the page to print: visible, single-line text only. */
+const plain = (value: unknown, max: number) =>
+  typeof value === 'string' ? Array.from(value).filter(isVisible).join('').trim().slice(0, max) : ''
+
+function parseNearbyDevice(
+  value: unknown,
+  isLocal: (host: string) => string | null,
+): NearbyDevice | null {
+  if (!isRecord(value)) return null
+  const kind = oneOf(value.kind, ['adb', 'wireless', 'pairing'] as const)
+  const port = value.port
+  if (!kind || typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) {
+    return null
+  }
+  const host = typeof value.host === 'string' ? isLocal(value.host) : null
+  if (host === null) return null
+  const instance = plain(value.instance, 128)
+  const serial = plain(value.serial, 64)
+  const deviceId = typeof value.deviceId === 'string' ? value.deviceId : ''
+  return {
+    id: plain(value.id, 300) || `${kind}:${host}:${String(port)}`,
+    kind,
+    host,
+    port,
+    instance,
+    serial: /^[A-Za-z0-9._-]{1,64}$/.test(serial) ? serial : serialOfInstance(instance),
+    name: plain(value.name, CAP.name),
+    model: plain(value.model, CAP.name),
+    tv: value.tv === true,
+    connected: value.connected === true,
+    deviceId: isDeviceId(deviceId) ? deviceId : null,
+    paired: kind !== 'adb' && value.paired === true,
+  }
+}
+
+const NEARBY_FAILURES: readonly NearbyFailure[] = ['blocked', 'no-network', 'failed']
+
+/**
+ * GET /api/android/nearby. `isLocal` is helper/network.ts's checkHost, the normalised host or
+ * null: the helper keeps only local addresses, and the page checks again, so a public or
+ * loopback address never reaches a Connect button. A repeated id is dropped.
+ */
+export function parseNearby(
+  value: unknown,
+  isLocal: (host: string) => string | null,
+): NearbyReply | null {
+  if (!isRecord(value) || !Array.isArray(value.devices)) return null
+  const devices: NearbyDevice[] = []
+  const seen = new Set<string>()
+  for (const raw of value.devices) {
+    if (devices.length >= MAX_NEARBY) break
+    const d = parseNearbyDevice(raw, isLocal)
+    if (!d || seen.has(d.id)) continue
+    seen.add(d.id)
+    devices.push(d)
+  }
+  const e = isRecord(value.error) ? value.error : null
+  const reason = e ? oneOf(e.reason, NEARBY_FAILURES) : null
+  return {
+    devices,
+    scannedAt: Math.max(0, num(value.scannedAt)),
+    ...(e
+      ? {
+          error: {
+            reason: reason ?? 'failed',
+            message: str(e.message, CAP.sentence),
+            detail: str(e.detail, CAP.sentence),
+          },
+        }
+      : {}),
+  }
 }
 
 const IOS_DEVICE_KEYS = [

@@ -31,6 +31,17 @@ describe('the built file', () => {
       expect(lines[Number(line) - 1]).toBe(`//#region ${String(module)}`)
     }
   })
+  it('titles every module in the contents by its section, never by its file name alone', () => {
+    const entries = [...code.matchAll(/^ \* +\d+ {2}(.+?) +(src\/[\w-]+\.ts)$/gm)]
+    const untitled = entries.filter(([, title]) => title?.startsWith('src/'))
+    expect(untitled.map(([, , module]) => module)).toEqual([])
+    expect(entries.map(([, title]) => title?.trim())).toContain('§9 mDNS browser')
+  })
+  it('says what it does on the network for Android, and that it never connects by itself', () => {
+    expect(code).toContain(
+      ' *     phones on the Wi-Fi with read-only mDNS questions, and never connects one by itself.',
+    )
+  })
   it('lays the modules out in the order of the spec’s sections (§1.2)', () => {
     const regions = [...code.matchAll(/^\/\/#region (\S+)$/gm)].map((m) => m[1])
     const order = [

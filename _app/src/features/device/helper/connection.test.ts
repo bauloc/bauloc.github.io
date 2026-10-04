@@ -186,6 +186,17 @@ function fakeHelper(port = 8787) {
         json({ result: 'disconnected', serial: '192.168.1.42:5555', message: 'm' }),
       )
     }
+    if (url.pathname === '/api/android/nearby') {
+      return Promise.resolve(
+        json({
+          status: 'ok',
+          scannedAt: 1,
+          devices: [
+            { instance: 'adb-b120be004010859', kind: 'adb', host: '192.168.68.101', port: 5555 },
+          ],
+        }),
+      )
+    }
     if (url.pathname === '/api/android/start-server') {
       return Promise.resolve(
         json({ android: { status: 'ok', adb: 'found', startedByHelper: true } }),
@@ -1145,6 +1156,31 @@ describe('pair, forget, doctor, startAdb', () => {
       code: 'NETWORK_UNSUPPORTED',
     })
     expect(helper.seen.some((s) => s.path.startsWith('/api/android/'))).toBe(false)
+  })
+
+  it('nearby: only when the helper lists android.discover; refresh asks it to look again', async () => {
+    const { conn, helper } = setup({ stores: paired() })
+    await expect(conn.nearby()).rejects.toMatchObject({ code: 'HELPER_UNREACHABLE' })
+    conn.start()
+    await flush()
+    await expect(conn.nearby()).rejects.toMatchObject({ code: 'DISCOVER_UNSUPPORTED' })
+    expect(helper.seen.some((s) => s.path.startsWith('/api/android/nearby'))).toBe(false)
+
+    // The features come with health: a fresh start reads them.
+    helper.state.features = ['android.connect', 'android.discover']
+    conn.stop()
+    conn.start()
+    await flush()
+    const reply = await conn.nearby()
+    expect(reply.devices).toEqual([
+      expect.objectContaining({ kind: 'adb', host: '192.168.68.101', serial: 'b120be004010859' }),
+    ])
+    await conn.nearby(true)
+    const asked = helper.seen.filter((s) => s.path.startsWith('/api/android/nearby'))
+    expect(asked.map((s) => [s.path, s.method, s.authorization])).toEqual([
+      ['/api/android/nearby', 'GET', `Bearer ${TOKEN}`],
+      ['/api/android/nearby?refresh=1', 'GET', `Bearer ${TOKEN}`],
+    ])
   })
 
   it('a failed operation polls the list at once; operations need a connection', async () => {

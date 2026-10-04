@@ -529,6 +529,30 @@ describe('createHelperClient', () => {
     )
   })
 
+  it('nearby is a GET with the token, ?refresh=1 to look again, and only local addresses', async () => {
+    const { fetch, calls } = scripted(() =>
+      json({
+        scannedAt: 5,
+        devices: [
+          { id: 'adb:192.168.68.101:5555', kind: 'adb', host: '192.168.68.101', port: 5555 },
+          // Whatever the helper sent, the page never offers these.
+          { id: 'adb:8.8.8.8:5555', kind: 'adb', host: '8.8.8.8', port: 5555 },
+          { id: 'adb:127.0.0.1:5555', kind: 'adb', host: '127.0.0.1', port: 5555 },
+        ],
+      }),
+    )
+    const client = createHelperClient(API, () => 'T'.repeat(43), { fetch })
+    const reply = await client.nearby(false)
+    await client.nearby(true)
+    expect(reply.devices.map((d) => d.host)).toEqual(['192.168.68.101'])
+    expect(calls.map((c) => `${c.init.method ?? ''} ${c.url.replace(API, '')}`)).toEqual([
+      'GET /api/android/nearby',
+      'GET /api/android/nearby?refresh=1',
+    ])
+    expect(authHeader(calls[0]?.init ?? {})).toBe(`Bearer ${'T'.repeat(43)}`)
+    expect(calls[0]?.init.body).toBeUndefined()
+  })
+
   it('doctor asks ?refresh=1 only on Re-check; start-server is a POST', async () => {
     const { fetch, calls } = scripted((url) =>
       url.includes('start-server')

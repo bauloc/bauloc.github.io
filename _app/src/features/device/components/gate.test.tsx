@@ -267,6 +267,22 @@ describe('Gate', () => {
     expect(screen.queryByRole('region', { name: /Phone or TV on Wi‑Fi\?/ })).toBeNull()
   })
 
+  it('shows what is on the network in the Wi‑Fi part, when given', () => {
+    render(
+      <Gate
+        browser={browserChecks(ENV)}
+        phone={phoneChecks(NO_PHONE)}
+        wiring={{ on: {} }}
+        helper={OFF}
+        onWifi={() => undefined}
+        nearby={<p>SONY KD-43X8050H</p>}
+      />,
+    )
+    expect(screen.getByRole('region', { name: /Phone or TV on Wi‑Fi/ })).toHaveTextContent(
+      'SONY KD-43X8050H',
+    )
+  })
+
   it('lists Blocking browser rows first, before the steps, and keeps OK ones out of the way', () => {
     render(
       <Gate

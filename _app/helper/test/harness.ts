@@ -25,6 +25,7 @@ import { createBridge, type Bridge } from '../src/bridge'
 import { emptyToolbox, type Toolbox } from '../src/tools'
 import type { BridgeInput, LogMsg, Timeouts } from '../src/types'
 import { createFakeBin, type FakeBin } from './fakes/bin'
+import { silentMdns } from './fakes/mdns'
 
 const cleanups: Array<() => unknown> = []
 afterAll(async () => {
@@ -72,6 +73,9 @@ export const SHORT: Partial<Timeouts> = {
   htmlRevalidate: 60_000,
   toolsCache: 30_000,
   doctorCache: 30_000,
+  mdnsWindow: 200,
+  systemBrowse: 600,
+  systemResolve: 1_000,
 }
 
 /** Polls `check` until it is truthy; fails after `timeoutMs`. */
@@ -147,7 +151,8 @@ export interface Isolation {
 
 /**
  * Options under which nothing real can be reached: an empty fake PATH, a usbmuxd socket and
- * an adb port nobody serves, a closed upstream, private home and temp folders, no lanes
+ * an adb port nobody serves, a closed upstream, an mDNS transport that sends nothing,
+ * private home and temp folders, no lanes
  * unless the test adds fakes, and short timeouts. `input` wins over every default.
  */
 export async function isolation(input: BridgeInput = {}): Promise<Isolation> {
@@ -187,6 +192,10 @@ export async function isolation(input: BridgeInput = {}): Promise<Isolation> {
       log: (line) => logs.push(line),
       errorLog: (line) => errors.push(line),
       env: { PATH: bin.dir, HOME: home },
+      /** mDNS goes nowhere: a test that scans brings its own fake network (fakes/mdns.ts). */
+      mdns: silentMdns(),
+      /** No real dns-sd or avahi-browse: a test that wants one writes it into bin.dir. */
+      dnsSdPath: path.join(bin.dir, 'dns-sd'),
       ...input,
       timeouts: { ...SHORT, ...input.timeouts },
       lanes: { ios: null, android: null, simulators: null, ...input.lanes },

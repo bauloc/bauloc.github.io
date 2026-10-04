@@ -1849,8 +1849,10 @@ describe('--doctor (§1.9)', () => {
       'Android: 2 device(s) listed by the adb server',
       '  55090DLAQ0026D · device · usb:1-1 · product:tokay · model:Pixel_9 · device:tokay · transport_id:3',
       '  R58MC0ABCDE · unauthorized · usb:1-2 · transport_id:4',
+      /** §4.8: the isolated network is silent. */
+      'Wi-Fi: no Android device on this network advertises Network or Wireless debugging',
     ])
-    expect(server.services).toEqual(['host:version', 'host:devices-l'])
+    expect(server.services).toEqual(['host:version', 'host:devices-l', 'host:mdns:services'])
   })
 
   it('says so when no server runs, and starts none', async () => {
@@ -1864,6 +1866,7 @@ describe('--doctor (§1.9)', () => {
     await bridge.lanes.android?.probeForDoctor?.((line) => lines.push(line))
     expect(lines).toEqual([
       `Android: no adb server on 127.0.0.1:${String(adbPort)} (the doctor never starts one)`,
+      'Wi-Fi: no Android device on this network advertises Network or Wireless debugging',
     ])
     expect(iso.bin.calls()).toEqual([])
   })

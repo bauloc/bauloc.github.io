@@ -38,6 +38,7 @@ const calls = {
   disconnectNetwork: vi.fn<HelperConnection['disconnectNetwork']>(
     () => new Promise(() => undefined),
   ),
+  nearby: vi.fn<HelperConnection['nearby']>(() => Promise.resolve({ devices: [], scannedAt: 1 })),
 }
 
 function setHelper(status: HelperStatus, devices: readonly HelperDevice[] = fake.state.devices) {
@@ -75,6 +76,7 @@ function fakeConnection(): HelperConnection {
     connectNetwork: calls.connectNetwork,
     pairNetwork: calls.pairNetwork,
     disconnectNetwork: calls.disconnectNetwork,
+    nearby: calls.nearby,
     api: {
       detail: () => new Promise(() => undefined),
       screenshot: calls.screenshot,
@@ -526,6 +528,122 @@ describe('DeviceLabPage, with the local helper', () => {
     expect(within(pane).queryByRole('button', { name: 'Disconnect' })).toBeNull()
   })
 
+  const DISCOVER_HELPER = helperStatus('connected', {
+    health: {
+      ...HEALTH,
+      features: ['android.start-server', 'android.connect', 'android.discover'],
+    },
+  })
+  const nearbyReply = (devices: Record<string, unknown>[]) => {
+    calls.nearby.mockImplementation(() =>
+      Promise.resolve({
+        scannedAt: 1,
+        devices: devices.map((d) => ({
+          instance: '',
+          serial: '',
+          name: '',
+          model: '',
+          tv: false,
+          connected: false,
+          deviceId: null,
+          paired: false,
+          ...d,
+        })) as never,
+      }),
+    )
+  }
+  const BRAVIA = {
+    id: 'adb:192.168.68.101:5555',
+    kind: 'adb',
+    host: '192.168.68.101',
+    port: 5555,
+    serial: 'b120be004010859',
+    name: 'SONY KD-43X8050H',
+    tv: true,
+  }
+
+  it('lists what is on the network under the devices, and connects one only on its click', async () => {
+    nearbyReply([BRAVIA])
+    await renderPage()
+    setHelper(DISCOVER_HELPER, [TV_ROW])
+    const section = await screen.findByRole('region', { name: 'On this network' })
+    await waitFor(() => {
+      expect(section).toHaveTextContent('SONY KD-43X8050H')
+    })
+    expect(section).toHaveTextContent('192.168.68.101:5555')
+    expect(calls.nearby).toHaveBeenCalledWith(false, expect.any(AbortSignal))
+    // Listing is only looking.
+    expect(calls.connectNetwork).not.toHaveBeenCalled()
+    act(() => {
+      within(section)
+        .getByRole('button', { name: /^Connect SONY KD-43X8050H/ })
+        .click()
+    })
+    expect(calls.connectNetwork).toHaveBeenCalledOnce()
+    expect(calls.connectNetwork).toHaveBeenCalledWith({ host: '192.168.68.101', port: 5555 })
+    // The Wi‑Fi dialog shows it connecting, filled in with that device.
+    const dialog = await screen.findByRole('dialog', { name: 'Connect over Wi‑Fi' })
+    expect(within(dialog).getByLabelText<HTMLInputElement>('IP address').value).toBe(
+      '192.168.68.101',
+    )
+    expect(within(dialog).getByRole('list', { name: 'Progress' })).toHaveTextContent(
+      'Connecting to 192.168.68.101:5555…',
+    )
+  })
+
+  it('leaves out what is listed already, and opens pairing filled in for a phone', async () => {
+    nearbyReply([
+      { ...BRAVIA, host: '192.168.1.42', id: 'adb:192.168.1.42:5555' },
+      {
+        id: 'wireless:192.168.68.114:39601',
+        kind: 'wireless',
+        host: '192.168.68.114',
+        port: 39601,
+        instance: 'adb-55090DLAQ0026D-nK25Qn',
+        serial: '55090DLAQ0026D',
+      },
+    ])
+    await renderPage()
+    setHelper(DISCOVER_HELPER, [TV_ROW])
+    const section = await screen.findByRole('region', { name: 'On this network' })
+    await waitFor(() => {
+      expect(section).toHaveTextContent('55090DLAQ0026D')
+    })
+    // The TV at 192.168.1.42:5555 is the listed Living Room TV.
+    expect(section).not.toHaveTextContent('SONY KD-43X8050H')
+    act(() => {
+      within(section)
+        .getByRole('button', { name: /^Pair 55090DLAQ0026D/ })
+        .click()
+    })
+    const dialog = await screen.findByRole('dialog', { name: 'Connect over Wi‑Fi' })
+    expect(within(dialog).getByLabelText<HTMLInputElement>('IP address & port').value).toBe(
+      '192.168.68.114',
+    )
+    expect(within(dialog).getByLabelText<HTMLInputElement>('Port').value).toBe('39601')
+    expect(calls.pairNetwork).not.toHaveBeenCalled()
+    expect(calls.connectNetwork).not.toHaveBeenCalled()
+  })
+
+  it('with nothing plugged in, the Gate lists what is on the network once the helper can look', async () => {
+    nearbyReply([BRAVIA])
+    await renderPage()
+    expect(screen.queryByRole('region', { name: 'On this network' })).toBeNull()
+    setHelper(DISCOVER_HELPER, [])
+    const section = await screen.findByRole('region', { name: 'On this network' })
+    await waitFor(() => {
+      expect(section).toHaveTextContent('SONY KD-43X8050H')
+    })
+  })
+
+  it('a helper too old to look is never asked', async () => {
+    await renderPage()
+    setHelper(WIFI_HELPER, [TV_ROW])
+    const section = await screen.findByRole('region', { name: 'On this network' })
+    expect(section).toHaveTextContent('This helper can’t look for devices on the network.')
+    expect(calls.nearby).not.toHaveBeenCalled()
+  })
+
   it('a log whose device drops says so, and stops once the device leaves the list', async () => {
     await renderPage()
     setHelper(WIFI_HELPER, [TV_ROW])
@@ -746,5 +864,6 @@ describe('DeviceLabPage, the S, R and / shortcuts', () => {
     expect(shoot).toHaveAttribute('aria-disabled', 'true')
     fireEvent.keyDown(document.body, { key: '/' })
     expect(filter).toHaveFocus()
-  })
+    // Renders the whole page and its Apps tab: slower than the default 5 s on a loaded machine.
+  }, 15_000)
 })

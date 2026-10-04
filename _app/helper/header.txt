@@ -17,7 +17,8 @@ What it does
     the pairing this Mac already has; screenshots through Xcode's devicectl; logs through
     syslog_relay. iOS Simulators with --simulators.
   - Android: shares Google's adb server when one is running. It starts one only when you
-    click "Start adb server" on the page, and never stops it.
+    click "Start adb server" on the page, and never stops it. It looks for Android TVs and
+    phones on the Wi-Fi with read-only mDNS questions, and never connects one by itself.
 
 What it never does
   - Listen on anything but 127.0.0.1, or send telemetry.

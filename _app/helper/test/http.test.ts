@@ -173,7 +173,7 @@ describe('5. /api/health and the proof (§2.8, T7)', () => {
       tokenPersistent: false,
       runId: s.bridge.runId,
       local: true,
-      features: ['android.start-server', 'android.connect', 'local'],
+      features: ['android.start-server', 'android.connect', 'android.discover', 'local'],
     })
     expect(health.sha256).toMatch(/^[0-9a-f]{64}$/)
     expect(health.proof).toBeUndefined()

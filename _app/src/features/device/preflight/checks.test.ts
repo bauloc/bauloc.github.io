@@ -33,6 +33,7 @@ import {
   toolChecks,
   toolFix,
   wifiChecks,
+  nearbyBlockedCheck,
   wifiFailure,
   wifiHelperReady,
   worst,
@@ -2794,6 +2795,32 @@ describe('wifiChecks', () => {
     expect(ids(wifiChecks({ helper: CONNECT, attempt: refused, device: null }))).not.toContain(
       'wifi.localNetwork',
     )
+  })
+
+  it('words a blocked look for nearby devices as this computer’s doing, with the same ways out', () => {
+    const item = nearbyBlockedCheck(CONNECT, 'send EHOSTUNREACH 224.0.0.251:5353')
+    expect(item).toMatchObject({
+      id: 'wifi.localNetwork',
+      status: 'blocking',
+      label: 'This computer reaches the local network',
+      sentence:
+        'This computer can’t reach the local network, so it can’t look for devices on it. The problem is on this computer, not the TV or phone.',
+      detail: 'send EHOSTUNREACH 224.0.0.251:5353',
+    })
+    expect(targets(item)).toEqual([
+      'path:Turn off the VPN (Cloudflare WARP, a work VPN), or let it reach the local network, then refresh.',
+      expect.stringMatching(
+        /^path:Stop the helper \(Ctrl\+C\), start it again from the Terminal app with the command above,/,
+      ),
+      'copy:node ~/device-bridge.mjs',
+    ])
+    const linux = helperAt('connected', {
+      health: { ...LIVE, platform: 'linux-x64', features: ['android.discover'] },
+    })
+    expect(targets(nearbyBlockedCheck(linux))).toEqual([
+      expect.stringMatching(/^path:Turn off the VPN/),
+    ])
+    expect(nearbyBlockedCheck(linux).detail).toBeUndefined()
   })
 
   it('says a pairing went through, and that connecting comes next on another port', () => {

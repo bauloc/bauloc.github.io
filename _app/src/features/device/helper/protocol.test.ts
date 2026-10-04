@@ -16,7 +16,10 @@ import {
   parseConnectReply,
   parseDisconnectReply,
   parsePairReply,
+  parseNearby,
+  serialOfInstance,
 } from './protocol'
+import { checkHost } from './network'
 
 /*
   The guards narrow whatever arrives; they never trust it. Wrong types are refused or
@@ -532,5 +535,148 @@ describe('the Wi‑Fi replies (§4.7)', () => {
       parseErrorBody({ error: { code: 'ANDROID_CONNECT_FAILED', message: 'm', reason: '<b>' } })
         ?.error.reason,
     ).toBeUndefined()
+  })
+})
+
+describe('nearby (android.discover)', () => {
+  const local = (host: string) => {
+    const c = checkHost(host)
+    return c.ok ? c.host : null
+  }
+  // As dns-sd heard them on the owner's network (2026-10-04), in the helper's words.
+  const TV = {
+    id: 'adb:192.168.68.101:5555',
+    kind: 'adb',
+    host: '192.168.68.101',
+    port: 5555,
+    instance: 'adb-b120be004010859',
+    name: 'SONY KD-43X8050H',
+    serial: 'b120be004010859',
+    tv: true,
+    connected: false,
+  }
+  const PIXEL = {
+    id: 'wireless:192.168.68.114:39601',
+    kind: 'wireless',
+    host: '192.168.68.114',
+    port: 39601,
+    instance: 'adb-55090DLAQ0026D-nK25Qn',
+    name: '',
+    tv: false,
+    connected: false,
+    paired: false,
+  }
+
+  it('reads what the helper heard: kind, address, and the serial in the instance name', () => {
+    expect(parseNearby({ scannedAt: 42, devices: [TV, PIXEL] }, local)).toEqual({
+      scannedAt: 42,
+      devices: [
+        {
+          id: 'adb:192.168.68.101:5555',
+          kind: 'adb',
+          host: '192.168.68.101',
+          port: 5555,
+          instance: 'adb-b120be004010859',
+          serial: 'b120be004010859',
+          name: 'SONY KD-43X8050H',
+          model: '',
+          tv: true,
+          connected: false,
+          deviceId: null,
+          paired: false,
+        },
+        {
+          id: 'wireless:192.168.68.114:39601',
+          kind: 'wireless',
+          host: '192.168.68.114',
+          port: 39601,
+          instance: 'adb-55090DLAQ0026D-nK25Qn',
+          // No serial field: the instance name carries it.
+          serial: '55090DLAQ0026D',
+          name: '',
+          model: '',
+          tv: false,
+          connected: false,
+          deviceId: null,
+          paired: false,
+        },
+      ],
+    })
+  })
+
+  it('never offers an address off the local network, nor a bad port or kind', () => {
+    const reply = parseNearby(
+      {
+        devices: [
+          { ...TV, id: 'a', host: '8.8.8.8' },
+          { ...TV, id: 'b', host: '127.0.0.1' },
+          { ...TV, id: 'c', host: '::1' },
+          { ...TV, id: 'd', host: 'tv.example.com' },
+          { ...TV, id: 'e', port: 0 },
+          { ...TV, id: 'f', port: '5555' },
+          { ...TV, id: 'g', kind: 'usb' },
+          { ...TV, id: 'h', host: 'FE80::1%en0' },
+          { ...TV, id: 'i', host: '10.0.0.7' },
+        ],
+      },
+      local,
+    )
+    expect(reply?.devices.map((d) => d.host)).toEqual(['fe80::1%en0', '10.0.0.7'])
+  })
+
+  it('keeps paired only for Wireless debugging, and a connected row’s id only when it is one', () => {
+    const [a, b, c] =
+      parseNearby(
+        {
+          devices: [
+            { ...TV, paired: true },
+            { ...PIXEL, paired: true, connected: true, deviceId: '192.168.68.114:39601' },
+            { ...PIXEL, id: 'x', connected: true, deviceId: '../etc' },
+          ],
+        },
+        local,
+      )?.devices ?? []
+    expect(a?.paired).toBe(false)
+    expect(b).toMatchObject({ paired: true, connected: true, deviceId: '192.168.68.114:39601' })
+    expect(c).toMatchObject({ connected: true, deviceId: null })
+  })
+
+  it('drops repeats, strips control and direction marks from names, caps the list', () => {
+    const reply = parseNearby(
+      { devices: [TV, { ...TV, name: 'other' }, { ...PIXEL, name: 'Pixel\u202e 9\n<b>' }] },
+      local,
+    )
+    expect(reply?.devices).toHaveLength(2)
+    expect(reply?.devices[1]?.name).toBe('Pixel 9<b>')
+    const many = Array.from({ length: 100 }, (_, i) => ({ ...TV, id: `adb:${String(i)}` }))
+    expect(parseNearby({ devices: many }, local)?.devices).toHaveLength(64)
+  })
+
+  it('keeps the helper’s failure with what adb still found, and refuses what isn’t an answer', () => {
+    expect(
+      parseNearby(
+        {
+          devices: [TV],
+          scannedAt: 7,
+          error: { reason: 'blocked', message: 'm', detail: 'send EHOSTUNREACH 224.0.0.251:5353' },
+        },
+        local,
+      ),
+    ).toMatchObject({
+      devices: [{ id: 'adb:192.168.68.101:5555' }],
+      error: { reason: 'blocked', message: 'm', detail: 'send EHOSTUNREACH 224.0.0.251:5353' },
+    })
+    expect(
+      parseNearby({ devices: [], error: { reason: 'later', message: 'm' } }, local)?.error,
+    ).toEqual({ reason: 'failed', message: 'm', detail: '' })
+    expect(parseNearby({ scannedAt: 1 }, local)).toBeNull()
+    expect(parseNearby([], local)).toBeNull()
+  })
+
+  it('finds the serial in an instance name, and nothing in anything else', () => {
+    expect(serialOfInstance('adb-55090DLAQ0026D-nK25Qn')).toBe('55090DLAQ0026D')
+    expect(serialOfInstance('adb-b120be004010859')).toBe('b120be004010859')
+    expect(serialOfInstance('SONY KD-43X8050H')).toBe('')
+    expect(serialOfInstance('adb-../x')).toBe('')
   })
 })

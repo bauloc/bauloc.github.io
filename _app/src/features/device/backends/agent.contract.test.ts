@@ -16,6 +16,7 @@ import {
 } from '../helper/testing/real-helper'
 import { memoryStores } from '../helper/token'
 import { DEVICE_HINTS } from '../model'
+import { nearbyRows } from '../nearby'
 import { createDeviceLab, type DeviceLab } from '../store'
 import { LOG_ENDED_LINE, createAgentBackend } from './agent'
 import { DETAIL_COMMANDS, androidDetail } from './android'
@@ -297,5 +298,113 @@ describe('the agent lane end to end', () => {
     expect(deviceErrorMessage(second)).toBe('A screenshot of this device is already being taken.')
     release()
     expect((await first).type).toBe('image/png')
+  })
+})
+
+/* ---------------------------------------------------------------------- discovery --- */
+
+/** The helper's own discovery code and fake network (typed against Node: computed URLs). */
+interface HelperDiscovery {
+  readonly lane: {
+    readonly NEARBY_SERVICES: readonly string[]
+    readonly nearbyFromBrowse: (instances: unknown[]) => { found: unknown[]; names: unknown }
+    readonly mergeNearby: (found: unknown[], names: unknown, listed: unknown[]) => unknown[]
+    readonly parseDevicesL: (text: string) => unknown[]
+  }
+  readonly mdns: {
+    readonly browse: (o: object) => Promise<{ instances: unknown[] }>
+  }
+  readonly fakes: {
+    readonly fakeMdnsNetwork: (responders: unknown[]) => { open: unknown }
+    readonly braviaTv: () => unknown
+    readonly pixel9: (o: { pairing: boolean }) => unknown
+  }
+}
+const discovery: HelperDiscovery = {
+  lane: (await import(
+    /* @vite-ignore */ at('../../../../helper/src/android-lane.ts').href
+  )) as HelperDiscovery['lane'],
+  mdns: (await import(
+    /* @vite-ignore */ at('../../../../helper/src/mdns.ts').href
+  )) as HelperDiscovery['mdns'],
+  fakes: (await import(
+    /* @vite-ignore */ at('../../../../helper/test/fakes/mdns.ts').href
+  )) as HelperDiscovery['fakes'],
+}
+
+// Each test starts the built helper and pairs a page with it: over 5 s on a loaded machine.
+describe('discovery against the built helper', { timeout: 20_000 }, () => {
+  it('reads what the helper builds from the TV and the Pixel, and offers Connect and Pair…', async () => {
+    const { lane, mdns, fakes } = discovery
+    const network = fakes.fakeMdnsNetwork([fakes.braviaTv(), fakes.pixel9({ pairing: true })])
+    const { instances } = await mdns.browse({
+      services: lane.NEARBY_SERVICES,
+      open: network.open,
+      windowMs: 120,
+    })
+    const { found, names } = lane.nearbyFromBrowse(instances)
+    const devices = lane.mergeNearby(found, names, lane.parseDevicesL('R5CT40ABCDE device\n'))
+    const helper = await startRealHelper({
+      android: {
+        nearby: () => Promise.resolve({ devices, scannedAt: 1_759_000_000_000 }),
+      },
+    })
+    helpers.push(helper)
+    const { conn } = await pageAgainst(helper)
+    await until(
+      () => conn.getStatus().health?.features.includes('android.discover') === true,
+      'android.discover',
+    )
+
+    const reply = await conn.nearby(true)
+    expect(helper.requests.at(-1)?.url).toMatch(/\/api\/android\/nearby\?refresh=1$/)
+    expect(reply.scannedAt).toBe(1_759_000_000_000)
+    expect(reply.devices.map((d) => [d.kind, d.host, d.port, d.serial, d.tv])).toEqual([
+      ['adb', '192.168.68.101', 5555, 'b120be004010859', true],
+      ['wireless', '192.168.68.114', 39601, '55090DLAQ0026D', false],
+      ['pairing', '192.168.68.114', 37123, '55090DLAQ0026D', false],
+    ])
+
+    const rows = nearbyRows(reply.devices, [])
+    expect(rows.map((r) => [r.name, r.action])).toEqual([
+      [
+        '55090DLAQ0026D',
+        {
+          kind: 'pair',
+          host: '192.168.68.114',
+          pair: { host: '192.168.68.114', port: 37123 },
+          connect: { host: '192.168.68.114', port: 39601 },
+        },
+      ],
+      ['SONY KD-43X8050H', { kind: 'connect', target: { host: '192.168.68.101', port: 5555 } }],
+    ])
+  })
+
+  it('a blocked look: the reason and the system’s words, and what adb lists still shown', async () => {
+    const helper = await startRealHelper({
+      android: {
+        nearby: () =>
+          Promise.resolve({
+            devices: [],
+            scannedAt: 1,
+            error: {
+              reason: 'blocked',
+              message: 'Could not look for devices on the network.',
+              detail: 'send EHOSTUNREACH 224.0.0.251:5353',
+            },
+          }),
+      },
+    })
+    helpers.push(helper)
+    const { conn } = await pageAgainst(helper)
+    await until(
+      () => conn.getStatus().health?.features.includes('android.discover') === true,
+      'android.discover',
+    )
+    expect((await conn.nearby()).error).toEqual({
+      reason: 'blocked',
+      message: 'Could not look for devices on the network.',
+      detail: 'send EHOSTUNREACH 224.0.0.251:5353',
+    })
   })
 })
