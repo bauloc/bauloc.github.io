@@ -3,31 +3,32 @@ import { describe, expect, it } from 'vitest'
 import { HOME_LINKS, LINK_GROUPS } from './home-links'
 import { buildView, moveActive, normaliseQuery } from './launcher'
 
-const titles = (query: string) => buildView(HOME_LINKS, query).rows.map((r) => r.link.title)
+const LINKS = HOME_LINKS.en
+const titles = (query: string) => buildView(LINKS, query).rows.map((r) => r.link.title)
 
 describe('no query: the whole site, grouped', () => {
   it('shows every link', () => {
-    expect(buildView(HOME_LINKS, '').rows).toHaveLength(HOME_LINKS.length)
+    expect(buildView(LINKS, '').rows).toHaveLength(LINKS.length)
   })
 
   it('is marked as grouped', () => {
-    expect(buildView(HOME_LINKS, '').grouped).toBe(true)
+    expect(buildView(LINKS, '').grouped).toBe(true)
   })
 
   it('orders groups by LINK_GROUPS, not by the data order', () => {
-    const groupsInOrder = buildView(HOME_LINKS, '').rows.map((r) => r.link.group)
+    const groupsInOrder = buildView(LINKS, '').rows.map((r) => r.link.group)
     const firstSeen = [...new Set(groupsInOrder)]
     expect(firstSeen).toEqual(LINK_GROUPS.filter((g) => firstSeen.includes(g)))
   })
 
   it('sets the heading on the first row of each group only', () => {
-    const rows = buildView(HOME_LINKS, '').rows
+    const rows = buildView(LINKS, '').rows
     const headings = rows.filter((r) => r.group !== null).map((r) => r.group)
     expect(headings).toEqual([...new Set(rows.map((r) => r.link.group))])
   })
 
   it('whitespace-only is treated as no query', () => {
-    expect(buildView(HOME_LINKS, '   ').grouped).toBe(true)
+    expect(buildView(LINKS, '   ').grouped).toBe(true)
   })
 })
 
@@ -65,8 +66,8 @@ describe('ranking is predictable', () => {
   })
 
   it('a filtered view is flat, not grouped', () => {
-    expect(buildView(HOME_LINKS, 'dev').grouped).toBe(false)
-    expect(buildView(HOME_LINKS, 'dev').rows.every((r) => r.group === null)).toBe(true)
+    expect(buildView(LINKS, 'dev').grouped).toBe(false)
+    expect(buildView(LINKS, 'dev').rows.every((r) => r.group === null)).toBe(true)
   })
 
   it('ties keep the original order, so results do not reshuffle between keystrokes', () => {
@@ -79,6 +80,27 @@ describe('ranking is predictable', () => {
 describe('normaliseQuery', () => {
   it('trims and lowercases', () => {
     expect(normaliseQuery('  DeViCe  ')).toBe('device')
+  })
+
+  it('drops Vietnamese diacritics, đ included', () => {
+    expect(normaliseQuery('Giới Thiệu')).toBe('gioi thieu')
+    expect(normaliseQuery('Điện')).toBe('dien')
+  })
+})
+
+describe('in Vietnamese', () => {
+  const vi = (query: string) => buildView(HOME_LINKS.vi, query).rows.map((r) => r.link.title)
+
+  it('finds a title typed without its diacritics', () => {
+    expect(vi('ho so')[0]).toBe('Hồ sơ')
+  })
+
+  it('finds a title typed with them', () => {
+    expect(vi('hồ')[0]).toBe('Hồ sơ')
+  })
+
+  it('still finds a link by its English name', () => {
+    expect(vi('profile')[0]).toBe('Hồ sơ')
   })
 })
 
@@ -102,19 +124,23 @@ describe('moveActive wraps in both directions', () => {
 })
 
 describe('the data itself', () => {
+  it('lists the same links in the same order in both languages', () => {
+    expect(HOME_LINKS.vi.map((l) => l.href)).toEqual(LINKS.map((l) => l.href))
+  })
+
   it('every group is one of LINK_GROUPS', () => {
-    for (const link of HOME_LINKS) {
+    for (const link of LINKS) {
       expect(LINK_GROUPS).toContain(link.group)
     }
   })
 
   it('hrefs are unique — a duplicate would make two rows share a React key', () => {
-    const hrefs = HOME_LINKS.map((l) => l.href)
+    const hrefs = LINKS.map((l) => l.href)
     expect(new Set(hrefs).size).toBe(hrefs.length)
   })
 
   it('every external link is absolute, and every internal one is root-relative', () => {
-    for (const link of HOME_LINKS) {
+    for (const link of LINKS) {
       if (link.external === true) expect(link.href).toMatch(/^https?:\/\//)
       else expect(link.href.startsWith('/')).toBe(true)
     }

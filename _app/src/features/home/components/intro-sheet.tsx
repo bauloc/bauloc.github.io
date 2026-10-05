@@ -1,19 +1,8 @@
+import { useMessages } from '@/lib/i18n'
+
+import { HOME_MESSAGES } from '../messages'
 import { morphName } from './link-sheet'
 import { Disc } from './sheet-art'
-
-/*
-  The statement, one phrase per line with every other line indented — the reference's rhythm.
-  Only the site's existing copy ("BAULOC — Mobile Developer", "Software Developer, Electrical
-  & Electronic Engineer"), recombined into a sentence; nothing invented.
-*/
-const LINES = [
-  'bauloc',
-  'is a mobile',
-  'software developer',
-  'and an electrical',
-  '& electronic',
-  'engineer',
-]
 
 /** Shared by the heading and its dark-mode twin, which must line up glyph for glyph. */
 const LAYOUT =
@@ -27,7 +16,8 @@ const LAYOUT =
  * tried and rejected. `tinted` is off for the dark-mode twin, which is near-black throughout.
  */
 function Statement({ tinted, entrance }: { tinted: boolean; entrance: boolean }) {
-  return LINES.map((line, index) => (
+  // The words are in messages.ts, one phrase per line with every other line indented.
+  return useMessages(HOME_MESSAGES).statement.map((line, index) => (
     <span key={line} className={`block overflow-hidden ${index % 2 === 1 ? 'ml-16' : ''}`}>
       <span
         className={`block ${entrance ? 'motion-safe:animate-line-rise' : ''} ${tinted && index === 0 ? 'text-index-blue' : ''}`}

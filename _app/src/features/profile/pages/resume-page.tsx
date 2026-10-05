@@ -1,4 +1,5 @@
 import { cn } from '@/lib/cn'
+import { useMessages } from '@/lib/i18n'
 
 import { MaterialIcon } from '../components/material-icon'
 import { Spinner } from '../components/spinner'
@@ -20,10 +21,11 @@ function Connector({ hidden }: { hidden: boolean }) {
 }
 
 export function ResumePage() {
-  const last = RESUME.length - 1
+  const resume = useMessages(RESUME)
+  const last = resume.length - 1
   return (
-    <ol className="wide:p-12 p-6 text-black">
-      {RESUME.map((entry, index) => (
+    <ol className="wide:p-12 text-profile-ink p-6">
+      {resume.map((entry, index) => (
         <li key={entry.when} className="flex">
           <div className="flex w-5 shrink-0 flex-col items-center">
             <Connector hidden={index === 0} />

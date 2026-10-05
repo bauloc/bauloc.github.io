@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from 'react'
 
+import { useMessages } from '@/lib/i18n'
+
 import mailIcon from '../assets/mail.png'
 import telegramIcon from '../assets/telegram.png'
 import zaloIcon from '../assets/zalo.png'
@@ -14,6 +16,7 @@ import {
   sendToTelegram,
   validateContact,
 } from '../contact'
+import { PROFILE_MESSAGES } from '../messages'
 
 const CHANNELS = [
   { title: 'Zalo', value: '+84973989634', href: 'https://zalo.me/+84973989634', icon: zaloIcon },
@@ -28,9 +31,11 @@ const TELEGRAM = configuredTelegram(import.meta.env)
  *
  * The form says what is missing in a toast, one field at a time, as the Flutter build did. A
  * complete message goes to Telegram when the build was configured for it (see contact.ts),
- * behind the same dimmed spinner; otherwise it opens in the visitor's mail app.
+ * behind the same dimmed spinner; otherwise it opens in the visitor's mail app. The toasts
+ * are worded when they show, in the language on screen then.
  */
 export function ContactPage() {
+  const t = useMessages(PROFILE_MESSAGES)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [message, setMessage] = useState('')
@@ -40,9 +45,9 @@ export function ContactPage() {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const draft = { name, email, message }
-    const problem = validateContact(draft)
-    if (problem !== null) {
-      show(problem)
+    const missing = validateContact(draft)
+    if (missing !== null) {
+      show(t.missing[missing])
       return
     }
     if (TELEGRAM === null) {
@@ -52,7 +57,7 @@ export function ContactPage() {
     setSending(true)
     const result = await sendToTelegram(draft, TELEGRAM)
     setSending(false)
-    show(result.toast)
+    show(result.ok ? t.sent : (result.detail ?? t.failed))
   }
 
   return (
@@ -64,7 +69,7 @@ export function ContactPage() {
               href={channel.href}
               target={channel.href.startsWith('mailto:') ? undefined : '_blank'}
               rel="noopener noreferrer"
-              className="bg-profile-teal-50 wide:h-[100px] wide:p-4 wide:pl-7 flex h-[70px] items-center gap-3 rounded-sm p-2 text-black no-underline transition-colors hover:bg-[color-mix(in_srgb,var(--profile-teal-50),black_4%)] active:bg-[color-mix(in_srgb,var(--profile-teal-50),black_10%)]"
+              className="bg-profile-card wide:h-[100px] wide:p-4 wide:pl-7 text-profile-ink flex h-[70px] items-center gap-3 rounded-sm p-2 no-underline transition-colors hover:bg-[color-mix(in_srgb,var(--profile-card),var(--profile-ink)_4%)] active:bg-[color-mix(in_srgb,var(--profile-card),var(--profile-ink)_10%)]"
             >
               <img
                 src={channel.icon}
@@ -84,9 +89,7 @@ export function ContactPage() {
         ))}
       </ul>
 
-      <h2 className="wide:text-[24px] py-6 text-[18px] font-semibold">
-        You can get in touch via the contact form
-      </h2>
+      <h2 className="wide:text-[24px] py-6 text-[18px] font-semibold">{t.contactFormHeading}</h2>
 
       <form
         noValidate
@@ -97,7 +100,7 @@ export function ContactPage() {
       >
         <div className="flex gap-4">
           <OutlinedField
-            label="Name"
+            label={t.name}
             name="name"
             autoComplete="name"
             value={name}
@@ -107,7 +110,7 @@ export function ContactPage() {
             className="min-w-0 flex-1"
           />
           <OutlinedField
-            label="Email"
+            label={t.email}
             name="email"
             type="email"
             autoComplete="email"
@@ -119,7 +122,7 @@ export function ContactPage() {
           />
         </div>
         <OutlinedArea
-          label="Message"
+          label={t.message}
           name="message"
           value={message}
           onChange={(event) => {
@@ -128,7 +131,7 @@ export function ContactPage() {
           className="mt-4 h-[139px]"
         />
         <ElevatedButton type="submit" className="mt-4">
-          Submit
+          {t.submit}
         </ElevatedButton>
       </form>
 

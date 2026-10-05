@@ -1,3 +1,6 @@
+import { defineMessages } from '@/lib/i18n'
+import { currentLocale, type Locale } from '@/lib/locale'
+
 import type { RepoFile } from '../repo/github'
 import { isIsoDate } from './templates/format'
 import { privacyHtml } from './templates/privacy'
@@ -29,16 +32,20 @@ export const SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/
 
 export type Platform = 'ios' | 'android'
 
+/**
+ * The kinds of data a page can say the app collects, in the form's order. The form labels
+ * them in the console's language (messages.tsx); the published page names them by DATA_LABELS.
+ */
 export const DATA_COLLECTED_OPTIONS = [
-  { id: 'name', label: 'Name' },
-  { id: 'email', label: 'Email' },
-  { id: 'location', label: 'Location' },
-  { id: 'device_info', label: 'Device Info' },
-  { id: 'usage_data', label: 'Usage Data' },
-  { id: 'camera', label: 'Camera' },
-  { id: 'microphone', label: 'Microphone' },
-  { id: 'contacts', label: 'Contacts' },
-  { id: 'payment', label: 'Payment Info' },
+  'name',
+  'email',
+  'location',
+  'device_info',
+  'usage_data',
+  'camera',
+  'microphone',
+  'contacts',
+  'payment',
 ] as const
 
 /** How each kind of data is named in the published Privacy Policy. */
@@ -213,31 +220,76 @@ export function slugify(name: string): string {
     .replace(/^-|-$/g, '')
 }
 
+/**
+ * What the checks below say, in the console's language. Worded when they run, so a caller
+ * outside React gets the language on screen; a test passes the one it wants.
+ */
+const PROBLEMS = defineMessages({
+  en: {
+    appName: 'App Name is required',
+    slug: 'URL Slug is required',
+    slugPattern: 'URL Slug may use only a–z, 0–9 and inner hyphens, at most 64 characters',
+    platform: 'Platform is required',
+    appDescription: 'App Description is required',
+    developerName: 'Developer Name is required',
+    developerEmail: 'Developer Email is required',
+    website: 'Website must start with http:// or https://',
+    country: 'Country is required',
+    date: 'Effective Date is required',
+    dateValid: 'Effective Date must be a valid date',
+    dataUsedFor: 'Data usage description is required',
+    contactEmail: 'Contact email is required',
+    deleted: (slug: string) =>
+      `"${slug}" was deleted after you opened it, so nothing was published. Close this and check the list.`,
+    changed: (slug: string) =>
+      `"${slug}" was changed elsewhere after you opened it, so nothing was published. Close this and open it again to edit the latest version.`,
+  },
+  vi: {
+    appName: 'Cần nhập tên ứng dụng',
+    slug: 'Cần nhập slug',
+    slugPattern: 'Slug chỉ gồm a–z, 0–9 và dấu gạch nối ở giữa, tối đa 64 ký tự',
+    platform: 'Cần chọn nền tảng',
+    appDescription: 'Cần nhập mô tả ứng dụng',
+    developerName: 'Cần nhập tên nhà phát triển',
+    developerEmail: 'Cần nhập email nhà phát triển',
+    website: 'Website phải bắt đầu bằng http:// hoặc https://',
+    country: 'Cần nhập quốc gia',
+    date: 'Cần nhập ngày hiệu lực',
+    dateValid: 'Ngày hiệu lực không hợp lệ',
+    dataUsedFor: 'Cần mô tả cách dùng dữ liệu',
+    contactEmail: 'Cần nhập email liên hệ',
+    deleted: (slug: string) =>
+      `"${slug}" đã bị xóa sau khi bạn mở, nên chưa đăng gì cả. Hãy đóng lại và kiểm tra danh sách.`,
+    changed: (slug: string) =>
+      `"${slug}" đã được sửa ở nơi khác sau khi bạn mở, nên chưa đăng gì cả. Hãy đóng lại rồi mở lại để sửa bản mới nhất.`,
+  },
+})
+
 /** Step 1 (General Info): what is missing or wrong, as messages. */
-export function validateGeneral(draft: PageDraft): string[] {
+export function validateGeneral(draft: PageDraft, locale: Locale = currentLocale()): string[] {
+  const t = PROBLEMS[locale]
   const errors: string[] = []
-  if (!draft.app_name.trim()) errors.push('App Name is required')
-  if (!draft.slug.trim()) errors.push('URL Slug is required')
-  else if (!SLUG_PATTERN.test(draft.slug))
-    errors.push('URL Slug may use only a–z, 0–9 and inner hyphens, at most 64 characters')
-  if (draft.platform.length === 0) errors.push('Platform is required')
-  if (!draft.app_description.trim()) errors.push('App Description is required')
-  if (!draft.developer_name.trim()) errors.push('Developer Name is required')
-  if (!draft.developer_email.trim()) errors.push('Developer Email is required')
+  if (!draft.app_name.trim()) errors.push(t.appName)
+  if (!draft.slug.trim()) errors.push(t.slug)
+  else if (!SLUG_PATTERN.test(draft.slug)) errors.push(t.slugPattern)
+  if (draft.platform.length === 0) errors.push(t.platform)
+  if (!draft.app_description.trim()) errors.push(t.appDescription)
+  if (!draft.developer_name.trim()) errors.push(t.developerName)
+  if (!draft.developer_email.trim()) errors.push(t.developerEmail)
   const site = draft.website_url.trim()
-  if (site && !/^https?:\/\//i.test(site))
-    errors.push('Website must start with http:// or https://')
-  if (!draft.country.trim()) errors.push('Country is required')
-  if (!draft.effective_date) errors.push('Effective Date is required')
-  else if (!isIsoDate(draft.effective_date)) errors.push('Effective Date must be a valid date')
+  if (site && !/^https?:\/\//i.test(site)) errors.push(t.website)
+  if (!draft.country.trim()) errors.push(t.country)
+  if (!draft.effective_date) errors.push(t.date)
+  else if (!isIsoDate(draft.effective_date)) errors.push(t.dateValid)
   return errors
 }
 
 /** Step 2 (Privacy Details). */
-export function validatePrivacy(draft: PageDraft): string[] {
+export function validatePrivacy(draft: PageDraft, locale: Locale = currentLocale()): string[] {
+  const t = PROBLEMS[locale]
   const errors: string[] = []
-  if (!draft.data_used_for.trim()) errors.push('Data usage description is required')
-  if (!draft.contact_email.trim()) errors.push('Contact email is required')
+  if (!draft.data_used_for.trim()) errors.push(t.dataUsedFor)
+  if (!draft.contact_email.trim()) errors.push(t.contactEmail)
   return errors
 }
 
@@ -348,12 +400,13 @@ export function editConflict(
   db: DbIndex,
   loaded: string,
   current: string | null,
+  locale: Locale = currentLocale(),
 ): string | null {
   if (current === null || !db.entries.some((e) => e.slug === slug)) {
-    return `"${slug}" was deleted after you opened it, so nothing was published. Close this and check the list.`
+    return PROBLEMS[locale].deleted(slug)
   }
   if (current !== loaded) {
-    return `"${slug}" was changed elsewhere after you opened it, so nothing was published. Close this and open it again to edit the latest version.`
+    return PROBLEMS[locale].changed(slug)
   }
   return null
 }

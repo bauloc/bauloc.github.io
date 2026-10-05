@@ -1,3 +1,6 @@
+import type { Localized } from '@/lib/i18n'
+import type { Locale } from '@/lib/locale'
+
 /**
  * Everything the site root links to, as data.
  *
@@ -39,6 +42,7 @@ export type SheetArt =
   | { readonly kind: 'pixelPhone' }
   | { readonly kind: 'testCard' }
 
+/** A link as a sheet shows it: its words in the language on screen. */
 export interface HomeLink {
   readonly href: string
   readonly title: string
@@ -47,46 +51,102 @@ export interface HomeLink {
   readonly status: LinkStatus
   /** Defaults to `{ kind: 'word' }`. */
   readonly art?: SheetArt
-  /** Extra search terms that do not belong in the visible copy. */
+  /**
+   * Extra search terms that do not belong in the visible copy, in either language. Typed
+   * without diacritics, as the launcher compares them (`gioi thieu`, not `giới thiệu`).
+   */
   readonly keywords?: readonly string[]
   /** Opens in a new tab, and gets an affordance saying so. */
   readonly external?: boolean
 }
 
-export const HOME_LINKS: readonly HomeLink[] = [
+/** A link as written here: its title and description in both languages. */
+interface HomeLinkSource extends Omit<HomeLink, 'title' | 'description'> {
+  readonly title: Localized<string>
+  readonly description: Localized<string>
+}
+
+const SOURCES: readonly HomeLinkSource[] = [
   {
     href: '/profile/',
-    title: 'Profile',
-    description: 'Mobile developer — about, portfolio, resume & contact.',
+    title: { en: 'Profile', vi: 'Hồ sơ' },
+    description: {
+      en: 'Mobile developer — about, portfolio, resume & contact.',
+      vi: 'Lập trình viên di động — giới thiệu, dự án, lý lịch và liên hệ.',
+    },
     group: 'Site',
     status: 'live',
     art: { kind: 'monogram', letters: 'BL' },
-    keywords: ['about', 'cv', 'resume', 'contact', 'portfolio', 'games', 'relax'],
+    keywords: [
+      'profile',
+      'about',
+      'cv',
+      'resume',
+      'contact',
+      'portfolio',
+      'games',
+      'relax',
+      'gioi thieu',
+      'ly lich',
+      'lien he',
+      'du an',
+    ],
   },
   {
     href: '/xconsole/',
-    title: 'XConsole',
-    description: 'Publish app Terms & Privacy pages straight to this repo.',
+    title: { en: 'XConsole', vi: 'XConsole' },
+    description: {
+      en: 'Publish app Terms & Privacy pages straight to this repo.',
+      vi: 'Đăng trang Điều khoản và Quyền riêng tư của ứng dụng thẳng lên repo này.',
+    },
     group: 'Tools',
     status: 'internal',
-    keywords: ['terms', 'privacy', 'legal', 'github', 'admin', 'iptv sync'],
+    keywords: ['terms', 'privacy', 'legal', 'github', 'admin', 'iptv sync', 'dieu khoan'],
   },
   {
     href: '/device/',
-    title: 'Device Lab',
-    description: 'Connected iOS & Android devices — identifiers, screenshots, logs.',
+    title: { en: 'Device Lab', vi: 'Device Lab' },
+    description: {
+      en: 'Connected iOS & Android devices — identifiers, screenshots, logs.',
+      vi: 'Thiết bị iOS và Android đang cắm vào máy — định danh, ảnh chụp màn hình, log.',
+    },
     group: 'Tools',
     status: 'wip',
     art: { kind: 'pixelPhone' },
-    keywords: ['adb', 'usb', 'android', 'ios', 'udid', 'screenshot', 'qa', 'webusb'],
+    keywords: [
+      'adb',
+      'usb',
+      'android',
+      'ios',
+      'udid',
+      'screenshot',
+      'qa',
+      'webusb',
+      'thiet bi',
+      'dien thoai',
+    ],
   },
   {
     href: 'https://github.com/bauloc',
-    title: 'GitHub',
-    description: 'Source for this site and everything on it.',
+    title: { en: 'GitHub', vi: 'GitHub' },
+    description: {
+      en: 'Source for this site and everything on it.',
+      vi: 'Mã nguồn của trang này và mọi thứ trên đó.',
+    },
     group: 'Site',
     status: 'live',
     external: true,
-    keywords: ['source', 'code', 'repo', 'git'],
+    keywords: ['source', 'code', 'repo', 'git', 'ma nguon'],
   },
 ]
+
+function inLocale(locale: Locale): readonly HomeLink[] {
+  return SOURCES.map(({ title, description, ...link }) => ({
+    ...link,
+    title: title[locale],
+    description: description[locale],
+  }))
+}
+
+/** Every link, worded for each language. Same entries, same order, in both. */
+export const HOME_LINKS: Localized<readonly HomeLink[]> = { en: inLocale('en'), vi: inLocale('vi') }

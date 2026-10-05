@@ -4,17 +4,14 @@ import '@fontsource/roboto/700.css'
 import { Link } from '@tanstack/react-router'
 import { useEffect, type ReactNode } from 'react'
 
+import { useMessages } from '@/lib/i18n'
+import { useLocale } from '@/lib/locale'
+
 import avatar from '../assets/avatar.jpg'
 import { ELEVATED_BUTTON } from '../components/elevated-button'
-import {
-  CV_CONTACT,
-  CV_EDUCATION,
-  CV_EXPERIENCE,
-  CV_NAME,
-  CV_SKILLS,
-  CV_SUMMARY,
-  CV_TITLE,
-} from '../cv'
+import { LanguageSegments, ThemeButton } from '../components/top-bar'
+import { CV, CV_CONTACT, CV_NAME } from '../cv'
+import { PROFILE_MESSAGES } from '../messages'
 import { OWN_APPS } from '../portfolio'
 
 /*
@@ -23,8 +20,10 @@ import { OWN_APPS } from '../portfolio'
   CV is its data and cannot drift from the profile — and `npm run cv` prints it to the PDF the
   DOWNLOAD button serves.
 
-  Screen: a white sheet on the rail's grey, with Back and Print above it. Print: the sheet
-  alone, with real page margins from @page so a second page would start below its top edge.
+  Screen: a white sheet on the rail's grey, with Back, the language, the theme and Print
+  above it. The sheet stays white in dark mode (`data-paper` keeps the profile's light
+  colours inside it): it is paper. Print: the sheet alone, with real page margins from @page
+  so a second page would start below its top edge. `npm run cv` prints it once per language.
 */
 
 const PRINT_CSS = '@page { size: A4; margin: 12mm 16mm; }'
@@ -41,6 +40,10 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 export function CvPage() {
+  const cv = useMessages(CV)
+  const t = useMessages(PROFILE_MESSAGES)
+  const locale = useLocale()
+
   useEffect(() => {
     const previous = document.title
     document.title = `${CV_NAME} — CV`
@@ -52,33 +55,41 @@ export function CvPage() {
   return (
     <div
       data-page="profile"
-      className="bg-profile-rail font-profile min-h-dvh py-6 text-black print:bg-white print:py-0"
+      className="bg-profile-rail font-profile text-profile-ink min-h-dvh py-6 print:bg-white print:py-0"
     >
       <style>{PRINT_CSS}</style>
 
-      <div className="mx-auto mb-4 flex w-[210mm] max-w-full items-center justify-between px-4 print:hidden">
+      <div className="mx-auto mb-4 flex w-[210mm] max-w-full flex-wrap items-center justify-between gap-3 px-4 print:hidden">
         <Link
           to="/profile"
           className="text-profile-primary text-[15px] font-medium hover:underline"
         >
-          ← Back to profile
+          {t.backToProfile}
         </Link>
-        <button
-          type="button"
-          onClick={() => {
-            window.print()
-          }}
-          className={ELEVATED_BUTTON}
-        >
-          Print / Save as PDF
-        </button>
+        <div className="flex items-center gap-2">
+          <LanguageSegments />
+          <ThemeButton />
+          <button
+            type="button"
+            onClick={() => {
+              window.print()
+            }}
+            className={ELEVATED_BUTTON}
+          >
+            {t.print}
+          </button>
+        </div>
       </div>
 
-      <article className="shadow-profile-2 mx-auto w-[210mm] max-w-full bg-white px-[16mm] py-[12mm] text-[9.5pt] leading-[1.4] print:w-auto print:p-0 print:shadow-none">
+      <article
+        data-paper
+        lang={locale}
+        className="shadow-profile-2 mx-auto w-[210mm] max-w-full bg-white px-[16mm] py-[12mm] text-[9.5pt] leading-[1.4] text-black print:w-auto print:p-0 print:shadow-none"
+      >
         <header className="flex items-center gap-5">
           <div className="min-w-0 flex-1">
             <h1 className="text-[24pt] leading-tight font-bold">{CV_NAME}</h1>
-            <p className="text-profile-teal mt-0.5 text-[12pt] font-bold">{CV_TITLE}</p>
+            <p className="text-profile-teal mt-0.5 text-[12pt] font-bold">{cv.title}</p>
             <p className="text-profile-on-surface-variant mt-2 text-[8.5pt]">
               {CV_CONTACT.map((item, index) => (
                 <span key={item.href}>
@@ -99,13 +110,13 @@ export function CvPage() {
           />
         </header>
 
-        <Section title="Summary">
-          <p>{CV_SUMMARY}</p>
+        <Section title={cv.sections.summary}>
+          <p>{cv.summary}</p>
         </Section>
 
-        <Section title="Skills">
+        <Section title={cv.sections.skills}>
           <dl className="grid grid-cols-[28mm_1fr] gap-x-3 gap-y-1">
-            {CV_SKILLS.map((skill) => (
+            {cv.skills.map((skill) => (
               <div key={skill.area} className="contents">
                 <dt className="font-bold">{skill.area}</dt>
                 <dd>{skill.items}</dd>
@@ -114,9 +125,9 @@ export function CvPage() {
           </dl>
         </Section>
 
-        <Section title="Experience">
+        <Section title={cv.sections.experience}>
           <div className="space-y-3">
-            {CV_EXPERIENCE.map((job) => (
+            {cv.experience.map((job) => (
               <div key={job.company} className="break-inside-avoid">
                 <div className="flex items-baseline justify-between gap-4">
                   <h3 className="font-bold">
@@ -136,21 +147,21 @@ export function CvPage() {
           </div>
         </Section>
 
-        <Section title="Own apps">
+        <Section title={cv.sections.ownApps}>
           <ul className="space-y-1">
             {OWN_APPS.map((app) => (
               <li key={app.title} className="break-inside-avoid">
                 <span className="font-bold">{app.title}</span>
                 <span className="text-profile-on-surface-variant"> ({app.platforms})</span>:{' '}
-                {app.description}
+                {app.description[locale]}
               </li>
             ))}
           </ul>
         </Section>
 
-        <Section title="Education">
+        <Section title={cv.sections.education}>
           <div className="space-y-1.5">
-            {CV_EDUCATION.map((item) => (
+            {cv.education.map((item) => (
               <div key={item.school} className="flex items-baseline justify-between gap-4">
                 <p>
                   <span className="font-bold">{item.school}</span>

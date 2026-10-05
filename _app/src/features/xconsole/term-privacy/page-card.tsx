@@ -19,9 +19,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/cn'
+import { useMessages } from '@/lib/i18n'
 
+import { XCONSOLE_MESSAGES } from '../messages'
 import type { DbEntry, Platform } from './model'
-import { formatDate } from './templates/format'
 
 const PLATFORM: Record<Platform, { label: string; className: string }> = {
   ios: { label: 'iOS', className: 'bg-sky-500/10 text-sky-700 dark:text-sky-300' },
@@ -39,18 +40,23 @@ export function PlatformBadges({ platforms }: { platforms: readonly Platform[] }
   ))
 }
 
-/** One published URL: which page it is, the link, and Copy. */
+/**
+ * One published URL: which page it is, the link, and Copy. The tag is a fixed width so the
+ * two rows' links line up; Vietnamese's "Điều khoản" needs a wider one than "Privacy".
+ */
 function UrlRow({ kind, url }: { kind: 'terms' | 'privacy'; url: string }) {
+  const t = useMessages(XCONSOLE_MESSAGES).pages
   const terms = kind === 'terms'
+  const name = terms ? t.terms : t.privacy
   return (
     <div className="bg-muted/40 flex items-center gap-2 rounded-lg border py-1 pr-1 pl-3">
       <span
         className={cn(
-          'w-14 shrink-0 text-[11px] font-semibold tracking-wide uppercase',
+          'w-14 shrink-0 text-[11px] font-semibold tracking-wide uppercase [&:lang(vi)]:w-[5.25rem]',
           terms ? 'text-indigo-600 dark:text-indigo-300' : 'text-emerald-600 dark:text-emerald-300',
         )}
       >
-        {terms ? 'Terms' : 'Privacy'}
+        {name}
       </span>
       <a
         href={url}
@@ -60,7 +66,7 @@ function UrlRow({ kind, url }: { kind: 'terms' | 'privacy'; url: string }) {
       >
         {url.replace(/^https:\/\//, '')}
       </a>
-      <CopyButton text={url} label={`Copy the ${terms ? 'Terms' : 'Privacy'} URL`} />
+      <CopyButton text={url} label={t.copyUrl(name)} />
     </div>
   )
 }
@@ -78,7 +84,9 @@ export function PageCard({
   onEdit: () => void
   onDelete: () => void
 }) {
-  const created = formatDate(entry.created_at.split('T')[0] ?? '')
+  const all = useMessages(XCONSOLE_MESSAGES)
+  const t = all.pages
+  const created = all.date(entry.created_at.split('T')[0] ?? '')
   return (
     <Card className="min-w-0 gap-4 py-5 transition-shadow hover:shadow-md">
       <CardHeader className="px-5">
@@ -94,28 +102,28 @@ export function PageCard({
                 variant="ghost"
                 size="icon"
                 className="size-8"
-                aria-label={`Actions for ${entry.app_name}`}
+                aria-label={t.actionsFor(entry.app_name)}
               >
                 <Ellipsis />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem disabled={busy} onSelect={onEdit}>
-                <Pencil /> Edit
+                <Pencil /> {t.edit}
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <a href={entry.terms_url} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink /> Open Terms
+                  <ExternalLink /> {t.openTerms}
                 </a>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <a href={entry.privacy_url} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink /> Open Privacy
+                  <ExternalLink /> {t.openPrivacy}
                 </a>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" disabled={busy} onSelect={onDelete}>
-                <Trash2 /> Delete
+                <Trash2 /> {t.delete}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

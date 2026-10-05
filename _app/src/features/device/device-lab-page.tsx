@@ -4,10 +4,12 @@ import { Activity, FlaskConical, Loader2, Unplug, Wifi } from 'lucide-react'
 import { lazy, useEffect, useEffectEvent, useRef, useState, useSyncExternalStore } from 'react'
 import { toast } from 'sonner'
 
+import { HomeButton, SITE_URL } from '@/components/home-button'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { Toaster } from '@/components/toaster'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
 
 import { createAgentBackend } from './backends/agent'
 import { DEVICE_ERRORS, deviceErrorMessage, type Backend } from './backends/backend'
@@ -965,7 +967,13 @@ export function DeviceLabPage() {
       </p>
 
       <header className="bg-background/80 sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b px-4 backdrop-blur">
-        <a href="/" className="flex items-center gap-2.5" title="bauloc.github.io">
+        {/* The helper's own copy of this page (local mode) is served from 127.0.0.1, whose root
+            is the helper's, not the site's. */}
+        <HomeButton href={window.DVC_BOOT?.mode === 'local' ? SITE_URL : '/'} />
+        <Separator orientation="vertical" className="data-[orientation=vertical]:h-4" />
+        {/* The name only: the way home is the button before it, and a second link there would
+            be one more stop to tab past on every visit. */}
+        <div className="flex items-center gap-2.5">
           <span className="bg-primary text-primary-foreground grid size-8 place-items-center rounded-lg text-base font-bold">
             D
           </span>
@@ -973,7 +981,7 @@ export function DeviceLabPage() {
             <span className="block font-semibold">Device Lab</span>
             <span className="text-muted-foreground hidden text-xs sm:block">bauloc.github.io</span>
           </span>
-        </a>
+        </div>
         {/* Two chips, deliberately: "helper unreachable" and "helper up, zero devices" must never
             look the same (Maestro #3012 reported "0 devices" while the agent was the failure). */}
         <div className="ml-2 hidden items-center gap-2 md:flex">

@@ -1,0 +1,1 @@
+import{at as e,it as t,rt as n}from"./index-BRU_7G8u.js";function r(r){let i=e({warn:r?.router===void 0}),a=r?.router||i;return t(a.stores.__store,n(r,a))}export{r as t};

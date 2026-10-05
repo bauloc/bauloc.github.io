@@ -1,13 +1,10 @@
 import { flushSync } from 'react-dom'
 
+import { useMessages } from '@/lib/i18n'
 import { setTheme, useTheme, type Theme } from '@/lib/theme'
 
+import { HOME_MESSAGES } from '../messages'
 import { TextSwitch } from './text-switch'
-
-const OPTIONS = [
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
-] as const satisfies readonly { value: Theme; label: string }[]
 
 /**
  * Reveal the new theme as a circle growing from the switch, through a view transition. Falls
@@ -45,13 +42,17 @@ function switchTo(next: Theme, from: HTMLElement) {
 /** "Light  Dark", bottom right. */
 export function ThemeSwitch() {
   const theme = useTheme()
+  const t = useMessages(HOME_MESSAGES)
   return (
     <TextSwitch
-      label="Colour theme"
-      options={OPTIONS}
+      label={t.theme}
+      options={[
+        { value: 'light', label: t.light },
+        { value: 'dark', label: t.dark },
+      ]}
       value={theme}
       onSelect={switchTo}
-      className="right-6"
+      className="right-6 bottom-6"
     />
   )
 }

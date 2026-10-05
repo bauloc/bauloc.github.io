@@ -7,6 +7,7 @@ import {
   DEFAULT_SOURCE,
   META_PATH,
   checkPlaylist,
+  formatSyncTime,
   isHttpUrl,
   normalizePlaylist,
   parseMeta,
@@ -33,6 +34,19 @@ describe('checkPlaylist', () => {
     expect(checkPlaylist(body)).toEqual({ ok: true, channels: 1 })
     // Unnormalised, the same text is refused rather than committed with a leading blank.
     expect(checkPlaylist(' \n#EXTM3U\n')).toMatchObject({ ok: false })
+  })
+})
+
+describe('formatSyncTime', () => {
+  // The suite runs in Asia/Ho_Chi_Minh (vite.config.ts), seven hours ahead of UTC.
+  it('keeps the legacy format in English, and day/month/year in Vietnamese', () => {
+    expect(formatSyncTime('2026-05-10T08:33:17Z', 'en')).toBe('10-May-2026 15:33')
+    expect(formatSyncTime('2026-05-10T08:33:17Z', 'vi')).toBe('10/05/2026 15:33')
+  })
+
+  it('says when there has been no sync, in either language', () => {
+    expect(formatSyncTime(null, 'en')).toBe('Never')
+    expect(formatSyncTime(null, 'vi')).toBe('Chưa có')
   })
 })
 

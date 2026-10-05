@@ -28,21 +28,30 @@ export interface LauncherView {
  * d-e in "source code" is not).
  */
 function rank(link: HomeLink, needle: string): number {
-  const title = link.title.toLowerCase()
+  const title = fold(link.title)
   if (title === needle) return 0
   if (title.startsWith(needle)) return 1
   // A word boundary inside the title, e.g. "lab" in "Device Lab".
   if (title.split(/\s+/).some((word) => word.startsWith(needle))) return 2
   if (title.includes(needle)) return 3
-  if (link.group.toLowerCase().startsWith(needle)) return 4
-  if ((link.keywords ?? []).some((k) => k.toLowerCase().startsWith(needle))) return 5
-  if ((link.keywords ?? []).some((k) => k.toLowerCase().includes(needle))) return 6
-  if (link.description.toLowerCase().includes(needle)) return 7
+  if (fold(link.group).startsWith(needle)) return 4
+  if ((link.keywords ?? []).some((k) => fold(k).startsWith(needle))) return 5
+  if ((link.keywords ?? []).some((k) => fold(k).includes(needle))) return 6
+  if (fold(link.description).includes(needle)) return 7
   return Number.POSITIVE_INFINITY
 }
 
+/**
+ * Lowercase, without diacritics: Vietnamese is typed without its marks as often as with them
+ * (and the index's type-ahead only hears plain letters), so "ho so" has to find "Hồ sơ".
+ * Đ is a letter of its own, not D with a mark, so it is folded by hand.
+ */
+function fold(text: string): string {
+  return text.normalize('NFD').replace(/\p{M}/gu, '').replace(/đ/gi, 'd').toLowerCase()
+}
+
 export function normaliseQuery(query: string): string {
-  return query.trim().toLowerCase()
+  return fold(query.trim())
 }
 
 /**
