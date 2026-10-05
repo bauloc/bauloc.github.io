@@ -4,12 +4,9 @@ import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { FlaskConical } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
-import { HomeButton } from '@/components/home-button'
-import { LanguageToggle } from '@/components/language-toggle'
-import { ThemeToggle } from '@/components/theme-toggle'
+import { SiteHeader } from '@/components/site-header'
 import { Toaster } from '@/components/toaster'
 import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -24,10 +21,9 @@ import { readToken, useToken } from './repo/token'
 import { isMockMode, useRepo } from './repo/use-repo'
 
 /**
- * `/xconsole/` — the console's shell, after shadcn/ui's dashboard: a collapsible sidebar of
- * modules, a sticky header, and the module on the right. The header leads back to the site's
- * home page and ends with the language and the theme, both the site's own choices
- * (src/lib/locale.ts, src/lib/theme.ts).
+ * `/xconsole/` — the console's shell, after shadcn/ui's sidebar with a sticky site header: the
+ * site's header across the top (with the sidebar's trigger first), a collapsible sidebar of
+ * modules below it, and the module on the right, under its own title.
  *
  * Without a token the console can do nothing, so it asks for one before showing a module.
  */
@@ -77,58 +73,50 @@ export function XConsoleLayout() {
 
   return (
     <TooltipProvider delayDuration={0}>
-      <SidebarProvider data-page="xconsole" data-shell="console">
-        <AppSidebar
-          current={current}
-          onOpenSettings={() => {
-            setSettingsFor(readToken())
-          }}
+      <SidebarProvider
+        data-page="xconsole"
+        data-shell="console"
+        className="flex-col [--header-height:--spacing(14)]"
+      >
+        <SiteHeader
+          current="xconsole"
+          leading={<SidebarTrigger className="-ml-1" />}
+          actions={
+            mock && (
+              <Badge
+                variant="outline"
+                className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-300"
+              >
+                <FlaskConical />
+                {t.mock}
+                <span className="hidden md:inline">{t.mockDetail}</span>
+              </Badge>
+            )
+          }
         />
-        <SidebarInset>
-          <header className="bg-background/80 sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b px-4 backdrop-blur">
-            <HomeButton />
-            <SidebarTrigger />
-            <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-            <nav
-              aria-label="Breadcrumb"
-              className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-sm"
-            >
-              <span className="hidden sm:inline">XConsole</span>
-              <span aria-hidden="true" className="hidden sm:inline">
-                /
-              </span>
-              <span className="text-foreground truncate font-medium">{title}</span>
-            </nav>
-            <div className="ml-auto flex items-center gap-2">
-              {mock && (
-                <Badge
-                  variant="outline"
-                  className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-300"
-                >
-                  <FlaskConical />
-                  {t.mock}
-                  <span className="hidden md:inline">{t.mockDetail}</span>
-                </Badge>
+        <div className="flex flex-1">
+          <AppSidebar
+            current={current}
+            onOpenSettings={() => {
+              setSettingsFor(readToken())
+            }}
+          />
+          <SidebarInset>
+            <div className="mx-auto w-full max-w-6xl flex-1 p-4 md:p-6 lg:p-8">
+              {context === null ? (
+                <div className="space-y-4" aria-hidden="true">
+                  <Skeleton className="h-8 w-56" />
+                  <Skeleton className="h-4 w-80" />
+                  <Skeleton className="h-40 w-full rounded-xl" />
+                </div>
+              ) : (
+                <ConsoleContext.Provider value={context}>
+                  <Outlet />
+                </ConsoleContext.Provider>
               )}
-              <LanguageToggle />
-              <ThemeToggle />
             </div>
-          </header>
-
-          <div className="mx-auto w-full max-w-6xl flex-1 p-4 md:p-6 lg:p-8">
-            {context === null ? (
-              <div className="space-y-4" aria-hidden="true">
-                <Skeleton className="h-8 w-56" />
-                <Skeleton className="h-4 w-80" />
-                <Skeleton className="h-40 w-full rounded-xl" />
-              </div>
-            ) : (
-              <ConsoleContext.Provider value={context}>
-                <Outlet />
-              </ConsoleContext.Provider>
-            )}
-          </div>
-        </SidebarInset>
+          </SidebarInset>
+        </div>
 
         {/* Mounted only while needed, so after Log out it starts empty — never pre-filled with the
             token that was just logged out. */}

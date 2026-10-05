@@ -239,10 +239,12 @@
 
   Scoped to `html:has([data-shell='console'])` rather than to the page's own element:
   dialogs, sheets and toasts portal into <body>, outside it, and must wear the same palette.
-  Nothing else on the site sees these values, and the legacy values in (a) stay what the
-  drift test pins. Colours are oklch, as shadcn ships them.
+  The site header (components/site-header.tsx) wears it on every page, the Profile's too, so
+  it is also declared on `[data-site-header]`. Nothing else on the site sees these values, and
+  the legacy values in (a) stay what the drift test pins. Colours are oklch, as shadcn ships them.
 */
-html:has([data-shell='console']) {
+html:has([data-shell='console']),
+[data-site-header] {
   --radius: 10px;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -281,7 +283,8 @@ html:has([data-shell='console']) {
   --skeleton-highlight: color-mix(in oklab, var(--background) 75%, transparent);
 }
 
-html.dark:has([data-shell='console']) {
+html.dark:has([data-shell='console']),
+.dark [data-site-header] {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);

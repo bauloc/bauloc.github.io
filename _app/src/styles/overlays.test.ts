@@ -89,13 +89,16 @@ describe('no :has() that restyles the whole page', () => {
 describe('the consoles’ border and outline colours', () => {
   const globals = stripComments(read('styles/globals.css'))
 
-  it('come from custom properties that only a console’s <html> defines', () => {
+  it('come from custom properties that only a console’s <html> and the site header define', () => {
     // A `*` rule reads them, so a value anywhere else (`:root`, a page) would leak site-wide.
+    // The site header is one element: they reach only what is inside it.
     const everywhere = stripComments(read('styles/theme.css')) + globals
     const blocks = [
       ...everywhere.matchAll(/([^{};]+)\{([^{}]*--shell-(?:border|outline)\s*:[^{}]*)\}/g),
     ]
-    expect(blocks.map((m) => (m[1] ?? '').trim())).toEqual(["html:has([data-shell='console'])"])
+    expect(blocks.map((m) => (m[1] ?? '').split(',').map((selector) => selector.trim()))).toEqual([
+      ["html:has([data-shell='console'])", '[data-site-header]'],
+    ])
     expect(globals).toMatch(
       /\*,\s*\*::before,\s*\*::after\s*\{\s*border-color: var\(--shell-border\);\s*outline-color: var\(--shell-outline\);\s*\}/,
     )

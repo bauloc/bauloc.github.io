@@ -7,7 +7,7 @@ import { setTheme, useTheme } from '@/lib/theme'
 import { SITE_MESSAGES } from './messages'
 
 /** Light ⇄ dark, shadcn's mode toggle. Shares the choice with the index's switch. */
-export function ThemeToggle() {
+export function ThemeToggle({ className }: { className?: string }) {
   const theme = useTheme()
   const t = useMessages(SITE_MESSAGES)
   const next = theme === 'dark' ? 'light' : 'dark'
@@ -16,6 +16,7 @@ export function ThemeToggle() {
     <Button
       variant="ghost"
       size="icon"
+      className={className}
       aria-label={label}
       title={label}
       onClick={() => {

@@ -15,7 +15,7 @@ export function SidePanel() {
   const t = useMessages(PROFILE_MESSAGES)
   const locale = useLocale()
   return (
-    <aside className="bg-profile-panel wide:flex sticky top-0 hidden h-dvh w-[279px] shrink-0 flex-col items-center self-start pt-12 pb-12 text-white">
+    <aside className="bg-profile-panel wide:flex sticky top-14 hidden h-[calc(100dvh-3.5rem)] w-[279px] shrink-0 flex-col items-center self-start pt-12 pb-12 text-white">
       <div className="size-[180px] shrink-0 rounded-full bg-white p-1">
         <img
           src={avatar}
