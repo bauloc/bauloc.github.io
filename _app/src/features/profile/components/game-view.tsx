@@ -1,4 +1,5 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import { SITE_MESSAGES } from '@/components/messages'
 import { useMessages } from '@/lib/i18n'
@@ -10,10 +11,10 @@ import { MaterialIcon } from './material-icon'
 /**
  * A game, playing in a frame under an app bar with a close button and its title.
  *
- * Presented the way the Flutter build presented it. With a mouse it is a full-screen dialog
- * route inside the content area, sliding up over the section while the rail and the side
- * panel stay usable — so it is not modal, and choosing another section closes it, as popping
- * that navigator did. On a touch screen it is a popup over the whole screen, scaling in.
+ * It takes the whole screen, the site header included: sliding up with a mouse, scaling in on
+ * a touch screen, as the Flutter build's game route did. The page under it can neither scroll
+ * nor take focus (`#root` is inert, so the view lives in a portal on <body>) until the close
+ * button or Esc closes it.
  *
  * The thin bar under the app bar runs until the game's page has loaded.
  */
@@ -33,21 +34,26 @@ export function GameView({ game, onClose }: { game: Game; onClose: () => void })
       onKey(event)
     }
     window.addEventListener('keydown', handleKey)
-    // The game owns the screen; the page under it must not scroll along with a swipe.
+    // The game owns the screen; the page under it must not scroll along with a swipe, nor
+    // take focus or reach a screen reader.
     const root = document.documentElement
     const overflow = root.style.overflow
     root.style.overflow = 'hidden'
+    const page = document.getElementById('root')
+    if (page !== null) page.inert = true
     return () => {
       window.removeEventListener('keydown', handleKey)
       root.style.overflow = overflow
+      if (page !== null) page.inert = false
     }
   }, [])
 
-  return (
+  return createPortal(
     <div
       role="dialog"
+      aria-modal="true"
       aria-label={game.title}
-      className="animate-slide-up wide:left-[379px] pointer-coarse:animate-pop-in bg-profile-page fixed inset-y-0 right-0 left-[79px] z-20 flex flex-col pointer-coarse:left-0!"
+      className="animate-slide-up pointer-coarse:animate-pop-in bg-profile-page fixed inset-0 z-[60] flex flex-col"
     >
       <header className="bg-profile-surface relative flex h-14 shrink-0 items-center px-1">
         <button
@@ -83,6 +89,7 @@ export function GameView({ game, onClose }: { game: Game; onClose: () => void })
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

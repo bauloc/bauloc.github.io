@@ -6,7 +6,7 @@
 ![Vite](https://img.shields.io/badge/Vite-646CFF?logo=vite&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-06B6D4?logo=tailwindcss&logoColor=white)
 
-Website cá nhân của **Nguyen Phuoc Loc (BAULOC)**, Mobile Developer. Ngoài trang giới thiệu bản thân, site còn có một số công cụ nhỏ phục vụ việc phát triển và phát hành ứng dụng di động.
+Website cá nhân của **Nguyễn Phước Lộc (BAULOC)**, lập trình viên phần mềm và kỹ sư Điện – Điện tử. Ngoài trang giới thiệu bản thân, site còn có một số công cụ nhỏ phục vụ việc phát triển và phát hành ứng dụng di động.
 
 **Website:** https://bauloc.github.io
 
@@ -90,7 +90,7 @@ Form liên hệ gửi tin nhắn qua bot Telegram. `VITE_TELEGRAM_BOT_TOKEN` và
 │   └── scripts/        # publish, check-live, cv, ...
 ├── assets/             # JS, CSS, ảnh đã build
 ├── index.html          # Trang chủ (bản build)
-├── 404.html            # Bản sao của index.html để mở được deep link
+├── 404.html            # Bản sao của index.html: mở deep link, đưa trang không tồn tại về /profile
 ├── profile/            # Trang HTML của từng mục (bản build)
 ├── xconsole/
 ├── device/

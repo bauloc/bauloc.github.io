@@ -6,11 +6,12 @@ import type { Health, HelperFeature } from './protocol'
   Is the running helper behind this page? Two questions, both pure:
 
   - featureSupport: the page is about to use a feature (android.discover, android.connect,
-    android.start-server) and the helper doesn't list it. A helper downloaded before the
-    feature shipped keeps running for weeks, so the place that would use the feature says
-    "Your helper is older than this page" with the command that updates it, instead of
-    hiding. Every Android feature is also missing when the helper runs with --no-android:
-    that is `off`, not `older`.
+    android.start-server, lan.discover) and the helper doesn't list it. A helper downloaded
+    before the feature shipped keeps running for weeks, so the place that would use the
+    feature says "Your helper is older than this page" with the command that updates it,
+    instead of hiding. Every Android feature is also missing when the helper runs with
+    --no-android: that is `off`, not `older`. lan.discover isn't Android's: --no-android
+    leaves it on, so a helper without it is only ever older.
   - helperUpdate: the published file (readPublishedHelper, the Environment check's update row)
     is newer than the running helper, or the same version built differently. The header chip
     and the notice strip say "update available" from it, so it shows outside the check too.
@@ -22,15 +23,22 @@ import type { Health, HelperFeature } from './protocol'
 /** The features the page gates something on, which an older helper may lack. */
 export type GatedFeature = Extract<
   HelperFeature,
-  'android.discover' | 'android.connect' | 'android.start-server'
+  'android.discover' | 'android.connect' | 'android.start-server' | 'lan.discover'
 >
+
+/** The features --no-android leaves out. */
+const ANDROID_FEATURES: ReadonlySet<GatedFeature> = new Set([
+  'android.discover',
+  'android.connect',
+  'android.start-server',
+])
 
 export type FeatureSupport =
   /** Not running and paired: the page's helper setup says what to do first. */
   | 'helper'
   /** Listed: use it. */
   | 'ready'
-  /** Running and paired, its Android lane on, and the feature not listed: update the helper. */
+  /** Running and paired, the feature not listed (an Android one with its lane on): update. */
   | 'older'
   /** Started with --no-android, which leaves every Android feature out. */
   | 'off'
@@ -43,6 +51,8 @@ export function featureSupport(
 ): FeatureSupport {
   if (status.phase !== 'connected' || status.pairing === null) return 'helper'
   if (status.health?.features.includes(feature)) return 'ready'
+  // Nothing turns any other feature off: no lane to wait for.
+  if (!ANDROID_FEATURES.has(feature)) return 'older'
   if (!status.lanes) return 'unknown'
   return status.lanes.android.status === 'off' ? 'off' : 'older'
 }

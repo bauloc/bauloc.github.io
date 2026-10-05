@@ -71,8 +71,8 @@ const SOURCES: readonly HomeLinkSource[] = [
     href: '/profile/',
     title: { en: 'Profile', vi: 'Hồ sơ' },
     description: {
-      en: 'Mobile developer — about, portfolio, resume & contact.',
-      vi: 'Lập trình viên di động — giới thiệu, dự án, lý lịch và liên hệ.',
+      en: 'Software developer — about, portfolio, resume & contact.',
+      vi: 'Lập trình viên phần mềm — giới thiệu, dự án, lý lịch và liên hệ.',
     },
     group: 'Site',
     status: 'live',

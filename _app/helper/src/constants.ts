@@ -3,7 +3,7 @@ import type { Timeouts } from './types'
 /** What answers on 127.0.0.1: the page checks `health.name` before it trusts anything else. */
 export const NAME = 'bauloc-device-bridge'
 /** Semver of this file. The page shows it and compares it with the published file. */
-export const VERSION = '1.1.0'
+export const VERSION = '1.2.0'
 /**
  * The wire protocol's integer major. Within a major only additions are allowed (fields,
  * codes, endpoints, `features`); the page accepts DVC_MIN_AGENT ≤ PROTOCOL ≤ DVC_MAX_AGENT.
@@ -66,6 +66,12 @@ export const LIMITS = {
   upstreamEntries: 300,
   /** Devices one Wi-Fi scan reports (§4.8). */
   nearby: 64,
+  /** Devices one look at this computer's network reports (§4.9). */
+  lanDevices: 256,
+  /** Addresses one presence check covers: two /24 networks (§4.9). */
+  lanTargets: 512,
+  /** Presence sockets open at once (§4.9): a /24 in one go, far below Node's file limit. */
+  lanSockets: 256,
 } as const
 
 /** §1.12 timeouts in milliseconds. Tests pass shorter ones through createBridge(). */
@@ -99,6 +105,13 @@ export const TIMEOUTS: Timeouts = {
   mdnsWindow: 2_000,
   systemBrowse: 1_500,
   systemResolve: 1_500,
+  lanPresence: 1_000,
+  lanSsdp: 3_000,
+  lanDescription: 2_000,
+  lanReverse: 1_200,
+  lanScan: 7_000,
+  lanCache: 30_000,
+  lanGap: 3_000,
   doctorCheck: 5_000,
   doctorSlowCheck: 10_000,
   doctorTotal: 12_000,
@@ -233,3 +246,59 @@ export const INSTALL = {
   adb: 'brew install --cask android-platform-tools',
   libimobiledevice: 'brew install libimobiledevice',
 } as const
+
+/*
+  Every device on this network (§4.9). What the helper asks the network is fixed here, and so
+  is what a device's own answer may pass on to the page.
+*/
+
+/**
+ * The presence check's one port: 9, discard. A host that is there answers a datagram to a
+ * closed port with ICMP port unreachable; one that listens on it stays silent, which is as
+ * harmless.
+ */
+export const LAN_PRESENCE_PORT = 9
+
+/** The search targets of each SSDP M-SEARCH: every device and service, and every root device. */
+export const LAN_SSDP_TARGETS = ['ssdp:all', 'upnp:rootdevice'] as const
+
+/**
+ * The only TXT keys a service passes on (§4.9): models, makers, the names owners give their
+ * devices, HomeKit's category and Android's API level. Never an id, a serial, a key or an
+ * address: `deviceid`, `id`, `pk`, `authTag`, `identifier`, `mac`, `UUID` and the rest stay out.
+ */
+export const LAN_TXT_KEYS = [
+  'model',
+  'md',
+  'fn',
+  'ty',
+  'product',
+  'usb_MFG',
+  'usb_MDL',
+  'mfg',
+  'mdl',
+  'am',
+  'rpMd',
+  'ci',
+  'n',
+  'given_name',
+  'name',
+  'api',
+  'manufacturer',
+  'friendly_name',
+] as const
+
+/**
+ * Service types asked about on every look, besides those the network lists: Device Lab's
+ * own. macOS's daemon leaves `_adb-tls-connect._tcp` out of its list of types even while it
+ * knows a phone that advertises it [V 2026-10-04].
+ */
+export const LAN_STATIC_TYPES = [
+  '_adb._tcp',
+  '_adb-tls-connect._tcp',
+  '_adb-tls-pairing._tcp',
+  '_androidtvremote2._tcp',
+  '_googlecast._tcp',
+  '_apple-mobdev2._tcp',
+  '_remotepairing._tcp',
+] as const

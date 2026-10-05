@@ -318,12 +318,15 @@ describe('the terminal’s lines', () => {
     )
   })
 
-  it('--doctor lists each one', () => {
+  it('--doctor lists each one by its model or instance, never by its own name (T18)', () => {
     expect(
-      nearbyLines([{ ...TV, connected: true, deviceId: '192.168.68.101:5555' }, PHONE]),
+      nearbyLines([
+        { ...TV, connected: true, deviceId: '192.168.68.101:5555' },
+        { ...PHONE, name: 'Jane’s Pixel', model: 'Pixel 9' },
+      ]),
     ).toEqual([
-      '  SONY KD-43X8050H · 192.168.68.101:5555 · Network debugging · listed as 192.168.68.101:5555',
-      `  ${PIXEL9.instance} · 192.168.68.114:39601 · Wireless debugging · not connected`,
+      `  ${BRAVIA.adb} · 192.168.68.101:5555 · Network debugging · listed as 192.168.68.101:5555`,
+      '  Pixel 9 · 192.168.68.114:39601 · Wireless debugging · not connected',
     ])
   })
 
@@ -611,14 +614,15 @@ describe('--doctor (§1.9)', () => {
     return lines
   }
 
-  it('one line for what the scan found, then each device', async () => {
+  it('one line for what the scan found, then each device, without the names owners gave them', async () => {
     const lines = await doctorLines(
-      fakeMdnsNetwork([braviaTv(), pixel9({ pairing: true })]),
+      fakeMdnsNetwork([braviaTv({ fn: 'Jane Doe bedroom TV' }), pixel9({ pairing: true })]),
       await freePort(),
     )
+    expect(lines.join('\n')).not.toContain('Jane Doe')
     expect(lines.slice(1)).toEqual([
       'Wi-Fi: 2 Android devices on this network (1 TV, 1 with Wireless debugging)',
-      '  SONY KD-43X8050H · 192.168.68.101:5555 · Network debugging · not connected',
+      `  ${BRAVIA.adb} · 192.168.68.101:5555 · Network debugging · not connected`,
       `  ${PIXEL9.instance} · 192.168.68.114:39601 · Wireless debugging · not connected`,
       `  ${PIXEL9.instance} · 192.168.68.114:37123 · pairing screen open · not connected`,
     ])

@@ -17,6 +17,7 @@ import {
   parseDisconnectReply,
   parsePairReply,
   parseNearby,
+  parseLan,
   serialOfInstance,
 } from './protocol'
 import { checkHost } from './network'
@@ -678,5 +679,407 @@ describe('nearby (android.discover)', () => {
     expect(serialOfInstance('adb-b120be004010859')).toBe('b120be004010859')
     expect(serialOfInstance('SONY KD-43X8050H')).toBe('')
     expect(serialOfInstance('adb-../x')).toBe('')
+  })
+})
+
+describe('every device on this network (lan.discover)', () => {
+  const local = (host: string) => {
+    const c = checkHost(host)
+    return c.ok ? c.host : null
+  }
+  const SOURCES = { presence: 'ok', neighbors: 'hidden', resolver: 'dns-sd', ssdp: 'ok' }
+  // The owner's network (2026-10-04), in the helper's words; names made up where they'd identify.
+  const ROUTER = {
+    address: '192.168.68.1',
+    self: false,
+    gateway: true,
+    hostnames: [],
+    names: [],
+    services: [],
+    upnp: {
+      deviceType: 'urn:schemas-upnp-org:device:InternetGatewayDevice:1',
+      manufacturer: 'TP-Link',
+      server: 'TP-LINK/TP-LINK UPnP/1.1 MiniUPnPd/1.8',
+    },
+    found: ['reply', 'ssdp', 'gateway'],
+  }
+  const PIXEL = {
+    address: '192.168.68.114',
+    self: false,
+    gateway: false,
+    hostnames: ['Android_GWZJSA15.local'],
+    names: [],
+    services: [
+      {
+        type: '_adb-tls-connect._tcp',
+        port: 43141,
+        name: 'adb-55090DLAQ0026D-nK25Qn',
+        txt: { given_name: 'BAULOC Pixel 9', name: 'Pixel 9', api: '37.1' },
+      },
+    ],
+    found: ['reply', 'mdns'],
+  }
+  const reply = (devices: unknown[], patch: Record<string, unknown> = {}) => ({
+    devices,
+    networks: [
+      { interface: 'en0', address: '192.168.68.113', prefix: 24, size: 254, scanned: 254 },
+    ],
+    sources: SOURCES,
+    scannedAt: 42,
+    durationMs: 4_100,
+    ...patch,
+  })
+
+  it('reads what the helper found, device by device', () => {
+    expect(parseLan(reply([ROUTER, PIXEL]), local)).toEqual({
+      devices: [
+        {
+          address: '192.168.68.1',
+          self: false,
+          gateway: true,
+          hostnames: [],
+          names: [],
+          services: [],
+          upnp: {
+            deviceType: 'urn:schemas-upnp-org:device:InternetGatewayDevice:1',
+            manufacturer: 'TP-Link',
+            server: 'TP-LINK/TP-LINK UPnP/1.1 MiniUPnPd/1.8',
+          },
+          found: ['reply', 'ssdp', 'gateway'],
+        },
+        {
+          address: '192.168.68.114',
+          self: false,
+          gateway: false,
+          hostnames: ['Android_GWZJSA15.local'],
+          names: [],
+          services: [
+            {
+              type: '_adb-tls-connect._tcp',
+              port: 43141,
+              name: 'adb-55090DLAQ0026D-nK25Qn',
+              txt: { given_name: 'BAULOC Pixel 9', name: 'Pixel 9', api: '37.1' },
+            },
+          ],
+          found: ['reply', 'mdns'],
+        },
+      ],
+      networks: [
+        { interface: 'en0', address: '192.168.68.113', prefix: 24, size: 254, scanned: 254 },
+      ],
+      sources: SOURCES,
+      scannedAt: 42,
+      durationMs: 4_100,
+    })
+  })
+
+  it('keeps only IPv4 addresses on a local network, and the first answer for each', () => {
+    const at = (address: unknown, name = 'x') => ({
+      ...ROUTER,
+      address,
+      gateway: false,
+      names: [{ text: name, source: 'mdns' }],
+    })
+    const parsed = parseLan(
+      reply([
+        at('8.8.8.8'),
+        at('127.0.0.1'),
+        at('224.0.0.251'),
+        at('0.0.0.0'),
+        at('192.168.01.20'),
+        at('fe80::1'),
+        at('fd00::1'),
+        at('printer.local'),
+        at(' 10.0.0.7 '),
+        at('169.254.10.2'),
+        at('10.0.0.7', 'again'),
+        at(17),
+        at(null),
+        'a string',
+        null,
+      ]),
+      local,
+    )
+    expect(parsed?.devices.map((d) => [d.address, d.names[0]?.text])).toEqual([
+      ['10.0.0.7', 'x'],
+      ['169.254.10.2', 'x'],
+    ])
+  })
+
+  it('strips control, line-breaking, bidi and invisible characters from every name', () => {
+    const hostile =
+      'Bau\u202e\u2066s\n\u2028\u2029 iPh\u00adone\ufeff\u061c\u2060\u2063\ufff9\u{E0041}\u{E007F} 12\t'
+    const [device] =
+      parseLan(
+        reply([
+          {
+            ...PIXEL,
+            names: [{ text: hostile, source: 'mdns' }],
+            services: [{ type: '_airplay._tcp', name: hostile, txt: { model: hostile } }],
+            upnp: { friendlyName: hostile, modelName: '\u0007' },
+          },
+        ]),
+        local,
+      )?.devices ?? []
+    expect(device?.names).toEqual([{ text: 'Baus iPhone 12', source: 'mdns' }])
+    expect(device?.services[0]).toEqual({
+      type: '_airplay._tcp',
+      name: 'Baus iPhone 12',
+      txt: { model: 'Baus iPhone 12' },
+    })
+    // A field with nothing left to show is left out.
+    expect(device?.upnp).toEqual({ friendlyName: 'Baus iPhone 12' })
+    // The same cleaning for "On this network".
+    const nearby = parseNearby(
+      {
+        devices: [
+          {
+            kind: 'adb',
+            host: '192.168.68.101',
+            port: 5555,
+            name: 'TV\u2028\ufeff\u00ad\u{E0020}',
+          },
+        ],
+      },
+      local,
+    )
+    expect(nearby?.devices[0]?.name).toBe('TV')
+  })
+
+  it('never passes on a hardware address, whatever field carries it', () => {
+    const [device] =
+      parseLan(
+        reply([
+          {
+            ...PIXEL,
+            hostnames: ['6c-02-e0-12-34-56.local', 'npi9c4e21.local'],
+            names: [{ text: 'Printer 6c:02:e0:12:34:56', source: 'ssdp' }],
+            services: [
+              // _apple-mobdev2's instance name is the iPhone's address @ its IPv6 one.
+              {
+                type: '_apple-mobdev2._tcp',
+                port: 32498,
+                name: '3a:12:34:56:78:9a@fe80::3812:34ff:fe56:789a-supportsRP-26',
+              },
+              {
+                type: '_ipp._tcp',
+                txt: { mac: '6c:02:e0:12:34:56', ty: 'HP 6C:2:E0:12:34:56', deviceid: 'x' },
+              },
+            ],
+            upnp: { friendlyName: 'Deco 14-EB-B6-12-34-56' },
+            maker: '6C02E0',
+          },
+        ]),
+        local,
+      )?.devices ?? []
+    expect(device).toMatchObject({
+      hostnames: ['npi9c4e21.local'],
+      names: [],
+      services: [{ type: '_apple-mobdev2._tcp', port: 32498 }, { type: '_ipp._tcp' }],
+      maker: '6C02E0',
+    })
+    expect(device?.upnp).toBeUndefined()
+    expect(JSON.stringify(device)).not.toMatch(/[0-9a-f]{1,2}([:-][0-9a-f]{1,2}){5}/i)
+  })
+
+  it('reads every field strictly: types, ports, TXT keys, makers, sources', () => {
+    const [device] =
+      parseLan(
+        reply([
+          {
+            ...PIXEL,
+            self: 'yes',
+            gateway: 1,
+            hostnames: [
+              'Baus-iPhone-12-Pro.local.',
+              'BAUS-IPHONE-12-PRO.local',
+              'router.lan',
+              'two words.local',
+              42,
+            ],
+            names: [
+              { text: 'BAULOC Pixel 9', source: 'mdns' },
+              { text: 'bauloc pixel 9', source: 'ssdp' },
+              { text: 'From NetBIOS', source: 'netbios' },
+              { text: '', source: 'mdns' },
+              'Pixel',
+            ],
+            services: [
+              {
+                type: '_ipp._tcp',
+                port: 631,
+                name: 'HP',
+                txt: { ty: 'HP 120x', serial: 'S1', pk: 'k', usb_MFG: 7 },
+              },
+              { type: '_ipp._tcp', port: 631, name: 'hp' },
+              { type: '_ipps._tcp', port: 0 },
+              { type: '_printer._tcp', port: '515' },
+              { type: '_pdl-datastream._tcp', port: 70_000 },
+              { type: '_ipp._tcp.local' },
+              { type: '_ipp._sctp' },
+              { type: 'ipp' },
+              { type: 42 },
+              { type: `_${'a'.repeat(63)}._tcp` },
+            ],
+            privateAddress: 'yes',
+            maker: '6c02e0',
+            found: ['mdns', 'netbios', 'reply', 'mdns', 7],
+          },
+        ]),
+        local,
+      )?.devices ?? []
+    expect(device).toMatchObject({
+      self: false,
+      gateway: false,
+      hostnames: ['Baus-iPhone-12-Pro.local'],
+      names: [{ text: 'BAULOC Pixel 9', source: 'mdns' }],
+      services: [
+        { type: '_ipp._tcp', port: 631, name: 'HP', txt: { ty: 'HP 120x' } },
+        { type: '_ipps._tcp' },
+        { type: '_printer._tcp' },
+        { type: '_pdl-datastream._tcp' },
+      ],
+      found: ['reply', 'mdns'],
+    })
+    expect(device?.services[1]).toEqual({ type: '_ipps._tcp' })
+    expect(device).not.toHaveProperty('maker')
+    expect(device).not.toHaveProperty('privateAddress')
+    const [, privateOne, shortMaker] =
+      parseLan(
+        reply([
+          PIXEL,
+          {
+            ...ROUTER,
+            address: '192.168.68.2',
+            gateway: false,
+            privateAddress: true,
+            maker: 'AC1C26',
+          },
+          { ...ROUTER, address: '192.168.68.3', gateway: false, maker: 'AC1C2' },
+        ]),
+        local,
+      )?.devices ?? []
+    // A private address names no maker, whatever the helper said.
+    expect(privateOne).toMatchObject({ privateAddress: true })
+    expect(privateOne).not.toHaveProperty('maker')
+    expect(shortMaker).not.toHaveProperty('maker')
+  })
+
+  it('caps every list as the helper does', () => {
+    const many = Array.from({ length: 300 }, (_, i) => ({
+      ...ROUTER,
+      gateway: false,
+      address: `10.0.${String(Math.floor(i / 250))}.${String((i % 250) + 1)}`,
+    }))
+    expect(parseLan(reply(many), local)?.devices).toHaveLength(256)
+    const [device] =
+      parseLan(
+        reply([
+          {
+            ...PIXEL,
+            hostnames: Array.from({ length: 9 }, (_, i) => `host-${String(i)}.local`),
+            names: Array.from({ length: 20 }, (_, i) => ({
+              text: `Name ${String(i)}`,
+              source: 'mdns',
+            })),
+            services: Array.from({ length: 40 }, (_, i) => ({
+              type: `_s${String(i)}._tcp`,
+              txt: Object.fromEntries(
+                [
+                  'model',
+                  'md',
+                  'fn',
+                  'ty',
+                  'product',
+                  'usb_MFG',
+                  'usb_MDL',
+                  'mfg',
+                  'mdl',
+                  'am',
+                ].map((k) => [k, 'v'.repeat(500)]),
+              ),
+            })),
+          },
+        ]),
+        local,
+      )?.devices ?? []
+    expect(device?.hostnames).toHaveLength(4)
+    expect(device?.names).toHaveLength(8)
+    expect(device?.services).toHaveLength(24)
+    expect(Object.keys(device?.services[0]?.txt ?? {})).toHaveLength(8)
+    expect(device?.services[0]?.txt?.model).toHaveLength(100)
+    const networks = Array.from({ length: 40 }, () => ({
+      interface: 'en0',
+      address: '10.0.0.2',
+      prefix: 24,
+      size: 254,
+      scanned: 254,
+    }))
+    expect(parseLan(reply([], { networks }), local)?.networks).toHaveLength(16)
+  })
+
+  it('reads the networks it looked at, and refuses a network that isn’t one', () => {
+    const parsed = parseLan(
+      reply([], {
+        networks: [
+          { interface: 'en0', address: '10.0.5.20', prefix: 16, size: 65_534, scanned: 254 },
+          { interface: 'en7', address: '192.168.1.5', prefix: 24, size: 254, scanned: 900 },
+          { interface: 'en1', address: '8.8.8.8', prefix: 24, size: 254, scanned: 254 },
+          { interface: 'en2', address: '10.0.0.1', prefix: 33, size: 254, scanned: 254 },
+          { interface: 'en3', address: '10.0.0.1', prefix: 24, size: -1, scanned: 0 },
+          { interface: 'en4', address: '10.0.0.1', prefix: 24.5, size: 254, scanned: 0 },
+          { interface: '', address: '10.0.0.1', prefix: 24, size: 254, scanned: 0 },
+          'en5',
+        ],
+      }),
+      local,
+    )
+    expect(parsed?.networks).toEqual([
+      { interface: 'en0', address: '10.0.5.20', prefix: 16, size: 65_534, scanned: 254 },
+      { interface: 'en7', address: '192.168.1.5', prefix: 24, size: 254, scanned: 254 },
+    ])
+  })
+
+  it('keeps the error or note with what was still found, and reads unknown values safely', () => {
+    const blocked = parseLan(
+      reply([PIXEL], {
+        note: { reason: 'blocked', message: 'm', detail: 'send EHOSTUNREACH 192.168.68.1:9' },
+        sources: { presence: 'blocked', neighbors: 'hidden', resolver: 'dns-sd', ssdp: 'blocked' },
+        truncated: true,
+      }),
+      local,
+    )
+    expect(blocked).toMatchObject({
+      devices: [{ address: '192.168.68.114' }],
+      note: { reason: 'blocked', message: 'm', detail: 'send EHOSTUNREACH 192.168.68.1:9' },
+      sources: { presence: 'blocked', ssdp: 'blocked' },
+      truncated: true,
+    })
+    expect(blocked).not.toHaveProperty('error')
+    const later = parseLan(
+      reply([], {
+        error: { reason: 'later', message: 7 },
+        sources: { presence: 'maybe', neighbors: 1, resolver: 'mdnsd' },
+        scannedAt: -5,
+        durationMs: 'long',
+        truncated: 'yes',
+      }),
+      local,
+    )
+    expect(later).toEqual({
+      devices: [],
+      networks: [
+        { interface: 'en0', address: '192.168.68.113', prefix: 24, size: 254, scanned: 254 },
+      ],
+      sources: { presence: 'off', neighbors: 'none', resolver: 'none', ssdp: 'ok' },
+      scannedAt: 0,
+      durationMs: 0,
+      error: { reason: 'failed', message: '', detail: '' },
+    })
+    expect(parseLan({ devices: [] }, local)).toMatchObject({ networks: [], scannedAt: 0 })
+    expect(parseLan({ devices: {} }, local)).toBeNull()
+    expect(parseLan({ scannedAt: 1 }, local)).toBeNull()
+    expect(parseLan([], local)).toBeNull()
+    expect(parseLan('nothing', local)).toBeNull()
   })
 })

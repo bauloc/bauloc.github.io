@@ -23,6 +23,8 @@ export function Toaster() {
       toastOptions={{ closeButtonAriaLabel: t.closeToast }}
       style={
         {
+          // Sonner sets its own font stack on the toaster; inline, the site's face wins.
+          fontFamily: 'inherit',
           '--normal-bg': 'var(--popover)',
           '--normal-text': 'var(--popover-foreground)',
           '--normal-border': 'var(--border)',

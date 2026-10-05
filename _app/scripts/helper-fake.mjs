@@ -64,6 +64,12 @@
  *                            or behind a VPN; what adb lists is still reported
  *   net slow on|off          each look takes 3 s (the real one listens for 2 s)
  *
+ * "Devices on this network" (§2.8, GET /api/lan/devices): a fixed, varied fake network — a
+ * router, this Mac, an iPhone, the Wi-Fi TV above (same Connect/Pair, Show once connected), a
+ * Galaxy phone (Connect over Wi‑Fi…), a printer, two speakers, an IoT sensor and a NAS, so every
+ * filter and row action shows. `net blocked` keeps only what the resolver named; `net slow`
+ * lengthens the look. Nothing here is real.
+ *
  * The fakes are TypeScript; they are bundled with rolldown into a temporary file first, with
  * `vitest` replaced by a stub (the harness registers its cleanup with afterAll), so this runs
  * on plain Node.
@@ -416,6 +422,169 @@ async function nearbyResult(refresh, signal) {
   return { devices, scannedAt }
 }
 
+/** The LAN this fake sits on: own address .10, the Wi-Fi TV at its nearby address, the gateway .1. */
+const LAN_NET = { interface: 'en0', address: '192.168.1.10', prefix: 24, size: 254, scanned: 254 }
+
+/**
+ * GET /api/lan/devices, injected through the `lanScan` seam (§2.8): a small but varied network,
+ * so every filter and every row action shows. The Wi-Fi TV sits at its "On this network"
+ * address, so its row offers the same Connect/Pair (and Show once the page has connected it).
+ * `net blocked` and `net slow` steer it as they steer "On this network".
+ */
+async function lanResult(scanCtx) {
+  const { net } = world
+  const scannedAt = Date.now()
+  await wait(net.slow ? 3_000 : 400, scanCtx.signal)
+  // Every device the fake network has; blocked keeps only what the resolver (mDNS/SSDP) still named.
+  const all = [
+    {
+      address: '192.168.1.1',
+      self: false,
+      gateway: true,
+      hostnames: [],
+      names: [{ text: 'Archer AX55', source: 'ssdp' }],
+      services: [],
+      upnp: {
+        deviceType: 'urn:schemas-upnp-org:device:InternetGatewayDevice:2',
+        friendlyName: 'Archer AX55',
+        manufacturer: 'TP-Link',
+        modelName: 'Archer AX55',
+      },
+      found: ['gateway', 'ssdp'],
+    },
+    {
+      address: '192.168.1.10',
+      self: true,
+      gateway: false,
+      hostnames: ['baus-macbook-pro.local'],
+      names: [{ text: 'Bau’s MacBook Pro', source: 'mdns' }],
+      services: [
+        { type: '_companion-link._tcp', port: 49152, name: 'Bau’s MacBook Pro' },
+        { type: '_smb._tcp', port: 445 },
+        { type: '_device-info._tcp', txt: { model: 'Mac15,6' } },
+      ],
+      found: ['self', 'mdns'],
+    },
+    {
+      address: '192.168.1.23',
+      self: false,
+      gateway: false,
+      hostnames: ['baus-iphone.local'],
+      names: [{ text: 'Bau’s iPhone', source: 'mdns' }],
+      services: [
+        { type: '_apple-mobdev2._tcp', port: 49153 },
+        { type: '_airplay._tcp', port: 7000, name: 'Bau’s iPhone', txt: { model: 'iPhone16,2' } },
+        { type: '_raop._tcp', port: 7000, txt: { am: 'iPhone16,2' } },
+      ],
+      found: ['reply', 'mdns'],
+    },
+    {
+      address: world.tv.host,
+      self: false,
+      gateway: false,
+      hostnames: ['living-room-tv.local'],
+      names: [{ text: 'Living Room TV', source: 'mdns' }],
+      services: [
+        { type: '_androidtvremote2._tcp', port: 6466, name: 'Living Room TV' },
+        { type: '_googlecast._tcp', port: 8009, txt: { fn: 'Living Room TV', md: 'Chromecast' } },
+        { type: '_adb-tls-connect._tcp', port: world.tv.port },
+      ],
+      found: ['reply', 'mdns'],
+    },
+    {
+      address: '192.168.1.50',
+      self: false,
+      gateway: false,
+      hostnames: ['hp-officejet.local'],
+      names: [{ text: 'HP OfficeJet Pro 9015', source: 'mdns' }],
+      services: [
+        { type: '_ipp._tcp', port: 631, name: 'HP OfficeJet Pro 9015', txt: { ty: 'HP OfficeJet Pro 9015' } },
+        { type: '_printer._tcp', port: 515 },
+      ],
+      found: ['reply', 'mdns'],
+    },
+    {
+      address: '192.168.1.60',
+      self: false,
+      gateway: false,
+      hostnames: ['kitchen-homepod.local'],
+      names: [{ text: 'Kitchen HomePod', source: 'mdns' }],
+      services: [
+        { type: '_airplay._tcp', port: 7000, name: 'Kitchen HomePod', txt: { model: 'AudioAccessory5,1' } },
+        { type: '_raop._tcp', port: 7000, txt: { am: 'AudioAccessory5,1' } },
+      ],
+      found: ['mdns'],
+    },
+    {
+      address: '192.168.1.66',
+      self: false,
+      gateway: false,
+      hostnames: [],
+      names: [{ text: 'Sonos Living Room', source: 'ssdp' }],
+      services: [{ type: '_sonos._tcp', port: 1443, name: 'Sonos Living Room' }],
+      upnp: {
+        deviceType: 'urn:schemas-upnp-org:device:MediaRenderer:1',
+        friendlyName: 'Sonos Living Room',
+        manufacturer: 'Sonos',
+        modelName: 'One SL',
+      },
+      found: ['ssdp', 'mdns'],
+    },
+    {
+      address: '192.168.1.70',
+      self: false,
+      gateway: false,
+      hostnames: ['living-room-sensor.local'],
+      names: [{ text: 'Living Room Sensor', source: 'mdns' }],
+      services: [{ type: '_esphomelib._tcp', port: 6053, name: 'Living Room Sensor' }],
+      privateAddress: true,
+      found: ['reply', 'mdns'],
+    },
+    {
+      address: '192.168.1.80',
+      self: false,
+      gateway: false,
+      hostnames: ['diskstation.local'],
+      names: [{ text: 'DiskStation', source: 'mdns' }],
+      services: [{ type: '_adisk._tcp', port: 9 }],
+      found: ['reply', 'mdns'],
+    },
+    {
+      address: '192.168.1.90',
+      self: false,
+      gateway: false,
+      hostnames: ['galaxy-s23.local'],
+      names: [],
+      services: [],
+      found: ['reply', 'reverse'],
+    },
+  ]
+  const sources = { presence: 'ok', neighbors: 'hidden', resolver: 'dns-sd', ssdp: 'ok' }
+  if (net.blocked) {
+    // The helper's own packets never left; only what the system resolver named is still here.
+    const named = all.filter((d) => d.found.some((f) => f === 'mdns' || f === 'ssdp'))
+    return {
+      devices: named,
+      networks: [LAN_NET],
+      sources: { presence: 'blocked', neighbors: 'hidden', resolver: 'dns-sd', ssdp: 'blocked' },
+      scannedAt,
+      durationMs: Date.now() - scannedAt,
+      note: {
+        reason: 'blocked',
+        message: 'This computer can’t reach the local network, so it can’t look for devices on it.',
+        detail: 'send EHOSTUNREACH 192.168.1.1:9',
+      },
+    }
+  }
+  return {
+    devices: all,
+    networks: [LAN_NET],
+    sources,
+    scannedAt,
+    durationMs: Date.now() - scannedAt,
+  }
+}
+
 const none = () => ({ screenshot: false, identifiers: false, logs: false, install: false })
 
 const iosLaneState = () => ({
@@ -676,6 +845,9 @@ const { input, bin } = await fakes.isolation({
     ),
   log: (line) => console.log(`  helper │ ${line}`),
   errorLog: (line) => console.error(`  helper ! ${line}`),
+  // "Devices on this network" (§2.8): the whole look replaced by the fake network above. It is
+  // the helper's own, independent of the Android lane, so it runs even with --no-android.
+  lanScan: (scanCtx) => lanResult(scanCtx),
   ...(noAndroid ? { android: false } : {}),
   lanes: {
     ios: iosLane.factory,

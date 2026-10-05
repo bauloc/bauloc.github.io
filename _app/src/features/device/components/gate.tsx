@@ -622,6 +622,7 @@ export function Gate({
   choice,
   onChoose,
   nearby,
+  intro = true,
 }: {
   /** browserChecks(env). */
   browser: readonly CheckItem[]
@@ -657,6 +658,8 @@ export function Gate({
    * across the room is often the device the tester came for.
    */
   nearby?: ReactNode
+  /** The title and lead; off when the page shows its own above Scan Device and Connect Device. */
+  intro?: boolean
 }) {
   const t = useMessages(GATE_MESSAGES)
   const [own, setOwn] = useState<GatePlatform | null>(null)
@@ -675,10 +678,16 @@ export function Gate({
 
   return (
     <div className="mx-auto w-full max-w-3xl py-6 md:py-8">
-      <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">{t.title}</h1>
-      <p className="text-muted-foreground mt-3 max-w-[65ch] text-base leading-relaxed">{t.lead}</p>
+      {intro && (
+        <>
+          <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">{t.title}</h1>
+          <p className="text-muted-foreground mt-3 max-w-[65ch] text-base leading-relaxed">
+            {t.lead}
+          </p>
+        </>
+      )}
 
-      <div className="mt-8">
+      <div className={cn(intro && 'mt-8')}>
         <PlatformPicker value={platform} onChange={choose} />
       </div>
 

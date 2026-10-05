@@ -25,6 +25,7 @@ import {
   type Health,
   type HelperDevice,
   type Lanes,
+  type LanResult,
   type LogMsg,
   type ConnectReply,
   type DisconnectReply,
@@ -188,6 +189,11 @@ export interface HelperConnection {
    * only looks; connecting stays the tester's click (connectNetwork, pairNetwork).
    */
   readonly nearby: (refresh?: boolean, signal?: AbortSignal) => Promise<NearbyReply>
+  /**
+   * GET /api/lan/devices, only when the helper lists `lan.discover` (else LAN_UNSUPPORTED,
+   * without a request): every device on this computer's network. It only looks.
+   */
+  readonly lanDevices: (refresh?: boolean, signal?: AbortSignal) => Promise<LanResult>
   readonly api: {
     readonly detail: (id: string, signal?: AbortSignal) => Promise<DetailResponse>
     readonly screenshot: (id: string, signal?: AbortSignal) => Promise<Blob>
@@ -1085,6 +1091,13 @@ export function createHelperConnection(
         throw new HelperError('DISCOVER_UNSUPPORTED', 'http')
       }
       return operation((linked) => client.nearby(refresh, linked), s)
+    },
+
+    async lanDevices(refresh = false, s) {
+      if (status.phase === 'connected' && !status.health?.features.includes('lan.discover')) {
+        throw new HelperError('LAN_UNSUPPORTED', 'http')
+      }
+      return operation((linked) => client.lanDevices(refresh, linked), s)
     },
 
     api: {

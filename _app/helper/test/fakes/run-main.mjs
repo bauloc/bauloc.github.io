@@ -68,8 +68,29 @@ const android = (ctx) => ({
   }),
 })
 
+/**
+ * Functions cannot travel through the JSON, so the child would get the real mDNS socket and
+ * the real network look (§4.9). No test here scans, and these make sure none ever reaches a
+ * real network: an mDNS transport that sends nothing, and a look that finds nothing.
+ */
+const silentMdns = () => Promise.resolve({ send: () => Promise.resolve(), close: () => undefined })
+/** @type {import('../../src/types').ScanLan} */
+const noLook = (ctx) =>
+  Promise.resolve({
+    devices: [],
+    networks: [],
+    sources: { presence: 'off', neighbors: 'none', resolver: 'none', ssdp: 'ok' },
+    scannedAt: ctx.now(),
+    durationMs: 0,
+  })
+
 await helper.main({
   ...helper.processEnv(),
   argv,
-  bridge: { ...overrides, lanes: { ios: null, simulators: null, android } },
+  bridge: {
+    ...overrides,
+    mdns: silentMdns,
+    lanScan: noLook,
+    lanes: { ios: null, simulators: null, android },
+  },
 })

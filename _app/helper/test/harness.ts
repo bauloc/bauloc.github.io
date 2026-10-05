@@ -7,6 +7,7 @@
   - request() / openStream(): raw node:http, because Node's fetch silently replaces a custom
     Host header [V], which would make the DNS-rebinding tests pass without testing anything.
   - until(), tinyPng(), freePort(), tempDir(): the small things every suite needs.
+  - listenerWarnings(): what Node 18 and 20 would warn about abort listeners, on Node 24.
 
   Lane suites run their REAL lane through the bridge by passing its factory and pointing the
   lane's endpoints at their fakes, for example:
@@ -14,6 +15,7 @@
                   resolveTools: () => Promise.resolve(toolbox((t) => { t.xcode.state = 'ready' })) })
   Every lane is off unless a test turns it on, and nothing else is ever reachable.
 */
+import { setMaxListeners } from 'node:events'
 import http, { type IncomingHttpHeaders } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import net, { type AddressInfo } from 'node:net'
@@ -25,6 +27,7 @@ import { createBridge, type Bridge } from '../src/bridge'
 import { emptyToolbox, type Toolbox } from '../src/tools'
 import type { BridgeInput, LogMsg, Timeouts } from '../src/types'
 import { createFakeBin, type FakeBin } from './fakes/bin'
+import { noDescription, silentPresence, silentSsdp } from './fakes/lan'
 import { silentMdns } from './fakes/mdns'
 
 const cleanups: Array<() => unknown> = []
@@ -76,6 +79,11 @@ export const SHORT: Partial<Timeouts> = {
   mdnsWindow: 200,
   systemBrowse: 600,
   systemResolve: 1_000,
+  lanPresence: 200,
+  lanSsdp: 300,
+  lanDescription: 500,
+  lanReverse: 1_000,
+  lanScan: 4_000,
 }
 
 /** Polls `check` until it is truthy; fails after `timeoutMs`. */
@@ -90,6 +98,36 @@ export async function until(
     if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}.`)
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
+}
+
+/**
+ * The MaxListenersExceededWarnings `run` causes on Node 18 and 20, which cap every
+ * AbortSignal at 10 abort listeners and print the warning in the tester's terminal past it.
+ * Node 24 has no cap, so while `run` runs every new AbortController gets 18 and 20's.
+ */
+export async function listenerWarnings(run: () => unknown): Promise<string[]> {
+  const real = globalThis.AbortController
+  class Node20AbortController extends real {
+    constructor() {
+      super()
+      setMaxListeners(10, this.signal)
+    }
+  }
+  const seen: string[] = []
+  const listener = (warning: Error): void => {
+    if (warning.name === 'MaxListenersExceededWarning') seen.push(warning.message)
+  }
+  globalThis.AbortController = Node20AbortController
+  process.on('warning', listener)
+  try {
+    await run()
+    /** process.emitWarning() emits on the next tick. */
+    await new Promise((resolve) => setImmediate(resolve))
+  } finally {
+    globalThis.AbortController = real
+    process.off('warning', listener)
+  }
+  return seen
 }
 
 const crcTable = Array.from({ length: 256 }, (_, n) => {
@@ -151,9 +189,9 @@ export interface Isolation {
 
 /**
  * Options under which nothing real can be reached: an empty fake PATH, a usbmuxd socket and
- * an adb port nobody serves, a closed upstream, an mDNS transport that sends nothing,
- * private home and temp folders, no lanes
- * unless the test adds fakes, and short timeouts. `input` wins over every default.
+ * an adb port nobody serves, a closed upstream, an mDNS transport that sends nothing, no
+ * network interface and LAN sources that send nothing (§4.9), private home and temp folders,
+ * no lanes unless the test adds fakes, and short timeouts. `input` wins over every default.
  */
 export async function isolation(input: BridgeInput = {}): Promise<Isolation> {
   const root = tempDir()
@@ -196,6 +234,20 @@ export async function isolation(input: BridgeInput = {}): Promise<Isolation> {
       mdns: silentMdns(),
       /** No real dns-sd or avahi-browse: a test that wants one writes it into bin.dir. */
       dnsSdPath: path.join(bin.dir, 'dns-sd'),
+      /**
+       * Every device on this network (§4.9): no interface, so no network to look at; and
+       * should a test give one, sources that send nothing (fakes/lan.ts) and tables and
+       * tools that are not there unless the test writes them.
+       */
+      lanInterfaces: () => [],
+      lanPresence: silentPresence(),
+      lanSsdp: silentSsdp(),
+      lanDescription: noDescription,
+      arpPath: path.join(bin.dir, 'arp'),
+      procNetArpPath: fake('proc-net-arp'),
+      procNetRoutePath: fake('proc-net-route'),
+      routePath: path.join(bin.dir, 'route'),
+      avahiResolvePath: path.join(bin.dir, 'avahi-resolve'),
       ...input,
       timeouts: { ...SHORT, ...input.timeouts },
       lanes: { ios: null, android: null, simulators: null, ...input.lanes },

@@ -4,11 +4,9 @@ import { defineMessages } from '@/lib/i18n'
 export const SITE_MESSAGES = defineMessages({
   en: {
     home: 'Home',
-    homeTitle: 'Back to the home page, bauloc.github.io',
-    /** The site header's sections, in its nav and in its phone menu. */
+    /** The site header's sections, named by their icons' tooltips. */
     sections: 'Sections',
     section: { profile: 'Profile', xconsole: 'XConsole', device: 'Device Lab' },
-    menu: 'Menu',
     language: 'Language',
     lightMode: 'Switch to light mode',
     darkMode: 'Switch to dark mode',
@@ -24,10 +22,8 @@ export const SITE_MESSAGES = defineMessages({
   },
   vi: {
     home: 'Trang chủ',
-    homeTitle: 'Về trang chủ bauloc.github.io',
     sections: 'Các mục',
     section: { profile: 'Hồ sơ', xconsole: 'XConsole', device: 'Device Lab' },
-    menu: 'Menu',
     language: 'Ngôn ngữ',
     lightMode: 'Chuyển sang giao diện sáng',
     darkMode: 'Chuyển sang giao diện tối',

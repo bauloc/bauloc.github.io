@@ -4,8 +4,8 @@ import cvEn from './assets/cv.pdf'
 import cvVi from './assets/cv-vi.pdf'
 
 /**
- * The CV behind the side panel's DOWNLOAD button (`/profile/cv`, and the PDFs made from it
- * by `npm run cv`, one per language).
+ * The CV behind the profile's download link and its "View the full CV" (`/profile/cv`, and the
+ * PDFs made from it by `npm run cv`, one per language).
  *
  * Same sources as the rest of the profile — the Resume timeline, the 2016 CV, live App Store
  * listings — and nothing beyond them: no figures, no tools the evidence does not name. The
@@ -13,7 +13,7 @@ import cvVi from './assets/cv-vi.pdf'
  * English says.
  */
 
-export const CV_NAME = 'Nguyen Phuoc Loc'
+export const CV_NAME = 'Nguyễn Phước Lộc'
 
 /** The printed CV in each language: /profile/cv, printed by `npm run cv`. */
 export const CV_PDF: Localized<string> = { en: cvEn, vi: cvVi }
@@ -41,7 +41,7 @@ export interface CvRole {
 
 export const CV = defineMessages({
   en: {
-    title: 'Mobile Developer',
+    title: 'Software Developer · Electrical & Electronic Engineer',
     sections: {
       summary: 'Summary',
       skills: 'Skills',
@@ -50,7 +50,7 @@ export const CV = defineMessages({
       education: 'Education',
     },
     summary:
-      "Mobile developer with more than ten years of shipping iOS, Apple TV, Android and Flutter apps, from FPT Telecom's FPT Play streaming service to apps I publish on my own developer account. Trained as an electrical and electronic engineer: systematic, careful with details, and used to owning an app from the first idea to the store release and the updates after it.",
+      "Software developer with more than ten years of shipping iOS, Apple TV, Android and Flutter apps, from FPT Telecom's FPT Play streaming service to apps I publish on my own developer account. Trained as an electrical and electronic engineer: systematic, careful with details, and used to owning an app from the first idea to the store release and the updates after it.",
     skills: [
       {
         area: 'iOS',
@@ -112,7 +112,7 @@ export const CV = defineMessages({
     ],
   },
   vi: {
-    title: 'Lập trình viên di động',
+    title: 'Lập trình viên phần mềm · Kỹ sư Điện – Điện tử',
     sections: {
       summary: 'Tóm tắt',
       skills: 'Kỹ năng',
@@ -121,7 +121,7 @@ export const CV = defineMessages({
       education: 'Học vấn',
     },
     summary:
-      'Lập trình viên di động với hơn mười năm phát hành ứng dụng iOS, Apple TV, Android và Flutter, từ dịch vụ FPT Play của FPT Telecom đến những ứng dụng tôi phát hành bằng tài khoản nhà phát triển cá nhân. Xuất thân kỹ sư điện – điện tử: làm việc có hệ thống, cẩn thận từng chi tiết, quen phụ trách một ứng dụng từ ý tưởng đầu tiên đến khi lên cửa hàng và các bản cập nhật sau đó.',
+      'Lập trình viên phần mềm với hơn mười năm phát hành ứng dụng iOS, Apple TV, Android và Flutter, từ dịch vụ FPT Play của FPT Telecom đến những ứng dụng tôi phát hành bằng tài khoản nhà phát triển cá nhân. Xuất thân kỹ sư điện – điện tử: làm việc có hệ thống, cẩn thận từng chi tiết, quen phụ trách một ứng dụng từ ý tưởng đầu tiên đến khi lên cửa hàng và các bản cập nhật sau đó.',
     skills: [
       {
         area: 'iOS',

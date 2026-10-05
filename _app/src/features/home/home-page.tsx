@@ -356,7 +356,7 @@ export function HomePage() {
   }
 
   return (
-    <main data-page="index" data-layout={layout} className="font-display text-index-ink relative">
+    <main data-page="index" data-layout={layout} className="font-console text-index-ink relative">
       {layout === 'list' ? (
         <StripView entrance={!switched} initialSheet={switched ? returnTo : null} />
       ) : (

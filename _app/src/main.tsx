@@ -31,7 +31,8 @@ capturePairFragment()
 
   Deep links work through the SPA fallback that `scripts/publish.mjs` writes — a byte copy
   of index.html at /404.html. Pages serves real files first, so /terms/{slug}/ and /iptv
-  never reach the router.
+  never reach the router. An address no route matches is sent on to /profile
+  (routes/__root.tsx).
 
   Scroll restoration is on: the router saves each history entry's scroll position and puts
   it back on a reload or Back. Off, it scrolls every rendered route to the top, and the index

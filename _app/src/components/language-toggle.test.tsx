@@ -7,7 +7,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { LOCALE_STORAGE_KEY, setLocale } from '@/lib/locale'
 
 import { LanguageToggle } from './language-toggle'
-import { SITE_URL, SiteHeader } from './site-header'
+import { PageTitle, SITE_URL, SiteHeader } from './site-header'
 
 beforeAll(() => {
   // jsdom has no matchMedia; the theme toggle asks it for the system's dark mode.
@@ -56,16 +56,26 @@ describe('SiteHeader', () => {
   it('leads to every section, Home first, and marks the current one', () => {
     render(<SiteHeader current="device" />)
     const nav = screen.getByRole('navigation', { name: 'Sections' })
+    // Icons, named for screen readers and in their tooltips.
     const links = within(nav).getAllByRole('link')
-    expect(links.map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
+    expect(
+      links.map((link) => [link.getAttribute('aria-label'), link.getAttribute('href')]),
+    ).toEqual([
       ['Home', '/'],
       ['Profile', '/profile/'],
       ['XConsole', '/xconsole/'],
       ['Device Lab', '/device/'],
     ])
     expect(links.filter((link) => link.getAttribute('aria-current') === 'page')).toEqual([links[3]])
-    // The phone menu is named after the current section.
-    expect(screen.getByRole('button', { name: 'Menu: Device Lab' })).toBeInTheDocument()
+  })
+
+  it('prompts at the page’s path, as a shell would', () => {
+    const { container, rerender } = render(<SiteHeader current="device" />)
+    expect(container.querySelector('header')).toHaveTextContent('bauloc@github.io:~/device$')
+    rerender(<SiteHeader current="profile" path="/profile/contact" />)
+    expect(container.querySelector('header')).toHaveTextContent('~/profile/contact$')
+    rerender(<SiteHeader current="home" />)
+    expect(container.querySelector('header')).toHaveTextContent('bauloc@github.io:~$')
   })
 
   it('links to the site itself from the helper’s own copy of a page', () => {
@@ -81,11 +91,27 @@ describe('SiteHeader', () => {
     )
   })
 
-  it('marks nothing on a page that is no section, and shows the page’s own controls', () => {
-    render(<SiteHeader current={null} actions={<button type="button">Print</button>} />)
+  it('marks nothing on a page that is no section, which has no row of its own', () => {
+    const { container } = render(<SiteHeader current={null} />)
     const nav = screen.getByRole('navigation', { name: 'Sections' })
     expect(within(nav).queryByRole('link', { current: 'page' })).toBeNull()
-    expect(screen.getByRole('button', { name: 'Menu' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Print' })).toBeInTheDocument()
+    expect(container.querySelector('header')?.children).toHaveLength(1)
+  })
+
+  it('gives a page its own row: what it is, what it reports, what it offers', () => {
+    const { container } = render(
+      <SiteHeader
+        current="profile"
+        title={<PageTitle parent="Nguyen Phuoc Loc">CV</PageTitle>}
+        status={<span>Ready</span>}
+        actions={<button type="button">Print</button>}
+      />,
+    )
+    const rows = container.querySelector('header')?.children
+    expect(rows).toHaveLength(2)
+    const page = rows?.[1] as HTMLElement
+    expect(page).toHaveTextContent('Nguyen Phuoc Loc/CV')
+    expect(within(page).getByText('Ready')).toBeInTheDocument()
+    expect(within(page).getByRole('button', { name: 'Print' })).toBeInTheDocument()
   })
 })

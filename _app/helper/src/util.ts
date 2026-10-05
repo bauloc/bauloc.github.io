@@ -1,3 +1,4 @@
+import { setMaxListeners } from 'node:events'
 import { StringDecoder } from 'node:string_decoder'
 import { LIMITS } from './constants'
 
@@ -170,6 +171,12 @@ export interface LinkedSignal {
 /**
  * One AbortSignal that aborts when any parent does, after `timeoutMs`, or on abort().
  * AbortSignal.any() would do this, but it arrived in Node 20 and this file runs on 18.
+ *
+ * Neither it nor its parents cap their abort listeners, as no AbortSignal does on Node 24:
+ * a parent holds one per signal linked to it (every request and adb exchange links to the
+ * bridge's shutdown signal), and a linked signal one per process, socket or wait of its work
+ * (a dns-sd run: two per process). Node 18 and 20 cap them at 10 and print a
+ * MaxListenersExceededWarning, in the tester's terminal, past it.
  */
 export function linkSignals(
   parents: ReadonlyArray<AbortSignal | undefined>,
@@ -178,6 +185,7 @@ export function linkSignals(
   const controller = new AbortController()
   const abort = (): void => controller.abort()
   const live = parents.filter((parent): parent is AbortSignal => parent !== undefined)
+  setMaxListeners(0, controller.signal, ...live)
   let timer: NodeJS.Timeout | undefined
   const dispose = (): void => {
     for (const parent of live) parent.removeEventListener('abort', abort)

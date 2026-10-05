@@ -166,14 +166,20 @@ describe('5. /api/health and the proof (§2.8, T7)', () => {
     const health = reply.json<Health>()
     expect(health).toMatchObject({
       name: 'bauloc-device-bridge',
-      version: '1.1.0',
+      version: '1.2.0',
       protocol: 1,
       port: s.port,
       tokenId: s.bridge.tokenId,
       tokenPersistent: false,
       runId: s.bridge.runId,
       local: true,
-      features: ['android.start-server', 'android.connect', 'android.discover', 'local'],
+      features: [
+        'android.start-server',
+        'android.connect',
+        'android.discover',
+        'local',
+        'lan.discover',
+      ],
     })
     expect(health.sha256).toMatch(/^[0-9a-f]{64}$/)
     expect(health.proof).toBeUndefined()
@@ -336,7 +342,7 @@ describe('GET /api/doctor', () => {
     const report = (await get('/api/doctor', s.auth)).json<DoctorReport>()
     expect(report.helper).toMatchObject({
       name: 'bauloc-device-bridge',
-      version: '1.1.0',
+      version: '1.2.0',
       port: s.port,
       protocol: 1,
     })

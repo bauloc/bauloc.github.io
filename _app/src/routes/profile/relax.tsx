@@ -1,7 +1,4 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { RelaxPage } from '@/features/profile/pages/relax-page'
-
-export const Route = createFileRoute('/profile/relax')({
-  component: RelaxPage,
-})
+/** `/profile/relax`: the one-page profile, scrolled to that section (ProfileLayout draws it). */
+export const Route = createFileRoute('/profile/relax')({})
