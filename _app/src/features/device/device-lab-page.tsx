@@ -16,6 +16,7 @@ import { SITE_URL, SiteHeader } from '@/components/site-header'
 import { Toaster } from '@/components/toaster'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/cn'
 import { defineMessages, localized, useMessages } from '@/lib/i18n'
 import { useLocale } from '@/lib/locale'
 
@@ -37,6 +38,8 @@ import { Gate, readGatePlatform, saveGatePlatform, type GatePlatform } from './c
 import { HelperChip, type HelperHandlers } from './components/helper-chip'
 import { HelperNotice } from './components/helper-notice'
 import { NearbySection } from './components/nearby-list'
+import { LanDialog } from './components/lan-dialog'
+import { ModeSwitch, type DeviceView } from './components/mode-switch'
 import { deviceCheck } from './components/hint-card'
 import { PairDialog } from './components/pair-dialog'
 import {
@@ -93,6 +96,7 @@ import {
   type Job,
 } from './store'
 import { createNearby, nearbyAvailability, nearbyRows, type NearbyRow } from './nearby'
+import { createLan } from './lan'
 import { createWifi } from './wifi'
 
 // The tabs' code (and media.ts, the badge reader) loads with the tab, never with the page.
@@ -170,8 +174,6 @@ const DEVICE_LAB_MESSAGES = defineMessages({
     disconnectTitle: 'Disconnect this Wi‑Fi device (adb disconnect)',
     disconnect: 'Disconnect',
     installTitle: 'Install an .apk, .apks, .xapk, .apkm or .aab, or drop one here',
-    credits:
-      'The Android robot is reproduced from work created and shared by Google, used under CC BY 3.0. Apple and the Apple logo are trademarks of Apple Inc.',
   },
   vi: {
     updated: 'Device Lab đã được cập nhật',
@@ -209,8 +211,6 @@ const DEVICE_LAB_MESSAGES = defineMessages({
     disconnectTitle: 'Ngắt kết nối thiết bị Wi‑Fi này (adb disconnect)',
     disconnect: 'Ngắt kết nối',
     installTitle: 'Cài tệp .apk, .apks, .xapk, .apkm hoặc .aab, hoặc thả tệp vào đây',
-    credits:
-      'Robot Android được tái tạo từ tác phẩm do Google tạo ra và chia sẻ, được sử dụng theo giấy phép CC BY 3.0. Apple và logo Apple là nhãn hiệu của Apple Inc.',
   },
 })
 
@@ -439,7 +439,15 @@ function installActions(lab: DeviceLab, backend: Backend, id: string): InstallAc
  * local helper, device-bridge.mjs, which the tester runs on their Mac. Redesigned on its port
  * to match XConsole (shadcn/ui, light and dark), with the legacy page's behaviour kept.
  */
-export function DeviceLabPage() {
+export function DeviceLabPage({
+  view: routeView,
+  onViewChange,
+}: {
+  /** `?view=scan` or `?view=connect`, read by the route; without it the page keeps the choice. */
+  view?: DeviceView
+  /** The tester chose the other job: the route puts it in the address. */
+  onViewChange?: (view: DeviceView) => void
+} = {}) {
   /*
     Subscribed here, at the root, on purpose: Device Lab words much of what it shows outside
     React (checks, errors, the helper's states, all in `localized` tables), so a language
@@ -451,6 +459,8 @@ export function DeviceLabPage() {
   const [wifi] = useState(() => createWifi({ connection: helper }))
   // What advertises debugging on the network: looked for while the list shows it, never connected.
   const [nearby] = useState(() => createNearby({ connection: helper }))
+  // Every device on this network: looked for only while its dialog is open.
+  const [lan] = useState(() => createLan({ connection: helper }))
   // Logs outlive their console: a device that drops says so in its log, and resumes (§7.8).
   const [logs] = useState(() =>
     createLogSessions({
@@ -467,6 +477,7 @@ export function DeviceLabPage() {
   const snap = useDeviceLabSnapshot(lab)
   const wifiSnap = useSyncExternalStore(wifi.subscribe, wifi.getSnapshot, wifi.getSnapshot)
   const nearbySnap = useSyncExternalStore(nearby.subscribe, nearby.getSnapshot, nearby.getSnapshot)
+  const lanSnap = useSyncExternalStore(lan.subscribe, lan.getSnapshot, lan.getSnapshot)
   const waitingLogId = useSyncExternalStore(logs.subscribe, logs.waitingId, logs.waitingId)
   const status = useSyncExternalStore(helper.subscribeStatus, helper.getStatus, helper.getStatus)
   const helperDevices = useSyncExternalStore(
@@ -496,6 +507,20 @@ export function DeviceLabPage() {
   const [wifiOpen, setWifiOpen] = useState(false)
   /** A found device the Wi‑Fi dialog was opened for: it fills its fields in, once per seq. */
   const [wifiPick, setWifiPick] = useState<{ seq: number; row: NearbyRow } | null>(null)
+  // Scan Device or Connect Device: the route's when it has one, else the page's own.
+  const [ownView, setOwnView] = useState<DeviceView>('connect')
+  const view = routeView ?? ownView
+  const setView = (next: DeviceView) => {
+    setOwnView(next)
+    onViewChange?.(next)
+  }
+  // Scan Device offers Connect and Pair… where "On this network" would, so it needs that look
+  // too while it shows: Connect Device's section isn't on the page then.
+  const nearbyReady = nearbyAvailability(status) === 'ready'
+  useEffect(
+    () => (view === 'scan' && nearbyReady ? nearby.watch() : undefined),
+    [view, nearbyReady, nearby],
+  )
   const [now, setNow] = useState(Date.now)
   const filterRef = useRef<HTMLInputElement>(null)
   const webusb = lab.backends.some((b) => b.kind === 'webusb' && b.isAvailable())
@@ -1060,7 +1085,7 @@ export function DeviceLabPage() {
           (r) => r.action.kind === 'connect' && sameTarget(r.action.target, running),
         )?.key ?? null)
       : null
-  const nearbySection = (
+  const nearbyList = (
     <NearbySection
       status={status}
       snapshot={nearbySnap}
@@ -1073,6 +1098,8 @@ export function DeviceLabPage() {
       onHelper={openWifi}
     />
   )
+  // "On this network" (Android debugging, with Connect and Pair…), in the sidebar and the Gate.
+  const nearbySection = nearbyList
 
   // The Wi‑Fi rows, in the Environment check, once Wi‑Fi is in play.
   const wifiDevice =
@@ -1151,11 +1178,48 @@ export function DeviceLabPage() {
         onRefused={refuseDrop}
       >
         <main>
-          {gate ? (
+          {/* Device Lab's two jobs as the page's tabs, each with its own address (?view=scan,
+              ?view=connect). With a device connected the tabs alone sit above the list; otherwise
+              the title is with them. */}
+          <div
+            className={cn(
+              'mx-auto w-full',
+              view === 'connect' && !gate ? 'mb-6 max-w-7xl' : 'max-w-3xl pt-6 md:pt-8',
+            )}
+          >
+            <ModeSwitch value={view} onChange={setView} intro={view === 'scan' || gate} />
+          </div>
+          {view === 'scan' ? (
+            <div className="mx-auto mt-6 w-full max-w-3xl space-y-4">
+              {update && <HelperNotice status={status} on={helperOn} update={update} />}
+              {/* Its Connect, Pair… and Connect over Wi‑Fi… open the Wi‑Fi dialog over it; Show
+                  goes to Connect Device with that device selected. */}
+              <LanDialog
+                inline
+                open
+                status={status}
+                snapshot={lanSnap}
+                onLook={lan.open}
+                onStop={lan.close}
+                onRefresh={lan.refresh}
+                nearby={nearbyFound}
+                listed={snap.devices}
+                connecting={running ? (nearbyConnecting ?? '') : null}
+                onHelper={openWifi}
+                onConnect={connectNearby}
+                onPair={openWifiFor}
+                onWifi={openWifiFor}
+                onShow={(id) => {
+                  lab.select(id)
+                  setView('connect')
+                }}
+              />
+            </div>
+          ) : gate ? (
             <>
               {/* Only "update available" here: the Gate's own cards say every other phase. */}
               {update && (
-                <div className="mx-auto w-full max-w-3xl">
+                <div className="mx-auto mt-6 w-full max-w-3xl">
                   <HelperNotice status={status} on={helperOn} update={update} />
                 </div>
               )}
@@ -1174,6 +1238,7 @@ export function DeviceLabPage() {
                   saveGatePlatform(platform)
                 }}
                 nearby={nearbyAvailability(status) === 'helper' ? undefined : nearbySection}
+                intro={false}
               />
             </>
           ) : (
@@ -1330,10 +1395,6 @@ export function DeviceLabPage() {
           )}
         </main>
       </InstallDropZone>
-
-      <footer className="text-muted-foreground px-4 pb-4 text-center text-xs md:px-6">
-        {t.credits}
-      </footer>
 
       {/* One dialog per device that has had one, kept mounted while its device is listed, so a
           closed dialog still follows its job and can show how it ended. */}

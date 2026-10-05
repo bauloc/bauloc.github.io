@@ -513,7 +513,7 @@ export function isAuthenticateReply(reply: HostReply): boolean {
 }
 
 /** One plain sentence each: what to do about it. */
-const NETWORK_HINT: Record<NetworkFailure, string> = {
+export const NETWORK_HINT: Record<NetworkFailure, string> = {
   refused:
     'Nothing accepted the connection there. On the device, turn on Network debugging (TV) or Wireless debugging (phone), and check the address and port.',
   blocked:
@@ -1579,12 +1579,15 @@ const KIND_LABEL: Record<NearbyKind, string> = {
   pairing: 'pairing screen open',
 }
 
-/** --doctor: one indented line per found service. */
+/**
+ * --doctor: one indented line per found service, named by its model, else its instance
+ * (`adb-<serial>…`), never by the name its owner gave it (T18: the output is pasted into PRs).
+ */
 export function nearbyLines(devices: readonly AndroidNearbyDevice[]): string[] {
   return devices.map((d) =>
     clean(
       `  ${[
-        d.name || d.model || d.instance,
+        d.model || d.instance,
         networkSerial(d.host, d.port),
         KIND_LABEL[d.kind],
         ...(d.osVersion ? [`Android ${d.osVersion}`] : []),

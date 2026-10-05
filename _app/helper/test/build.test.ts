@@ -19,7 +19,7 @@ describe('the built file', () => {
     const lines = code.split('\n')
     expect(lines[0]).toBe('#!/usr/bin/env node')
     expect(lines[1]).toBe('/*')
-    expect(lines[2]).toBe(' * Device Lab helper 1.1.0 (bauloc-device-bridge)')
+    expect(lines[2]).toBe(' * Device Lab helper 1.2.0 (bauloc-device-bridge)')
     expect(code).toContain(' * What it never does')
     expect(code).toContain('https://github.com/bauloc/bauloc.github.io/tree/master/_app/helper/src')
   })
@@ -42,6 +42,22 @@ describe('the built file', () => {
       ' *     phones on the Wi-Fi with read-only mDNS questions, and never connects one by itself.',
     )
   })
+  it('says what it does to list every device on the network, and what it never returns (§4.9)', () => {
+    expect(code).toContain(
+      [
+        " *   - Devices on this network, only when the page asks: what devices on this computer's own",
+        ' *     network say about themselves (mDNS, SSDP), the names this computer already knows, and',
+        ' *     one UDP datagram to each address of its own subnet to see what answers. No port scan.',
+      ].join('\n'),
+    )
+    expect(code).toContain(
+      [
+        ' *   - Return the pair record, IMEI, phone numbers, MAC addresses (for a network device: only',
+        " *     whether its address is private, and its maker's 3-byte prefix) or any key not on its",
+        ' *     allowlists.',
+      ].join('\n'),
+    )
+  })
   it('lays the modules out in the order of the spec’s sections (§1.2)', () => {
     const regions = [...code.matchAll(/^\/\/#region (\S+)$/gm)].map((m) => m[1])
     const order = [
@@ -54,6 +70,8 @@ describe('the built file', () => {
       'src/auth.ts',
       'src/http.ts',
       'src/local-mode.ts',
+      'src/lan-net.ts',
+      'src/lan.ts',
       'src/bridge.ts',
       'src/main.ts',
     ]
@@ -66,14 +84,16 @@ describe('the built file', () => {
     const imports = [...code.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1])
     expect(imports.length).toBeGreaterThan(3)
     expect(imports.every((source) => source?.startsWith('node:'))).toBe(true)
-    expect(code.match(/^const VERSION = "1\.1\.0";$/gm)).toHaveLength(1)
+    expect(code.match(/^const VERSION = "1\.2\.0";$/gm)).toHaveLength(1)
   })
-  it('is 1.1.0, the first version with android.discover, in the line the page reads', () => {
-    // A new feature bumps the minor version (§2.8): 1.0.0 helpers exist with and without
-    // discovery, so the page's update chip could not tell them apart by version.
+  it('is 1.2.0, the first version with lan.discover, in the line the page reads', () => {
+    // A new feature bumps the minor version, a fix the patch (§2.8): the page tells a tester
+    // on 1.1.x that "Devices on this network" needs the newer helper, with its command.
     // The page's own pattern (preflight/env.ts HELPER_VERSION_LINE), on the published file.
-    expect(/^const VERSION = "([^"]+)";$/m.exec(code)?.[1]).toBe('1.1.0')
+    expect(/^const VERSION = "([^"]+)";$/m.exec(code)?.[1]).toBe('1.2.0')
     expect(code).toContain('lanes.android ? "android.discover" : null')
+    expect(code).toContain('"lan.discover"')
+    expect(code).toContain('"/api/lan/devices": "GET"')
   })
   it('keeps the doc comments a reader needs', () => {
     expect(code).toContain('* 1. Host: a DNS-rebound evil.example still says')
@@ -112,6 +132,7 @@ describe('Node 18 denylist (§1.1)', () => {
         /** AbortSignal.any() arrived in Node 20; Promise.withResolvers() too. */
         // const x = [1].toSorted()
         import { randomUUID } from "node:crypto"
+        import { setMaxListeners } from "node:events"
         const id = randomUUID()
         const t = AbortSignal.timeout(5)
         const last = [1, 2].findLast((n) => n > 1)
@@ -165,7 +186,7 @@ describe('its exports and its first run', () => {
   })
   it('runs on this Node: --version, and a usage error exits 64', () => {
     expect(execFileSync(process.execPath, [file, '--version'], { encoding: 'utf8' })).toBe(
-      '1.1.0\n',
+      '1.2.0\n',
     )
     let status: number | null = null
     try {

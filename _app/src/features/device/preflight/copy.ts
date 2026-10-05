@@ -432,11 +432,13 @@ const OLDER_CAN = localized<Readonly<Record<GatedFeature, string>>>({
     'android.discover': 'look for devices on this network',
     'android.connect': 'connect to devices over Wi‑Fi',
     'android.start-server': 'start Google’s adb server',
+    'lan.discover': 'list every device on this network',
   },
   vi: {
     'android.discover': 'tìm thiết bị trên mạng này',
     'android.connect': 'kết nối với thiết bị qua Wi‑Fi',
     'android.start-server': 'khởi động adb server của Google',
+    'lan.discover': 'liệt kê mọi thiết bị trên mạng này',
   },
 })
 

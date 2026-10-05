@@ -32,6 +32,8 @@ export type HelperFeature =
   | 'android.connect'
   /** GET /api/android/nearby: the Android devices that advertise debugging on the network. */
   | 'android.discover'
+  /** GET /api/lan/devices: every device on this computer's network (helper 1.2.0). */
+  | 'lan.discover'
   | 'local'
   | 'simulators'
   | 'wifi'
@@ -691,15 +693,24 @@ export function serialOfInstance(instance: string): string {
   return m?.[1] ?? ''
 }
 
-/** Controls, and the marks that reorder or hide text (bidi overrides, zero-width): never printed. */
+/**
+ * Controls, and the marks that break, reorder or hide text (line separators, bidi marks and
+ * overrides, zero-width and invisible characters, tags): never printed.
+ */
 function isVisible(char: string): boolean {
   const n = char.codePointAt(0) ?? 0
   return !(
     n < 0x20 ||
     (n >= 0x7f && n < 0xa0) ||
+    n === 0xad ||
+    n === 0x61c ||
     (n >= 0x200b && n <= 0x200f) ||
-    (n >= 0x202a && n <= 0x202e) ||
-    (n >= 0x2066 && n <= 0x2069)
+    (n >= 0x2028 && n <= 0x202e) ||
+    (n >= 0x2060 && n <= 0x2064) ||
+    (n >= 0x2066 && n <= 0x2069) ||
+    n === 0xfeff ||
+    (n >= 0xfff9 && n <= 0xfffb) ||
+    (n >= 0xe0000 && n <= 0xe007f)
   )
 }
 
@@ -773,6 +784,363 @@ export function parseNearby(
           },
         }
       : {}),
+  }
+}
+
+/*
+  Every device on this network (feature `lan.discover`, §4.9): what the helper found on this
+  computer's own network, device by device, from what each says about itself (mDNS, SSDP), the
+  names the system already knows, the neighbour table and a presence check. Facts only: what a
+  device is and what to call it is the page's to decide (lan-kinds.ts). Never a hardware
+  address: at most whether it is a private one, and its maker's prefix.
+*/
+
+/** How the helper came to know a device. */
+export type LanSource = 'reply' | 'neighbors' | 'mdns' | 'ssdp' | 'reverse' | 'gateway' | 'self'
+
+export interface LanName {
+  readonly text: string
+  readonly source: 'mdns' | 'ssdp'
+}
+
+export interface LanService {
+  /** '_ipp._tcp' (no '.local'). */
+  readonly type: string
+  readonly port?: number
+  /** The instance name, cleaned; never one that embeds a hardware address. */
+  readonly name?: string
+  /** Only the keys on the helper's allowlist (LAN_TXT_KEYS). */
+  readonly txt?: Readonly<Record<string, string>>
+}
+
+/** The UPnP description a device pointed to in its SSDP answer, and that answer's SERVER. */
+export interface LanUpnp {
+  readonly deviceType?: string
+  readonly friendlyName?: string
+  readonly manufacturer?: string
+  readonly modelName?: string
+  readonly modelNumber?: string
+  readonly server?: string
+}
+
+export interface LanDevice {
+  /** An IPv4 address on this computer's network: what the rest of the page keys it by. */
+  readonly address: string
+  /** This computer. */
+  readonly self: boolean
+  /** The default gateway: the router. */
+  readonly gateway: boolean
+  /** Its '.local' names, ≤ 4. */
+  readonly hostnames: readonly string[]
+  readonly names: readonly LanName[]
+  readonly services: readonly LanService[]
+  readonly upnp?: LanUpnp
+  /** 'A1B2C3': its maker's 3-byte prefix, never for a private address. */
+  readonly maker?: string
+  /** Only when its hardware address was seen: a private (randomized) Wi‑Fi address. */
+  readonly privateAddress?: boolean
+  readonly found: readonly LanSource[]
+}
+
+/** A network the helper looked at: `scanned` of its `size` addresses were checked. */
+export interface LanNetwork {
+  readonly interface: string
+  readonly address: string
+  readonly prefix: number
+  readonly size: number
+  readonly scanned: number
+}
+
+/** What could look on this computer. */
+export interface LanSources {
+  readonly presence: 'ok' | 'blocked' | 'off'
+  /** `hidden`: the tool ran and listed nothing, as macOS 27 does for the helper. */
+  readonly neighbors: 'ok' | 'hidden' | 'none'
+  readonly resolver: 'dns-sd' | 'avahi' | 'none'
+  readonly ssdp: 'ok' | 'blocked'
+}
+
+/** GET /api/lan/devices[?refresh=1]. */
+export interface LanResult {
+  readonly devices: readonly LanDevice[]
+  readonly networks: readonly LanNetwork[]
+  readonly sources: LanSources
+  /** When the look these devices come from started (ms since the epoch); 0 when not said. */
+  readonly scannedAt: number
+  readonly durationMs: number
+  /** More devices than the cap: only the first ones are here. */
+  readonly truncated?: boolean
+  /** Nothing could look: why, with whatever was still known (this computer, the router). */
+  readonly error?: {
+    readonly reason: NearbyFailure
+    readonly message: string
+    readonly detail: string
+  }
+  /** The helper's own packets couldn't leave, but the system's resolver still named devices. */
+  readonly note?: {
+    readonly reason: NearbyFailure
+    readonly message: string
+    readonly detail: string
+  }
+}
+
+/** At most this many devices from one answer (the helper's cap): a /24 has 254 addresses. */
+const MAX_LAN = 256
+/** Per device, as the helper caps them. */
+const MAX_LAN_HOSTNAMES = 4
+const MAX_LAN_NAMES = 8
+const MAX_LAN_SERVICES = 24
+const MAX_LAN_TXT = 8
+const MAX_LAN_NETWORKS = 16
+
+/** The page's copy of the helper's LAN_TXT_KEYS: any other TXT key is dropped. */
+const LAN_TXT_KEYS: ReadonlySet<string> = new Set([
+  'model',
+  'md',
+  'fn',
+  'ty',
+  'product',
+  'usb_MFG',
+  'usb_MDL',
+  'mfg',
+  'mdl',
+  'am',
+  'rpMd',
+  'ci',
+  'n',
+  'given_name',
+  'name',
+  'api',
+  'manufacturer',
+  'friendly_name',
+])
+
+/** A DNS-SD service type, by the helper's rule: `_ipp._tcp`, `_adb-tls-connect._tcp`. */
+const LAN_SERVICE_TYPE = /^_[A-Za-z0-9][A-Za-z0-9_-]{0,61}\._(?:tcp|udp)$/
+
+/** checkHost's answer is an IPv4 literal (it already checked each part). */
+const IPV4_LITERAL = /^\d{1,3}(?:\.\d{1,3}){3}$/
+
+/** A hardware address inside a text: such a text is never shown, whatever the helper let by. */
+const EMBEDDED_MAC = /\b[0-9a-f]{1,2}(?:[:-][0-9a-f]{1,2}){5}\b/i
+
+const LAN_SOURCES: readonly LanSource[] = [
+  'reply',
+  'neighbors',
+  'mdns',
+  'ssdp',
+  'reverse',
+  'gateway',
+  'self',
+]
+
+/** A text from the network to print: plain(), and nothing that carries a hardware address. */
+function lanText(value: unknown, max: number = CAP.name): string {
+  const text = plain(value, max)
+  return EMBEDDED_MAC.test(text) ? '' : text
+}
+
+/** Its own `.local` names, without the root's dot, once each. */
+function lanHostnames(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  for (const raw of value) {
+    const name = lanText(raw, 253).replace(/\.$/, '')
+    if (!/^\S+\.local$/i.test(name)) continue
+    if (out.some((n) => n.toLowerCase() === name.toLowerCase())) continue
+    out.push(name)
+    if (out.length >= MAX_LAN_HOSTNAMES) break
+  }
+  return out
+}
+
+function lanNames(value: unknown): LanName[] {
+  if (!Array.isArray(value)) return []
+  const out: LanName[] = []
+  for (const raw of value) {
+    if (!isRecord(raw)) continue
+    const text = lanText(raw.text)
+    const source = oneOf(raw.source, ['mdns', 'ssdp'] as const)
+    if (!text || !source) continue
+    if (out.some((n) => n.text.toLowerCase() === text.toLowerCase())) continue
+    out.push({ text, source })
+    if (out.length >= MAX_LAN_NAMES) break
+  }
+  return out
+}
+
+/** Allowlisted keys only, their values cleaned; undefined when none is left. */
+function lanTxt(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) return undefined
+  const out: Record<string, string> = {}
+  let n = 0
+  for (const [key, raw] of Object.entries(value)) {
+    if (n >= MAX_LAN_TXT) break
+    if (!LAN_TXT_KEYS.has(key)) continue
+    const text = lanText(raw, CAP.field)
+    if (!text) continue
+    out[key] = text
+    n++
+  }
+  return n > 0 ? out : undefined
+}
+
+function lanServices(value: unknown): LanService[] {
+  if (!Array.isArray(value)) return []
+  const out: LanService[] = []
+  const seen = new Set<string>()
+  for (const raw of value) {
+    if (!isRecord(raw) || typeof raw.type !== 'string' || !LAN_SERVICE_TYPE.test(raw.type)) {
+      continue
+    }
+    const { port } = raw
+    const name = lanText(raw.name)
+    const key = `${raw.type.toLowerCase()} ${name.toLowerCase()}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const txt = lanTxt(raw.txt)
+    out.push({
+      type: raw.type,
+      ...(typeof port === 'number' && Number.isInteger(port) && port >= 1 && port <= 65535
+        ? { port }
+        : {}),
+      ...(name ? { name } : {}),
+      ...(txt ? { txt } : {}),
+    })
+    if (out.length >= MAX_LAN_SERVICES) break
+  }
+  return out
+}
+
+const UPNP_KEYS = [
+  'deviceType',
+  'friendlyName',
+  'manufacturer',
+  'modelName',
+  'modelNumber',
+  'server',
+] as const
+
+function lanUpnp(value: unknown): LanUpnp | undefined {
+  if (!isRecord(value)) return undefined
+  const out: { -readonly [K in keyof LanUpnp]: string } = {}
+  for (const key of UPNP_KEYS) {
+    const text = lanText(value[key])
+    if (text) out[key] = text
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+function parseLanDevice(
+  value: unknown,
+  isLocal: (host: string) => string | null,
+): LanDevice | null {
+  if (!isRecord(value) || typeof value.address !== 'string') return null
+  const address = isLocal(value.address)
+  if (address === null || !IPV4_LITERAL.test(address)) return null
+  const privateAddress = optBool(value.privateAddress)
+  // A maker's prefix only for an address its maker gave out: a private one names nobody.
+  const maker =
+    typeof value.maker === 'string' && /^[0-9A-F]{6}$/.test(value.maker) && privateAddress !== true
+      ? value.maker
+      : undefined
+  const upnp = lanUpnp(value.upnp)
+  return {
+    address,
+    self: value.self === true,
+    gateway: value.gateway === true,
+    hostnames: lanHostnames(value.hostnames),
+    names: lanNames(value.names),
+    services: lanServices(value.services),
+    ...(upnp ? { upnp } : {}),
+    ...(maker === undefined ? {} : { maker }),
+    ...(privateAddress === undefined ? {} : { privateAddress }),
+    found: lanFound(value.found),
+  }
+}
+
+/** The sources it names that the page knows, once each, in their fixed order. */
+function lanFound(value: unknown): LanSource[] {
+  if (!Array.isArray(value)) return []
+  const said = new Set<unknown>(value)
+  return LAN_SOURCES.filter((source) => said.has(source))
+}
+
+/** A count the helper sent: a whole number, 0 and up. */
+const wholeNumber = (value: unknown, max: number): number | null =>
+  isNum(value) && Number.isInteger(value) && value >= 0 && value <= max ? value : null
+
+function parseLanNetwork(
+  value: unknown,
+  isLocal: (host: string) => string | null,
+): LanNetwork | null {
+  if (!isRecord(value) || typeof value.address !== 'string') return null
+  const address = isLocal(value.address)
+  const name = plain(value.interface, 40)
+  const prefix = wholeNumber(value.prefix, 32)
+  const size = wholeNumber(value.size, 2 ** 32)
+  const scanned = wholeNumber(value.scanned, 2 ** 32)
+  if (address === null || !IPV4_LITERAL.test(address) || !name) return null
+  if (prefix === null || size === null || scanned === null) return null
+  return { interface: name, address, prefix, size, scanned: Math.min(scanned, size) }
+}
+
+function parseLanSources(value: unknown): LanSources {
+  const s = isRecord(value) ? value : {}
+  return {
+    presence: pick(s.presence, ['ok', 'blocked', 'off'], 'off'),
+    neighbors: pick(s.neighbors, ['ok', 'hidden', 'none'], 'none'),
+    resolver: pick(s.resolver, ['dns-sd', 'avahi', 'none'], 'none'),
+    ssdp: pick(s.ssdp, ['ok', 'blocked'], 'ok'),
+  }
+}
+
+/** An `error` or `note`: an unknown reason reads as `failed`. */
+function lanProblem(value: unknown): LanResult['error'] {
+  if (!isRecord(value)) return undefined
+  return {
+    reason: oneOf(value.reason, NEARBY_FAILURES) ?? 'failed',
+    message: str(value.message, CAP.sentence),
+    detail: str(value.detail, CAP.sentence),
+  }
+}
+
+/**
+ * GET /api/lan/devices. `isLocal` is helper/network.ts's checkHost, as for parseNearby: a
+ * device whose address isn't an IPv4 address on a local network is dropped, and so is a
+ * second answer for an address already read. Unknown fields are ignored.
+ */
+export function parseLan(
+  value: unknown,
+  isLocal: (host: string) => string | null,
+): LanResult | null {
+  if (!isRecord(value) || !Array.isArray(value.devices)) return null
+  const devices: LanDevice[] = []
+  const seen = new Set<string>()
+  for (const raw of value.devices) {
+    if (devices.length >= MAX_LAN) break
+    const device = parseLanDevice(raw, isLocal)
+    if (!device || seen.has(device.address)) continue
+    seen.add(device.address)
+    devices.push(device)
+  }
+  const networks: LanNetwork[] = []
+  for (const raw of Array.isArray(value.networks) ? value.networks : []) {
+    if (networks.length >= MAX_LAN_NETWORKS) break
+    const network = parseLanNetwork(raw, isLocal)
+    if (network) networks.push(network)
+  }
+  const error = lanProblem(value.error)
+  const note = lanProblem(value.note)
+  return {
+    devices,
+    networks,
+    sources: parseLanSources(value.sources),
+    scannedAt: Math.max(0, num(value.scannedAt)),
+    durationMs: Math.max(0, num(value.durationMs)),
+    ...(value.truncated === true ? { truncated: true } : {}),
+    ...(error ? { error } : {}),
+    ...(note ? { note } : {}),
   }
 }
 

@@ -15,6 +15,7 @@ import type { IosLaneFacts } from './ios-lane'
 import type { AndroidLaneFacts } from './android-lane'
 import type { SimulatorLaneFacts } from './simulator-lane'
 import type { OpenMdnsTransport } from './mdns'
+import type { FetchDescription, LanInterface, OpenPresence, OpenSsdp } from './lan-net'
 
 /* ------------------------------------------------------------------ wire: devices --- */
 
@@ -322,6 +323,102 @@ export interface AndroidNearbyResult {
   }
 }
 
+/* ------------------------------------------- wire: every device on this network (§4.9) --- */
+
+/**
+ * How the helper came to know a device: `reply` the presence check (its port unreachable),
+ * `neighbors` the neighbour (ARP) table, `mdns` a service it announces, `ssdp` its SSDP answer,
+ * `reverse` the name the system's resolver gave its address, `gateway` the default route,
+ * `self` this computer's own address.
+ */
+export type LanSource = 'reply' | 'neighbors' | 'mdns' | 'ssdp' | 'reverse' | 'gateway' | 'self'
+
+export interface LanName {
+  text: string
+  source: 'mdns' | 'ssdp'
+}
+
+export interface LanService {
+  /** `_ipp._tcp`, without `.local`. */
+  type: string
+  port?: number
+  /** The instance name, cleaned; never one that carries a hardware address, a serial or an id. */
+  name?: string
+  /** Only the keys of LAN_TXT_KEYS. */
+  txt?: Record<string, string>
+}
+
+/** The UPnP description a device pointed to in its SSDP answer, and that answer's SERVER. */
+export interface LanUpnp {
+  deviceType?: string
+  friendlyName?: string
+  manufacturer?: string
+  modelName?: string
+  modelNumber?: string
+  server?: string
+}
+
+export interface LanDevice {
+  /** An IPv4 address on the local network, as offerableAddress() writes it. */
+  address: string
+  self: boolean
+  gateway: boolean
+  /** `.local` names: SRV targets and reverse names, at most 4. */
+  hostnames: string[]
+  /** At most 8. */
+  names: LanName[]
+  /** At most 24. */
+  services: LanService[]
+  upnp?: LanUpnp
+  /**
+   * `A1B2C3`: the first three bytes of its hardware address, its maker's prefix, only when
+   * that address is not a private one. The address itself is never sent.
+   */
+  maker?: string
+  /** Whether its hardware address is a private (randomized) one; only when one was seen. */
+  privateAddress?: boolean
+  /** In the fixed order of LanSource. */
+  found: LanSource[]
+}
+
+/** A network the helper looked at: of its `size` host addresses, `scanned` were covered. */
+export interface LanNetwork {
+  /** `en0` */
+  interface: string
+  /** This computer's own address on it. */
+  address: string
+  prefix: number
+  size: number
+  scanned: number
+}
+
+/** What could look on this computer. */
+export interface LanSources {
+  /** `off`: not run (Windows, or no network to check). */
+  presence: 'ok' | 'blocked' | 'off'
+  /** `hidden`: the table was read and listed nothing, as macOS 27 does for the helper. */
+  neighbors: 'ok' | 'hidden' | 'none'
+  resolver: 'dns-sd' | 'avahi' | 'none'
+  ssdp: 'ok' | 'blocked'
+}
+
+/** GET /api/lan/devices[?refresh=1]. */
+export interface LanResult {
+  /** Gateway first, then by address; at most LIMITS.lanDevices. */
+  devices: LanDevice[]
+  networks: LanNetwork[]
+  sources: LanSources
+  /** When the look these devices come from started (epoch ms). */
+  scannedAt: number
+  durationMs: number
+  /** More devices than LIMITS.lanDevices were found: only the first are here. */
+  truncated?: boolean
+  /** Nothing could look: why, and its fix (what was known anyway is still listed). */
+  error?: { reason: NearbyFailure; message: string; detail: string }
+  /** The helper's own packets could not leave, but the system's resolver listed devices. */
+  note?: { reason: NearbyFailure; message: string; detail: string }
+}
+
 /* ------------------------------------------------------------- wire: preflight (§12c) --- */
 
 export type PreflightStatus = 'ok' | 'warning' | 'blocking' | 'unchecked'
@@ -442,6 +539,20 @@ export interface Timeouts {
   systemBrowse: number
   /** …and how long one `dns-sd -L` or `-G` may take (avahi-browse: browse + resolve). */
   systemResolve: number
+  /** Every device on this network (§4.9): how long one presence socket waits for its answer. */
+  lanPresence: number
+  /** …how long SSDP answers are collected. */
+  lanSsdp: number
+  /** …one UPnP description document, connect to last byte. */
+  lanDescription: number
+  /** …one reverse name; the whole reverse step is cut at twice this. */
+  lanReverse: number
+  /** …the whole look, whatever each source does. */
+  lanScan: number
+  /** …how long a look answers GET /api/lan/devices without ?refresh=1. */
+  lanCache: number
+  /** …?refresh=1 starts a new look only this long after the last one started. */
+  lanGap: number
   /** --doctor and /api/doctor */
   doctorCheck: number
   doctorSlowCheck: number
@@ -614,6 +725,35 @@ export interface PreflightContext {
   readonly signal: AbortSignal
   readonly now: () => number
   readonly about: () => HelperAbout
+  /** --doctor's Network section (§4.9); a context built by hand may leave it out. */
+  readonly lan?: LanScanner
+}
+
+/* ------------------------------------------- internal: every device on this network --- */
+
+/** What a look at this computer's network (§4.9) runs with: the bridge's own runners. */
+export interface LanScanContext {
+  readonly options: BridgeOptions
+  readonly timeouts: Timeouts
+  /** The bridge's runTool and streamTool: its cwd, environment and shutdown tracking. */
+  readonly runTool: RunTool
+  readonly streamTool: StreamTool
+  /** Aborts on shutdown. A look runs on it, never on a request's signal. */
+  readonly signal: AbortSignal
+  readonly now: () => number
+}
+
+/** One look: the real scanLan() (lan.ts), or a test's whole fake network. */
+export type ScanLan = (ctx: LanScanContext) => Promise<LanResult>
+
+/** The bridge's one LAN scanner (lan.ts): cached, one look at a time, nothing in the background. */
+export interface LanScanner {
+  /** GET /api/lan/devices: `refresh` asks for a new look, within the cache's rules. */
+  readonly devices: (refresh: boolean, signal: AbortSignal) => Promise<LanResult>
+  /** --doctor: one look, printed without a device's name (T18). */
+  readonly probeForDoctor: (write: (line: string) => void) => Promise<void>
+  /** Shutdown: a look that ends after this is not kept. */
+  readonly stop: () => void
 }
 
 /* --------------------------------------------------------------- internal: options --- */
@@ -690,6 +830,31 @@ export interface BridgeOptions {
    */
   dnsSdPath: string
   avahiBrowsePath: string | undefined
+  /*
+    Every device on this network (§4.9). Each reaches the network or the system, so tests
+    always replace them (harness.ts isolation(): no interface, sockets that send nothing,
+    tools that are not there): the suite never sends a packet to a real network.
+  */
+  /** This computer's interfaces, from os.networkInterfaces(): the only networks looked at. */
+  lanInterfaces: () => LanInterface[]
+  /** The presence check: a connected UDP socket per address, one byte each. */
+  lanPresence: OpenPresence
+  /** SSDP's M-SEARCH socket. */
+  lanSsdp: OpenSsdp
+  /** The one HTTP request: a UPnP description, at the address that answered SSDP. */
+  lanDescription: FetchDescription
+  /** The neighbour table: macOS `/usr/sbin/arp -an`, Windows `%SystemRoot%\System32\ARP.EXE -a`. */
+  arpPath: string
+  /** Linux's neighbour table, read as a file: /proc/net/arp. */
+  procNetArpPath: string
+  /** Linux's routes, read as a file: /proc/net/route (the default gateway). */
+  procNetRoutePath: string
+  /** The default gateway: macOS `/sbin/route`, Windows `%SystemRoot%\System32\ROUTE.EXE`. */
+  routePath: string
+  /** Linux reverse names: avahi-resolve at this path, or looked up like avahi-browse. */
+  avahiResolvePath: string | undefined
+  /** The whole look; `helper:fake` and the page's tests replace it with a fake network. */
+  lanScan: ScanLan
 }
 
 export type BridgeInput = Partial<Omit<BridgeOptions, 'timeouts' | 'lanes'>> & {

@@ -6,6 +6,7 @@ import {
   parseDoctor,
   parseErrorBody,
   parseHealth,
+  parseLan,
   parseLogMsg,
   parseConnectReply,
   parseDisconnectReply,
@@ -20,6 +21,7 @@ import {
   type ErrorBody,
   type Health,
   type HelperDevice,
+  type LanResult,
   type LogMsg,
   type ConnectReply,
   type DisconnectReply,
@@ -139,6 +141,8 @@ export const TIMEOUTS = {
   disconnectNetwork: 10_000,
   /** The helper listens to mDNS for a few seconds on a fresh look; a cached answer is instant. */
   nearby: 12_000,
+  /** A look takes the helper up to 7 s, a little more when it joins one already running. */
+  lan: 20_000,
   /** No message on a log stream for this long: HELPER_STREAM_STALLED. */
   logWatchdog: 45_000,
 } as const
@@ -199,6 +203,11 @@ export interface HelperClient {
    * helper's last look. Only local addresses survive (checkHost), whatever the helper sent.
    */
   readonly nearby: (refresh: boolean, signal?: AbortSignal) => Promise<NearbyReply>
+  /**
+   * GET /api/lan/devices (feature `lan.discover`): every device on this computer's network.
+   * `refresh` as for nearby. Only IPv4 addresses on a local network survive (checkHost).
+   */
+  readonly lanDevices: (refresh: boolean, signal?: AbortSignal) => Promise<LanResult>
 }
 
 /** A device on the network, as adb names it: an address or a local name, and a port. */
@@ -593,6 +602,13 @@ export function createHelperClient(
         refresh ? '/api/android/nearby?refresh=1' : '/api/android/nearby',
         (value) => parseNearby(value, localHostOf),
         { signal, timeoutMs: TIMEOUTS.nearby },
+      ),
+
+    lanDevices: (refresh, signal) =>
+      call(
+        refresh ? '/api/lan/devices?refresh=1' : '/api/lan/devices',
+        (value) => parseLan(value, localHostOf),
+        { signal, timeoutMs: TIMEOUTS.lan },
       ),
   }
 }

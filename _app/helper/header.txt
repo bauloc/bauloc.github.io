@@ -19,12 +19,21 @@ What it does
   - Android: shares Google's adb server when one is running. It starts one only when you
     click "Start adb server" on the page, and never stops it. It looks for Android TVs and
     phones on the Wi-Fi with read-only mDNS questions, and never connects one by itself.
+  - On this network: when you open the list or press Refresh, it lists every device on this
+    computer's own network so you can pick one to work with. It only reads what devices
+    announce about themselves (mDNS, SSDP), the names this computer already knows, the
+    neighbour table, and the answer to one harmless datagram per address of its own subnet;
+    it changes nothing, logs in to nothing, and nothing runs in the background.
+  - Devices on this network, only when the page asks: what devices on this computer's own
+    network say about themselves (mDNS, SSDP), the names this computer already knows, and
+    one UDP datagram to each address of its own subnet to see what answers. No port scan.
 
 What it never does
   - Listen on anything but 127.0.0.1, or send telemetry.
   - Run sudo, pair or unpair a device, show a Trust prompt itself, change a device
     setting, mount or download a developer disk image, install apps, or kill adb.
-  - Return the pair record, IMEI, phone numbers, MAC addresses or any key not on its
+  - Return the pair record, IMEI, phone numbers, MAC addresses (for a network device: only
+    whether its address is private, and its maker's 3-byte prefix) or any key not on its
     allowlists.
 
 Every request meets these checks, in this order

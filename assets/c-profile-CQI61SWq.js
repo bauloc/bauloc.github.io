@@ -1,0 +1,1 @@
+import{t as e}from"./c-contact-page-n9d_fZ7M.js";var t=e;export{t as component};

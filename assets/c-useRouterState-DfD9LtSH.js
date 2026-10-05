@@ -1,0 +1,1 @@
+import{Ht as e,Ut as t,Wt as n}from"./index-C7xaEP6j.js";function r(r){let i=n({warn:r?.router===void 0}),a=r?.router||i;return t(a.stores.__store,e(r,a))}export{r as t};

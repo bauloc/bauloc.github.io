@@ -51,6 +51,19 @@ describe('featureSupport', () => {
     ).toBe('ready')
   })
 
+  it('lan.discover is never off: --no-android leaves it on, so without it the helper is older', () => {
+    expect(
+      featureSupport(withFeatures(['lan.discover'], { lanes: androidOff }), 'lan.discover'),
+    ).toBe('ready')
+    // A 1.1 helper: the list came with 1.2.0, Android on or off.
+    expect(featureSupport(withFeatures([], { lanes: androidOff }), 'lan.discover')).toBe('older')
+    expect(featureSupport(withFeatures(['android.discover']), 'lan.discover')).toBe('older')
+    // No lane to wait for, the moment after connecting.
+    expect(featureSupport(withFeatures([], { lanes: null }), 'lan.discover')).toBe('older')
+    expect(featureSupport(helperStatus('absent'), 'lan.discover')).toBe('helper')
+    expect(featureSupport(withFeatures([], { pairing: null }), 'lan.discover')).toBe('helper')
+  })
+
   it('leaves a helper that isn’t running and paired to the setup steps', () => {
     for (const phase of ['off', 'absent', 'unpaired', 'stale', 'outdated', 'lost'] as const) {
       expect(featureSupport(helperStatus(phase), 'android.discover')).toBe('helper')

@@ -23,6 +23,7 @@ import type {
   HelperDevice,
   Lane,
   LaneSet,
+  LanScanner,
   LogEndReason,
   LogMsg,
   LogSink,
@@ -66,6 +67,8 @@ export interface ApiDeps {
   readonly bug: (error: unknown) => void
   /** Aborts on shutdown. */
   readonly signal: AbortSignal
+  /** Every device on this network (§4.9): the bridge's, whichever lanes run. */
+  readonly lan: LanScanner
 }
 
 export interface Api {
@@ -206,6 +209,7 @@ const ROUTES: Readonly<Record<string, 'GET' | 'POST'>> = {
   '/api/android/pair': 'POST',
   '/api/android/disconnect': 'POST',
   '/api/android/nearby': 'GET',
+  '/api/lan/devices': 'GET',
 }
 
 const DEVICE_ROUTE = /^\/api\/devices\/([^/]*)\/(detail|screenshot|retry|logs)$/
@@ -453,6 +457,8 @@ export function createApi(deps: ApiDeps): Api {
       if (pathname === '/api/android/pair') return pairNetwork(req, res, headers)
       if (pathname === '/api/android/disconnect') return disconnectNetwork(req, res, headers)
       if (pathname === '/api/android/nearby') return nearby(res, search, headers)
+      if (pathname === '/api/lan/devices') return lanDevices(res, search, headers)
+      /** The last fixed route: every one above has its own line, or it would land here. */
       return startAdbServer(res, headers)
     }
     const match = DEVICE_ROUTE.exec(pathname)
@@ -678,6 +684,21 @@ export function createApi(deps: ApiDeps): Api {
     try {
       const result: AndroidNearbyResult = await android.nearby(refresh, op.signal)
       sendJson(res, 200, result, headers)
+    } finally {
+      op.dispose()
+    }
+  }
+
+  /**
+   * GET /api/lan/devices[?refresh=1]: every device on this computer's network (§4.9). Read-only,
+   * and the bridge's own: it needs no lane, so `--no-android` leaves it on. A look runs on the
+   * helper's signal; this request only stops waiting when its client leaves.
+   */
+  async function lanDevices(res: ServerResponse, search: string, headers: Headers): Promise<void> {
+    const refresh = new URLSearchParams(search).get('refresh') === '1'
+    const op = operation(res)
+    try {
+      sendJson(res, 200, await deps.lan.devices(refresh, op.signal), headers)
     } finally {
       op.dispose()
     }

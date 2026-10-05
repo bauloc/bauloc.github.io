@@ -1,6 +1,6 @@
 # Device Lab helper: specification
 
-`device/agent/device-bridge.mjs`, built from `_app/helper/src`, and the page's helper lane in `_app/src/features/device` · helper 1.1.0, protocol 1 · as built, 2026-10-04
+`device/agent/device-bridge.mjs`, built from `_app/helper/src`, and the page's helper lane in `_app/src/features/device` · helper 1.2.0, protocol 1 · as built, 2026-10-05
 
 **What this is.** The design Device Lab's local helper was built from, kept up to date with what was built. Decisions taken while building it are recorded where they apply, and §0.6 lists them in one place. The code cites this document by section ("§3.3", "spec §12b"), so section numbers are stable: a section that no longer applies says so instead of disappearing.
 
@@ -192,7 +192,7 @@ The design compared several candidate designs; these are the parts it took from 
 | P15 | An 800 ms "dismissed" heuristic | 1 s threshold. The failure mode is wording only, since both phases offer "Connect". Checked in P0-9. |
 | P16, P17 | A parallel `store.start` change; zod in the device chunk | Store contract unchanged; hand-written guards (`helper/protocol.ts`). |
 | P18 | Auto-open on every start; `host:kill` at exit | Auto-open kept, but TTY and macOS only, with `--no-open`, through osascript's stdin (§1.7). **Never kill the adb server**; exit prints how to stop one the helper started. |
-| P19 | MAC addresses whitelisted | `WiFiAddress`, `BluetoothAddress` and `EthernetAddress` are never read out of the plist. |
+| P19 | MAC addresses whitelisted | `WiFiAddress`, `BluetoothAddress` and `EthernetAddress` are never read out of the plist. A network device's hardware address (§4.9) becomes only `privateAddress` and, when it is not private, the maker's 3-byte prefix; the address itself, and any name that embeds it, never leave the helper. |
 | P20 | Token printed and in URLs | Accepted residual with reasons (G27, T8). The fragment is stripped before the router exists; `Referrer-Policy: no-referrer`; never in argv (§1.7). |
 | P21 | Squatter replays the public `tokenId` | G14, port-bound HMAC proof. |
 | P22 | `origin-refused` / `foreign` unobservable (403 without CORS) | `origin-refused` removed; dev-origin inference (G24); `foreign` only when a readable non-helper reply or a failed proof is seen. |
@@ -240,6 +240,7 @@ What was decided while building, and where each one now lives in this document.
 | New error codes: `ANDROID_OFF`, `HELPER_STOPPING`, `STREAM_REPLACED`, `BAD_REQUEST`, `DEVICE_DROPPED`, `ANDROID_CONNECT_FAILED`, `ANDROID_PAIR_FAILED`; `INTERNAL` | Cases the design left unnamed | §2.7 |
 | New health feature `android.connect` | The page shows the Wi‑Fi dialog only to a helper that has it | §2.8 |
 | Helper 1.1.0: a release that adds a feature bumps the minor version. Where the page would use a feature the running helper lacks, it says "Your helper is older than this page" with the update command; the header chip and the notice strip say "update available" from the published file | Discovery shipped as 1.0.0 like the helper before it. The owner kept running the older file, the page silently hid "On this network", and only the Environment check's update row hinted why | §2.8, §4.8, §6.8 |
+| Helper 1.1.1, a fix: the mDNS codec refuses a label that is not UTF-8, so every name it reads can be asked about again; nothing a packet or the transport does throws out of the browser's message handler or follow-up timer; a service type that cannot be written is refused before the socket opens; avahi lines are searched for the type as text; linked signals and their parents take any number of abort listeners; "On this network" shows the page's sentence for a failed request's code | Any host on the network could stop the helper while "On this network" showed: an answer (id 0 is taken) naming an instance of 22 or more 0xFF bytes made the follow-up's `encodeName` throw in a timer. Node 18 and 20 printed a MaxListenersExceededWarning on every dns-sd scan, and the page printed `HELPER_UNREACHABLE` as it was | §1.1, §2.8, §4.8 |
 | Discovery: `GET /api/android/nearby`, a zero-dependency mDNS browser (`mdns.ts`), `host:mdns:services` on the allowlist, health feature `android.discover`, a `Wi-Fi:` line in the terminal and `--doctor` | Wi‑Fi devices appeared only after a manual connect; the owner asked for every Android device on the network | §4.8 |
 | Discovery also asks the system's resolver (`dns-sd` on macOS, `avahi-browse` on Linux) and reads adbd's TXT (`given_name`, `name`, `serial`, `api`); `blocked` only when no source could look, otherwise a `note` | On the owner's network the dozing Pixel 9 never answered the helper's own queries, while `dns-sd` listed it from mDNSResponder's cache, even from an app without local-network access | §4.8 |
 | `HelperError` is exported from the bundle | The bridge maps only its own class to a code; `helper:fake` builds its errors from it | §1.2 |
@@ -250,6 +251,11 @@ What was decided while building, and where each one now lives in this document.
 | "Page connected" names dev origins ("the dev page http://localhost:7360 (npm run dev)"); "Another client" only without an Origin | Headless Chrome's user agent and dev origins read as unknown clients | §1.10 |
 | `--doctor` prints each iPhone's UDID and ProductType, never its name | The output is pasted into PRs | §1.9 |
 | Fixtures live in `_app/helper/test/fixtures/` | The helper's suite sits next to its source | §9.1, §9.2 |
+| Helper 1.2.0, a feature: `GET /api/lan/devices` lists every device on this computer's own network — the presence check of its own subnet, the neighbour table, the gateway, mDNS (daemon and own socket), reverse `.local` names, SSDP and the one UPnP description a device points to — merged per IPv4; health feature `lan.discover`; a `Network:` line in the terminal and `--doctor`. A hardware address becomes only `privateAddress` and a maker prefix; no port scan, no NetBIOS | The owner asked, after "On this network" shipped, to list ALL the devices on the local network, not only the Android ones advertising adb | §4.9 |
+| A hardware address a network device gives away becomes two facts only, `privateAddress` and the 3-byte `maker` of one that is not private; every text sent beside them loses whatever carries that address or a part of it, any UUID and any run of 12 hex digits | The review of the design: with the maker's prefix in the same row, the owner's HP printer's instance `(F25F81)` and host `NPIF25F81.local` (its address's last three bytes) gave the whole address away | §4.9, T18 |
+| The presence check sends **one** datagram an address from at most 256 sockets, 4 opened every 10 ms, each closed after 1 s | The design's 64 sockets with a 1.5 s window took about 6 s on a /24, past its own bounds; every live host on the owner's network answered within 615 ms [V] | §4.9 |
+| `--doctor` names a Wi‑Fi device by its model, else its instance, never by the name its owner gave it | T18; §4.8's lines printed "BAULOC Pixel 9" | §4.8, T18 |
+| `browse()` sends nothing when its signal aborted before or while its socket opened, and closes it; a UDP socket whose bind fails is closed before the open rejects | The review: shutdown during the bind sent both queries and held the socket for the whole window; a socket whose bind failed stayed alive | §4.8 |
 
 ---
 
@@ -260,7 +266,7 @@ What was decided while building, and where each one now lives in this document.
 **Source**
 
 - `_app/helper/src/*.ts`: one module per file section (§1.2), about 11,800 lines with their comments. `types.ts` holds the shared types and is erased by the bundler.
-- Built-ins only: `node:http`, `net`, `tls`, `crypto`, `child_process`, `fs`, `os`, `path`, `url`, `dns`, `dgram`, `string_decoder`. No npm package reaches the bundle.
+- Built-ins only: `node:http`, `net`, `tls`, `crypto`, `child_process`, `fs`, `os`, `path`, `url`, `dns`, `dgram`, `events`, `string_decoder`. No npm package reaches the bundle.
 
 **Bundle** (`helper/build.mjs`, `npm run helper:build`)
 
@@ -276,6 +282,7 @@ What was decided while building, and where each one now lives in this document.
 - `tsconfig.helper.json` types the source against the ES2022 library, which Node 18 has in full, so `toSorted`, `Object.groupBy` or `Promise.withResolvers` fail the typecheck.
 - Node-only APIs newer than 18 are typed by `@types/node`, so the build also walks the bundle's syntax tree (`forbiddenApis`, asserted again by `test/build.test.ts` on the built file). Forbidden: `AbortSignal.any`, `Promise.withResolvers`/`try`, `Object.groupBy`, `Map.groupBy`, `Array.fromAsync`, `URL.canParse`, `process.getBuiltinModule`, `globalThis.crypto` and the bare `crypto` global (use `node:crypto`), `import.meta.dirname`/`filename`, the regex `v` flag, the ES2023+ array and set methods (`toSorted`, `toReversed`, `toSpliced`, `union`, `isSubsetOf`…), named imports Node 18.0 lacks (`fs.glob`, `util.styleText`, `util.parseArgs`, `crypto.hash`, `os.availableParallelism`…), and the modules `node:sqlite`, `node:sea`, `node:test/reporters`.
 - `fetch` is used only for the local-mode upstream; Node 18 prints a one-time ExperimentalWarning. The port-in-use probe uses `http.get`.
+- Node 18 and 20 cap an AbortSignal at 10 abort listeners and print a MaxListenersExceededWarning past it; Node 24 has no cap. `linkSignals` (`util.ts`) lifts it, with `events.setMaxListeners(0, …)`, on the signal it makes and on its parents, which hold many by design: one per linked operation on the bridge's shutdown signal, two per process on a dns-sd run's signal.
 
 **Version guard**
 
@@ -309,20 +316,22 @@ The **file §** labels number the regions of the built file. Each module's heade
 | §6 | `lockdown.ts` | Lockdown client: u32-BE + plist channel, `queryType`, `getValue`, `startSession` + TLS + pin check, `startService`, `stopSession`, error mapping | §3.3 |
 | §7 | `ios-lane.ts` | iOS lane: table keyed by UDID, probe pipeline, `deriveIos`, whitelists, devicectl adapter + `classifyDevicectl`, `idevicescreenshot`, syslog_relay + `idevicesyslog`, Wi‑Fi hold, `probeForDoctor` | §3 |
 | §8 | `simulator-lane.ts` | Simulator lane: simctl list/join, screenshot, `log stream`, `SIMCTL_COMMANDS` | §5 |
-| §9 | `mdns.ts` | mDNS browser: DNS codec (`parseMessage`, `readName`, `encodeQuery`), `udpTransport()`, `browse()`, `mdnsFailure()`; the system resolver: `systemMdnsTools()`, `systemBrowse()` and the dns-sd/avahi-browse parsers | §4.8 |
+| §9 | `mdns.ts` | mDNS browser: DNS codec (`parseMessage`, `readName`, `encodeQuery`), `udpTransport()`, `browse()`, `mdnsFailure()`; the system resolver: `systemMdnsTools()`, `systemBrowse()` and the dns-sd/avahi-browse parsers; for §4.9 `browseServiceTypes()`, `systemBrowseAll()` (`dns-sd -Z`, `avahi-browse -a`), `reverseNames()` and their parsers | §4.8, §4.9 |
 | §9 | `android-lane.ts` | Android lane: adb host client, `ADB_HOST_SERVICES` and `assertAdbService`, the Wi‑Fi senders and their checks, discovery (`scanNearby`, `mergeNearby`, `parseAdbMdnsServices`), `parseDevicesL`, `mapAdbState`, identity cache, detail, screencap, logcat, `startAdbServer` | §4 |
 | §10 | `registry.ts` | Lane rows → `Snapshot {rev, runId, devices, lanes}`, owner lookup, activity clock, transition lines | §1.3, §2.4 |
 | §11 | `auth.ts` | Token (fresh or kept file), `tokenIdOf`, `proofOf`, bearer check, "Page connected" lines | §2.8, §6.5 |
 | §12 | `preflight.ts` | Doctor and preflight: `collectPreflight()`, item wording, `formatChecklist()`, `doctorReport()`, `printDoctor()` | §12 |
 | §13 | `http.ts` | HTTP API: gate (Host, Origin, Fetch Metadata), CORS, router, JSON and NDJSON writers, endpoints, Wi‑Fi body reader, stream caps, `upgrade` destroy | §2 |
 | §14 | `local-mode.ts` | Upstream cache, `bootHtml()`, CSP hashes, asset proxy, redirects | §2.9 |
-| §15 | `bridge.ts` | Bridge lifecycle: `createBridge`, `listen`, `close`, health, doctor | §1.6 |
-| §15 | `banner.ts` | The start banner and pairing links | §1.10 |
-| §15 | `main.ts` | Startup, signals, auto-open, `main`, `isMain`, and the file's exports | §1.7, §1.8 |
+| §15 | `lan-net.ts` | LAN sources (§4.9): interfaces → targets, the presence check (connected UDP), the neighbour table and default gateway (macOS/Linux/Windows), SSDP + the UPnP description + its tag scanner, hardware-address facts | §4.9 |
+| §16 | `lan.ts` | Every device on this network (§4.9): `createLanScanner` (cache, single flight, terminal and `--doctor` lines), `scanLan` (the pipeline and the per-IPv4 merge) | §4.9 |
+| §17 | `bridge.ts` | Bridge lifecycle: `createBridge`, `listen`, `close`, health, doctor | §1.6 |
+| §17 | `banner.ts` | The start banner and pairing links | §1.10 |
+| §17 | `main.ts` | Startup, signals, auto-open, `main`, `isMain`, and the file's exports | §1.7, §1.8 |
 
 **Constants in file §1**
 
-- Identity: `NAME = 'bauloc-device-bridge'`, `VERSION = '1.1.0'`, `PROTOCOL = 1`, `SITE = 'https://bauloc.github.io'`, `DEFAULT_PORT = 8787`, `DOWNLOAD_URL`, `SOURCE_URL`.
+- Identity: `NAME = 'bauloc-device-bridge'`, `VERSION = '1.2.0'`, `PROTOCOL = 1`, `SITE = 'https://bauloc.github.io'`, `DEFAULT_PORT = 8787`, `DOWNLOAD_URL`, `SOURCE_URL`.
 - Dev origins: `DEV_ORIGINS` = `http://localhost:7360` and `http://127.0.0.1:7360`, the same for `:4173` and `:8000`.
 - Tables: `LIMITS`, `TIMEOUTS`, `ID`, `INSTALL`.
 - Allowlists:
@@ -337,6 +346,7 @@ The **file §** labels number the regions of the built file. Each module's heade
   - usbmuxd `MUX_NEVER`: `SavePairRecord`, `DeletePairRecord`.
   - adb `ADB_HOST_NEVER`: `host:kill`, `host:reconnect`, and `host:connect:`, `host:pair:`, `host:disconnect:`, which only the three Wi‑Fi senders of §4.7 may send, each through its own exact check.
 - `EMITTED_BLOCKERS`: every row-blocker code the helper can send.
+- Every device on this network (§4.9): `LAN_PRESENCE_PORT = 9`, `LAN_SSDP_TARGETS = ['ssdp:all', 'upnp:rootdevice']`, `LAN_TXT_KEYS` (the TXT keys a service may pass on), `LAN_STATIC_TYPES` (Device Lab's own service types, always asked about); `LIMITS.lanDevices` 256, `lanTargets` 512, `lanSockets` 256.
 
 **Exports of the built file** (for tests, the page's contract test and `helper:fake`): `createBridge`, `NAME`, `VERSION`, `PROTOCOL`, `ID`, `ADB_DETAIL`, `ADB_EXEC`, `EMITTED_BLOCKERS`, `LOCKDOWN_REQUESTS`, `LOCKDOWN_SERVICES`, `tokenIdOf`, `proofOf`, `HelperError`, `parsePlist`, `buildPlist`, `parseDevicesL`, `mapAdbState`, `deriveIos`, `classifyDevicectl`, `splitSyslogRelay`, `which`, `runTool`, `liveChildren`, `bootHtml`, `formatChecklist`. `HelperError` is exported because the bridge maps only its own class to a code: an error built from another copy of the class is an `INTERNAL` bug.
 
@@ -510,6 +520,9 @@ It has no side effects until `listen()`. Tests replace everything here, so no re
 | `timeouts`, `heartbeatMs`, `now`, `log`, `errorLog` | §1.12 / 15000 / `Date.now` / stdout / stderr |
 | `lanes`, `resolveTools`, `fetch`, `selfPath` | the real lane factories (null disables one), the real discovery, global `fetch`, this file |
 | `mdns`, `dnsSdPath`, `avahiBrowsePath` | the UDP transport / `/usr/bin/dns-sd` / undefined (look up `avahi-browse`); tests: `silentMdns()` and a path in the fake bin directory (§4.8) |
+| `lanInterfaces`, `lanPresence`, `lanSsdp`, `lanDescription` | `os.networkInterfaces()` / the connected-UDP presence socket / the SSDP socket / the `node:http` description fetch; tests: no interface, sockets that send nothing, a fetch that rejects (`fakes/lan.ts`, §4.9) |
+| `arpPath`, `procNetArpPath`, `procNetRoutePath`, `routePath`, `avahiResolvePath` | `/usr/sbin/arp` (Windows `%SystemRoot%\System32\ARP.EXE`) / `/proc/net/arp` / `/proc/net/route` / `/sbin/route` (Windows `ROUTE.EXE`) / undefined (look up `avahi-resolve`); tests: paths that are not there (§4.9) |
+| `lanScan` | the real look (`scanLan`); `helper:fake` and the page's tests stand a fake network in for it (§4.9) |
 
 It returns `{ listen(): Promise<{port}>, close(): Promise<void>, port, token, tokenId, runId, registry, lanes, options, health(challenge?), preflight({refresh}), toolbox(), doctor(write) }`.
 
@@ -520,7 +533,7 @@ It returns `{ listen(): Promise<{port}>, close(): Promise<void>, port, token, to
 3. **Refuse root.** If `getuid?.() === 0`, print the root sentence and exit 1.
 4. **Token.** `randomBytes(32).toString('base64url')` (43 characters). With `--keep-token`, see the file in §1.11; a refused file exits 1.
 5. **`createBridge(opts)`.** Terminal lines are held until the banner is out, so the banner always comes first.
-6. **`--doctor`.** Collect preflight, run each lane's `probeForDoctor`, print (§1.9), exit 0. No server, no auto-open, no adb start.
+6. **`--doctor`.** Collect preflight, run each lane's `probeForDoctor`, look at the network once (§4.9), print (§1.9), exit 0. No server, no auto-open, no adb start.
 7. **`listen(port, '127.0.0.1')`.** On `EADDRINUSE`, run `http.get('http://127.0.0.1:<port>/api/health')` with a 2 s timeout and print one of the two port messages (§1.10). Exit 1. The port is never switched silently: it is part of the local page's origin and of remembered pairings.
 8. **Handlers** for SIGINT, SIGTERM and SIGHUP.
 9. **Start lanes without awaiting them**, and collect preflight in the background.
@@ -582,18 +595,19 @@ node device-bridge.mjs [options]
 
 **`--doctor` output**
 
-- First line `bauloc-device-bridge 1.1.0 · doctor`, then the checklist (§12) by group, with a status word ("OK", "Warning", "Needs action", "Not checked"); fixes are printed only for items that are not OK.
+- First line `bauloc-device-bridge 1.2.0 · doctor`, then the checklist (§12) by group, with a status word ("OK", "Warning", "Needs action", "Not checked"); fixes are printed only for items that are not OK.
 - Then per device:
   - **iOS:** the UDID and ProductType (never the device name); usbmuxd entry (connection, DeviceID); pair record yes/no; QueryType; plaintext key count; StartSession result; TLS protocol and cipher; whether the peer certificate equals the pair record's `DeviceCertificate`; session key count; `PasswordProtected`; battery, disk and amfi results; syslog_relay 3 s byte count; `devicectl device info lockState` (only when Xcode is ready).
   - **Android:** server state and the `devices -l` rows, or `Android: no adb server on 127.0.0.1:<port> (the doctor never starts one)`.
-- It never prints key material, log text, IMEI or phone numbers.
+- Then `Network`: one look at this computer's network (§4.9), its terminal lines, what could look, and one line per device with its address, how it was found and the service types it announces.
+- It never prints key material, log text, IMEI, phone numbers, a hardware address or a device's name (T18).
 
 ### 1.10 Printed text
 
 `<T>` is the 43-character token. A port other than 8787 adds `&port=<n>` to both fragments, so a link without `&port` always means 8787: the page reads it that way, never as the port it used last (§6.5).
 
 ```
-Device Lab helper 1.1.0 · http://127.0.0.1:8787 (this Mac only)
+Device Lab helper 1.2.0 · http://127.0.0.1:8787 (this Mac only)
 
 Opening Device Lab in your browser. If nothing opens, use the link for your browser:
   Chrome, Edge, Firefox   https://bauloc.github.io/device/#pair=<T>
@@ -648,6 +662,7 @@ Keep this window open while you test. Ctrl+C stops the helper; the token changes
 - An Android device on the network reads "waiting for "Allow debugging?"" and "not answering over Wi-Fi" instead of the USB wording.
 - "Not answering over Wi-Fi" and its advice ("wake it, or connect it again") are for a device the server still lists but can't reach. A device the tester disconnected (`POST /api/android/disconnect`) gets `Wi-Fi: disconnected …` and its departure line, never that wording: the real-device run printed it right after an intentional Disconnect (§9.7), which reads as a fault.
 - Wi‑Fi actions print `Wi-Fi: connected to …`, `Wi-Fi: could not connect to …`, `Wi-Fi: paired with …`, `Wi-Fi: disconnected …`; a scan prints `Wi-Fi: 2 Android devices on this network (…)` or `Wi-Fi: could not look for Android devices on the network: …`, only when it changed (§4.8). The pairing code is never printed: the terminal is pasted into bug reports.
+- A look at the network prints `Network: 8 devices on 192.168.68.0/24 (en0)`, or why it could not look, only when it changed (§4.9): counts and networks, never a name.
 
 **"Page connected"** prints once per (origin, browser family) on the first authorized request. The family is parsed from the User-Agent (Chrome, Edge, Firefox, Safari; `HeadlessChrome` counts as Chrome).
 
@@ -660,7 +675,7 @@ Keep this window open while you test. Ctrl+C stops the helper; the token changes
 | --- | --- |
 | Node too old | `Device Lab helper needs Node 18 or newer (this is v16.20.2). Install the current LTS from https://nodejs.org, then run the same command again.` |
 | Running as root | `Don't run the Device Lab helper with sudo; it never needs root. Run it as yourself: node ~/device-bridge.mjs` |
-| Port held by our helper | `A Device Lab helper (1.1.0) is already running on port 8787. Use that window, or stop it with Ctrl+C there.` |
+| Port held by our helper | `A Device Lab helper (1.2.0) is already running on port 8787. Use that window, or stop it with Ctrl+C there.` |
 | Port held by another program | `Port 8787 is used by another program. Start the helper on another port:` then `  node ~/device-bridge.mjs --port 8788` |
 | Token file readable by others | `The token file <path> can be read by other users. Fix it with: chmod 600 '<path>'` |
 | Token file is a symlink / not ours | `The token file <path> is a symbolic link or belongs to another user; refusing to use it.` |
@@ -695,6 +710,7 @@ The pair record is held only in memory, and only the fields the TLS session need
 | adb | connect 1 s; host request 5 s (2 s in the doctor); `exec:` detail 10 s; screencap 20 s; `start-server` reply poll 8 s |
 | adb Wi‑Fi | name lookup 5 s; `host:connect:` 20 s (adb itself waits up to 10 s for the device's handshake, so its answer arrives before our deadline); `host:pair:` 15 s |
 | Discovery | mDNS window 2 s (`mdnsWindow`); system resolver: `dns-sd -B` 1.5 s (`systemBrowse`), each `-L`/`-G` 1.5 s (`systemResolve`), the whole run ≤ browse + 2 × resolve (a killed process is not waited for; SIGKILL 250 ms after SIGTERM), 4 resolves at a time with the adb types and lookups first and the name-only types in at most 1, 128 instances per group (adb, names); scan cached 20 s, `?refresh=1` at most every 3 s, one at a time; 64 devices; packets ≤ 9000 bytes, 256 records each (§4.8) |
+| Network (§4.9) | presence 1 s a socket (`lanPresence`), 256 sockets at once (`LIMITS.lanSockets`), 4 new a tick; SSDP 3 s (`lanSsdp`), each M-SEARCH twice 500 ms apart; one UPnP description 2 s (`lanDescription`), ≤ 64 KiB, 16 at most, 4 at once; a reverse name 1.2 s (`lanReverse`), the step ≤ 2.4 s, 8 at once; the whole look ≤ 7 s (`lanScan`); scan cached 30 s (`lanCache`), `?refresh=1` at most every 3 s (`lanGap`), one at a time; ≤ 512 targets (`LIMITS.lanTargets`, two /24s), ≤ 256 devices (`LIMITS.lanDevices`) |
 | Doctor | 5 s per check (pymobiledevice3, bundletool and java 10 s); overall 12 s; unfinished → `unchecked`; report cached 30 s |
 | Logs | first byte 10 s, else fallback or `LOGS_UNAVAILABLE`; native silence switch 8 s; lane `hello` within 30 s, else 504; batch ≤ 200 lines, 256 KiB or 100 ms; ping 15 s |
 | Output caps | text 8 MiB; PNG 32 MiB; stderr tail 64 KiB; log line 8 KiB; names 200 characters |
@@ -750,6 +766,7 @@ The pair record is held only in memory, and only the fields the TLS session need
 | `POST /api/android/pair` `{host, port, code}` | bearer | `AndroidPairResult` (§4.7) |
 | `POST /api/android/disconnect` `{serial}` | bearer | `AndroidDisconnectResult` (§4.7) |
 | `GET /api/android/nearby[?refresh=1]` | bearer | `AndroidNearbyResult` (§4.8) |
+| `GET /api/lan/devices[?refresh=1]` | bearer | `LanResult` (§4.9). Bridge-level, never under `/api/android/*`: it works with `--no-android` |
 | `GET /`, `/device`, `/device/index.html` | Host gate | 302 → `/device/` (query kept) |
 | `GET`/`HEAD /device/` | Host gate | Proxied page with boot script and CSP (§2.9) |
 | `GET`/`HEAD /assets/<name>.<ext>`, `/device/agent/device-bridge.mjs` | Host gate | Proxied, immutable cache |
@@ -940,6 +957,62 @@ interface ErrorBody {
 
 // AndroidConnectResult, AndroidPairResult, AndroidDisconnectResult: §4.7.
 // DoctorReport and PreflightItem: §12c.
+
+// GET /api/lan/devices (§4.9)
+type LanSource = 'reply' | 'neighbors' | 'mdns' | 'ssdp' | 'reverse' | 'gateway' | 'self'
+interface LanName {
+  text: string
+  source: 'mdns' | 'ssdp'
+}
+interface LanService {
+  type: string // '_ipp._tcp' (no '.local')
+  port?: number
+  name?: string // instance name (cleaned; never one that embeds a MAC)
+  txt?: Record<string, string> // only LAN_TXT_KEYS
+}
+interface LanUpnp {
+  deviceType?: string
+  friendlyName?: string
+  manufacturer?: string
+  modelName?: string
+  modelNumber?: string
+  server?: string
+}
+interface LanDevice {
+  address: string // IPv4 literal, offerable
+  self: boolean
+  gateway: boolean
+  hostnames: string[] // '.local' names, ≤ 4
+  names: LanName[] // ≤ 8
+  services: LanService[] // ≤ 24
+  upnp?: LanUpnp
+  maker?: string // 'A1B2C3': manufacturer prefix, never for a private address
+  privateAddress?: boolean // only when a hardware address was seen
+  found: LanSource[]
+}
+interface LanNetwork {
+  interface: string
+  address: string
+  prefix: number
+  size: number
+  scanned: number
+}
+interface LanSources {
+  presence: 'ok' | 'blocked' | 'off'
+  neighbors: 'ok' | 'hidden' | 'none'
+  resolver: 'dns-sd' | 'avahi' | 'none'
+  ssdp: 'ok' | 'blocked'
+}
+interface LanResult {
+  devices: LanDevice[]
+  networks: LanNetwork[]
+  sources: LanSources
+  scannedAt: number
+  durationMs: number
+  truncated?: boolean
+  error?: { reason: NearbyFailure; message: string; detail: string }
+  note?: { reason: NearbyFailure; message: string; detail: string }
+}
 ```
 
 ### 2.4 Device list contract
@@ -1036,7 +1109,7 @@ The registry is the authority on state. An operation error that reveals a new st
 **Version**
 
 - `VERSION` is semver, independent of `protocol`.
-- A release that adds a feature (a new `features` entry, endpoint or field) bumps the **minor** version: `android.discover` made 1.0.0 into 1.1.0. A fix alone bumps the patch. The protocol stays 1 while every change is an addition.
+- A release that adds a feature (a new `features` entry, endpoint or field) bumps the **minor** version: `android.discover` made 1.0.0 into 1.1.0. A fix alone bumps the **patch**: 1.1.1 is 1.1.0 with discovery safe against hostile mDNS answers (§4.8). `lan.discover` then made 1.1.x into 1.2.0 (§4.9). The protocol stays 1 while every change is an addition.
 - Why: discovery first shipped as 1.0.0, like the helper before it. With both files saying 1.0.0 the page could not say "a newer helper is out", and the tester could not tell which one was running.
 
 **Features in v1** (present only when true):
@@ -1046,6 +1119,7 @@ The registry is the authority on state. An operation error that reveals a new st
 | `android.start-server` | the Android lane runs (not `--no-android`) |
 | `android.connect` | the same: the Wi‑Fi routes of §4.7 exist (since 1.0.0). The page shows its Wi‑Fi dialog's form only to a helper that lists it, and otherwise says the helper is older than this page, with the update command. |
 | `android.discover` | the same: `GET /api/android/nearby` exists (§4.8; since 1.1.0). |
+| `lan.discover` | always present since 1.2.0: `GET /api/lan/devices` exists (§4.9). Bridge-level, so it stays on with `--no-android`. |
 | `local` | local mode is on |
 | `simulators` | `--simulators` |
 | `wifi` | `--wifi` (iPhones over Wi‑Fi) |
@@ -1057,8 +1131,8 @@ Everything else in §2.2 is protocol 1 itself.
 - "Helper too old" (protocol) → the download command.
 - "Page too old" → "Reload". Pages caches for 600 s.
 - **A feature the page would use is missing** (`helper/update.ts` `featureSupport`): running and paired, and the feature not in `features`.
-  - Android lane on → `older`. Said where the feature would be, never hidden: "Your helper is older than this page: it can't look for devices on this network yet. Update it: press Ctrl+C in its window, then run:", the download command for the page's port (`downloadCommand(port)`), then "Then reload this page." The feature's words: `android.discover` "look for devices on this network" ("On this network", under the device list and in the Gate's Wi‑Fi part), `android.connect` "connect to devices over Wi‑Fi" (the Wi‑Fi dialog's `wifi.helper` row), `android.start-server` "start Google's adb server" (the Gate's Android card without WebUSB).
-  - `lanes.android.status === 'off'` (`--no-android`, which leaves every Android feature out) → `off`: the `--no-android` sentence and how to restart without it, no download.
+  - Android lane on → `older`. Said where the feature would be, never hidden: "Your helper is older than this page: it can't look for devices on this network yet. Update it: press Ctrl+C in its window, then run:", the download command for the page's port (`downloadCommand(port)`), then "Then reload this page." The feature's words: `android.discover` "look for devices on this network" ("On this network", under the device list and in the Gate's Wi‑Fi part), `android.connect` "connect to devices over Wi‑Fi" (the Wi‑Fi dialog's `wifi.helper` row), `android.start-server` "start Google's adb server" (the Gate's Android card without WebUSB), `lan.discover` "list every device on this network" (the "Devices on this network" line and dialog).
+  - `lanes.android.status === 'off'` (`--no-android`, which leaves every Android feature out) → `off`: the `--no-android` sentence and how to restart without it, no download. Never for `lan.discover`, which `--no-android` leaves on.
   - Lanes not read yet (the moment after connecting) → `unknown`: nothing is said until they are.
 
 **Update row, chip and notice**
@@ -1098,7 +1172,7 @@ Everything else in §2.2 is protocol 1 itself.
       mode: 'local',
       apiBase: 'http://127.0.0.1:8787',
       protocol: 1,
-      version: '1.1.0',
+      version: '1.2.0',
     }
   </script>
   ```
@@ -1147,7 +1221,7 @@ Ranges matter only for the later-phase lanes and for the amfi read (≥ 16). Scr
 
 **Frame:** a 16-byte little-endian header `{u32 total length (header included), u32 version 1, u32 message 8 (plist), u32 tag}`, then an XML plist [V].
 
-- Every request carries `ClientVersionString: 'bauloc-device-bridge 1.1.0'`, `ProgName: 'device-bridge'` and `kLibUSBMuxVersion: 3`. Without `kLibUSBMuxVersion: 3`, `Listen` never pushes network devices [V].
+- Every request carries `ClientVersionString: 'bauloc-device-bridge 1.2.0'`, `ProgName: 'device-bridge'` and `kLibUSBMuxVersion: 3`. Without `kLibUSBMuxVersion: 3`, `Listen` never pushes network devices [V].
 - One connection per request; `Listen` keeps its own. `connect()` hands the socket back paused.
 
 | Message | Reply | Use |
@@ -1703,7 +1777,8 @@ Two more services are browsed only to name an address: `_androidtvremote2._tcp` 
 - One packet of five PTR questions, sent again halfway through the window. As answers arrive (30 ms debounce): SRV and TXT questions for an instance without an SRV, A and AAAA for an SRV target without an address, each name once, at most 12 questions a packet. Answers and additionals are read alike. A TTL of 0 (a goodbye) removes what it names.
 - **Addresses belong to the answer, not to the host name.** adbd and TV Remote call many devices `Android.local` at once, so an instance takes, in order: the A/AAAA records for its SRV target that came in the same packet as its SRV; else those that came from the address the SRV's packet came from (the transport hands that address over); else that address itself; and only when nothing ties an address to it, every address any answer gave for the target. Two TVs that both say `Android.local` are two devices, each at its own address, whichever answers first.
 - The window is `mdnsWindow`, 2 s; then the socket is closed and what was learnt is returned.
-- **Hostile packets.** Every length, count and pointer is checked against the packet before it is read: at most 9000 bytes and 256 records a packet whatever the counts claim; a compression pointer must point before every place the name was already read from (so no loop exists), at most 32 hops; names at most 255 bytes; label types 01 and 10 refused; a record whose data does not fit its length is skipped, and the first record that overruns the packet ends the reading with the records before it kept. Only class IN; the cache-flush bit is ignored. A PTR counts only when its target is exactly one label under the service asked. What one browse keeps is capped too: 256 instances, 512 names, 8 addresses a host, 32 TXT strings.
+- **Hostile packets.** Every length, count and pointer is checked against the packet before it is read: at most 9000 bytes and 256 records a packet whatever the counts claim; a compression pointer must point before every place the name was already read from (so no loop exists), at most 32 hops; names at most 255 bytes; label types 01 and 10 refused; a record whose data does not fit its length is skipped, and the first record that overruns the packet ends the reading with the records before it kept. Only class IN; the cache-flush bit is ignored. A label must be UTF-8 (RFC 6762 §16): any other byte would read as U+FFFD and could not be written back as it came (22 bytes of 0xFF come back as 66, past a label's 63), so such a name is malformed too, and every name read can be asked about again. A PTR counts only when its target is exactly one label under the service asked. What one browse keeps is capped too: 256 instances, 512 names, 8 addresses a host, 32 TXT strings.
+- **Nothing throws out of a callback.** Answers arrive in the transport's message event and follow-ups run in a timer, where a throw would stop the helper (`main.ts` catches only rejections): a packet that makes anything there throw is dropped, and so is a follow-up packet that cannot be written or sent. A service type that cannot be written as a name rejects the browse before the socket opens, so nothing is left open.
 - **Transport seam.** `BridgeOptions.mdns` (an `OpenMdnsTransport`) is the UDP socket by default. Every isolated test bridge gets `silentMdns()` (`harness.ts`), and the suite's fake network (`fakes/mdns.ts`) answers with real packets, so no test sends a packet to a real network.
 
 **The system resolver** (`mdns.ts`, `systemBrowse()`, file §9) [V, 2026-10-04]
@@ -1720,7 +1795,7 @@ Measured on the owner's network: the Pixel 9 (Android 17, Wireless debugging on)
   - `-B`: `21:00:20.680  Add        2  14 local.               _adb-tls-connect._tcp. adb-55090DLAQ0026D-nK25Qn`: the instance is the rest of the line, raw (spaces included); only domain `local.` and the type asked.
   - `-L`: `21:00:43.125  adb-55090DLAQ0026D-nK25Qn._adb-tls-connect._tcp.local. can be reached at Android_GWZJSA15.local.:43141 (interface 14)` (an optional ` Flags: N` after it), the full name in presentation form (`SONY\032KD-43X8050H`, `\.`, `\\`; its first label must be the instance asked about), then, when the TXT is not empty, one line starting with a space: ` given_name=BAULOC\ Pixel\ 9 serial=55090DLAQ0026D v=2.1 api=37.1 name=Pixel\ 9` (dns-sd's ShowTXTRecord: shell metacharacters and spaces after one backslash, a backslash written as four, bytes below 0x20 as `\\xHH`).
   - `-G v4`: `21:00:50.987  Add  40000002      14  Android_GWZJSA15.local.                192.168.68.114                               120`: an IPv4 address for the host asked; a negative answer (`No Such Record`) does not match.
-  - avahi: `+;wlan0;IPv4;<name>;<type>;local`, `-;…` and `=;…;local;<host>;<address>;<port>;"k=v" "k=v"`; the name escaped by `avahi_escape_label` (`\032`, `\.`), found up to `;<type>;local` (a name may hold a `;`); TXT strings in double quotes with `\"`, `\\` and `\DDD`.
+  - avahi: `+;wlan0;IPv4;<name>;<type>;local`, `-;…` and `=;…;local;<host>;<address>;<port>;"k=v" "k=v"`; the name escaped by `avahi_escape_label` (`\032`, `\.`), found up to `;<type>;local` (a name may hold a `;`), the type compared as text in ASCII case only, never as a pattern; TXT strings in double quotes with `\"`, `\\` and `\DDD`.
 - **Untrusted output.** Lines are cleaned (escapes and control characters) and capped as every tool's are; an instance must be 1–63 bytes, a host a `.local` name; neither may start with `-` (never passed as an option); an answer for another instance, another domain or another type is ignored; only IPv4; at most 128 instances per group (the adb types; the name-only types: neither crowds out the other), 32 TXT strings, 8 addresses a host. avahi-browse keeps the same two caps. When two instances of the same type point at one host (`Android.local` on two TVs), a lookup of that name answers for whichever device spoke first, so those instances get no address from this source (the helper's own browser ties addresses to the packet and still finds them).
 - **Looked or not.** dns-sd looked when a browse ran until it was stopped or found something; it did not when every browse exited at once (no daemon: `DNSServiceBrowse failed -65563`). avahi-browse looked when it printed a browse line or exited 0; `Daemon not running` (exit 1) is not looking. The reason is kept (`dns-sd exited with code 1: …`). Tests point `dnsSdPath` into the fake bin directory (`harness.ts`), so the real tool never runs in the suite.
 - What it finds is a `ServiceInstance` like the helper's own browse, so naming, local-address rules and merging are the same for both.
@@ -1785,7 +1860,7 @@ A multicast query fails only when it left on no interface (the first interface's
 
 - After a scan, the terminal prints one line, only when it differs from the last one printed: `Wi-Fi: 2 Android devices on this network (1 TV, 1 with Wireless debugging), 1 already connected` (one device per address; a TV is any device with Remote or Cast), or `Wi-Fi: no Android device on this network advertises Network or Wireless debugging`. A blocked scan prints `Wi-Fi: could not look for Android devices on the network: no route to host, so this computer can't reach the local network` (`not permitted` for EPERM) and the same two indented fixes as a blocked connect (§4.7, `blockedLines`), the macOS one only on a Mac. When the system resolver failed too, one more indented line says why: `  The system resolver could not look either: dns-sd exited with code 1: DNSServiceBrowse failed -65563` (the `no route to host` / `not permitted` cause is read from the socket's words only).
 - With a `note`, the summary is preceded by one quiet line, not the blocked fixes: `Wi-Fi: looked through dns-sd; the helper's own mDNS queries could not leave (send EHOSTUNREACH 224.0.0.251:5353), so connecting may be refused too`.
-- `--doctor` runs one scan after the adb server's lines, with or without a server, and prints the same line, then one line per service: `SONY KD-43X8050H · 192.168.68.101:5555 · Network debugging · not connected`, `BAULOC Pixel 9 · 192.168.68.114:43141 · Wireless debugging · Android 17 · not connected` (the name, else the model, else the instance; `listed as <serial>` when adb lists it). A blocked scan prints its lines, and the summary only when adb's own list found something; a `note` prints its line.
+- `--doctor` runs one scan after the adb server's lines, with or without a server, and prints the same line, then one line per service: `adb-b120be004010859 · 192.168.68.101:5555 · Network debugging · not connected`, `Pixel 9 · 192.168.68.114:43141 · Wireless debugging · Android 17 · not connected` (the model, else the instance — never the owner's name, T18; `listed as <serial>` when adb lists it). A blocked scan prints its lines, and the summary only when adb's own list found something; a `note` prints its line.
 
 **The page** (`nearby.ts`, `components/nearby-list.tsx`, the Wi‑Fi dialog)
 
@@ -1793,11 +1868,91 @@ A multicast query fails only when it left on no interface (the first interface's
 - `parseNearby` checks every host again with `checkHost` (`helper/network.ts`), so only private, link-local or CGNAT addresses ever reach a button; it strips control and direction characters from names, drops repeated ids and keeps 64. Optional `model` and `hostname` are read when a helper sends them.
 - `nearby.ts` looks when something first shows the list (the section, the dialog's pick list), then every 30 s while the tab is visible and something still shows it; never while hidden. Refresh sends `?refresh=1` and announces how it ended, once. A blocked or failed reply keeps the devices adb listed.
 - `nearbyRows`: one row per device (by serial, else by address), leaving out what is listed already: `connected`, the same serial (a cable too), an adb mDNS serial with the same instance, or the same `host:port`. Named by friendly name, else model, else serial, else address. One action: **Connect** for Network debugging, or Wireless debugging known to be paired; otherwise **Pair…**, with the same device's `pairing` entry as the pairing address when its pairing screen is open (never a guessed port) and its `wireless` port kept for the connect after pairing.
-- **"On this network"**, under the device list (and in the Gate's Android card when nothing is plugged in): rows with a TV or phone icon, the address, a "Network debugging" / "Wireless debugging" badge and "Pairing screen open". Connect opens the Wi‑Fi dialog filled in and runs its connect (the device then asks "Allow debugging?"); Pair… opens it filled in, with focus on the pairing code (or the pairing address when the pairing screen isn't open). States: helper not running (one line, "Set up the helper"), helper older than discovery ("Update the helper": "Your helper is older than this page: it can't look for devices on this network yet. Update it: press Ctrl+C in its window, then run:", the download command for its port, "Then reload this page."), started with `--no-android` (that sentence, no download), Looking…, nothing found (how to turn on Network or Wireless debugging; same Wi‑Fi, no VPN), everything found already connected (only after a look that ran), blocked (the `wifi.localNetwork` row "This computer reaches the local network" with the VPN and macOS fixes, the start command and the socket's detail), failed (the helper's sentence).
+- **"On this network"**, under the device list (and in the Gate's Android card when nothing is plugged in): rows with a TV or phone icon, the address, a "Network debugging" / "Wireless debugging" badge and "Pairing screen open". Connect opens the Wi‑Fi dialog filled in and runs its connect (the device then asks "Allow debugging?"); Pair… opens it filled in, with focus on the pairing code (or the pairing address when the pairing screen isn't open). States: helper not running (one line, "Set up the helper"), helper older than discovery ("Update the helper": "Your helper is older than this page: it can't look for devices on this network yet. Update it: press Ctrl+C in its window, then run:", the download command for its port, "Then reload this page."), started with `--no-android` (that sentence, no download), Looking…, nothing found (how to turn on Network or Wireless debugging; same Wi‑Fi, no VPN), everything found already connected (only after a look that ran), blocked (the `wifi.localNetwork` row "This computer reaches the local network" with the VPN and macOS fixes, the start command and the socket's detail), failed (the helper's sentence, else the page's sentence for the code, such as `HELPER_UNREACHABLE`, `HELPER_BAD_REPLY`, or `HELPER_TIMEOUT` when the page's 12 s ran out).
 - **The Wi‑Fi dialog** shows "Found on this network" above the address fields; choosing one only fills the fields, and a blocked look is shown before anything is tried.
 - Nothing found is ever connected or paired by itself: every Connect and Pair… is the tester's click.
 
 **Not verified on hardware yet:** a scan from Terminal.app on the owner's network (the TV and the Pixel above are fixtures built from `dns-sd`'s view of them), and how each device answers a legacy unicast query.
+
+### 4.9 Every device on this network
+
+The owner, once "On this network" (§4.8) listed the Android devices: "I want to list ALL the devices currently on the local network." `GET /api/lan/devices` lists, read-only, every device on this computer's **own** network: the router, phones and tablets, TVs, computers, printers, speakers, smart-home things, each with what it says about itself, so the page can name it, tell its kind and offer Device Lab's actions where they apply (§4.7's Connect and Pair… for Android, the `--wifi` note for an iPhone). The helper reports facts; what a device is and what to call it is the page's (`lan-kinds.ts`). It is bridge-level (`lan-net.ts` file §15, `lan.ts` file §16): no lane is needed, and `--no-android` leaves it on.
+
+**Scope.** An inventory of the tester's own network, never a scan of anything else: what devices announce about themselves (mDNS/DNS-SD, SSDP), the names the system already knows, the neighbour table where the system shares it, the default gateway, and one 1-byte UDP datagram to each address of this computer's own subnet. No TCP port is probed, no NetBIOS, and the one HTTP request is the UPnP description a device points to at its own address. A look runs only when the page asks (and in `--doctor`): never at startup, never on a timer. No request names an address, a range or a port: every target is derived from this computer's own interfaces.
+
+**The networks looked at** (`lanNetworks`)
+
+- From `BridgeOptions.lanInterfaces` (`os.networkInterfaces()`): each non-internal IPv4 address in 10/8, 172.16/12 or 192.168/16 on an interface that is not a tunnel, a VM or container bridge, AirDrop or loopback (`/^(utun|tun|tap|wg|tailscale|zt|ppp|ipsec|gif|stf|awdl|llw|bridge|vmnet|vboxnet|docker|br-|veth|virbr|lo)/i`), with a prefix from 8 to 30; at most 16. 169.254/16 and 100.64/10 are never looked at (link-local; carrier-grade NAT and Tailscale), though a device mDNS finds there is still listed.
+- The presence check covers the whole subnet when it is a /24 or smaller, else only the /24 around this computer's address. The subnet's network and broadcast addresses, and this computer's own addresses, are never targets. At most `LIMITS.lanTargets` (512, two /24s): a network that does not fit is listed with `scanned: 0`; a subnet two interfaces share is checked once.
+- `networks[]` lists each one: `interface`, this computer's `address` on it, `prefix`, `size` (its host addresses) and `scanned` (those covered, this computer's own included: a whole /24 reads 254 of 254).
+- No such interface: no source runs, and the answer is the `no-network` error.
+
+**Sources** (all at once unless the table says otherwise; the whole look is cut at `lanScan`, 7 s, sockets closed and tools killed, and what arrived by then is the answer)
+
+|  | Source | How | Bounds |
+| --- | --- | --- | --- |
+| P | **Presence** (`checkPresence`, `presenceTransport`) | Per target a udp4 socket **connected** to `<address>:9` (`LAN_PRESENCE_PORT`, discard), **one** 1-byte datagram. A host that is there answers with ICMP port unreachable, which a connected socket reports as `ECONNREFUSED`: present. Silence says nothing. No privilege, no process [V 2026-10-04, from Terminal.app: every live host answered in 15–615 ms, the two phones that drop TCP and ping and the dozing Pixel included; unused addresses stayed silent]. Off on Windows, where libuv swallows the refusal. | At most `LIMITS.lanSockets` (256) sockets open at once, opened at most 4 every 10 ms (400 a second), each closed at its answer or after `lanPresence` (1 s): a /24 is done in about 1.7 s, two in about 2.7 s |
+| N | **Neighbour table**, after P (which fills it) | macOS `/usr/sbin/arp -an` (`arpPath`; it prints nothing to the helper on macOS 27 [V]); Linux `/proc/net/arp` read as a file (`procNetArpPath`), flags 0x2 and 0x6 only; Windows `%SystemRoot%\System32\ARP.EXE -a` (`arpPath`), rows read by shape, never by the translated words | `runTool`, 3 s, 256 KiB; 1,024 entries |
+| G | **Default gateway** | macOS `/sbin/route -n get default` (`routePath`), its `gateway:` line; Linux `/proc/net/route` (`procNetRoutePath`), the default route with the lowest metric, its gateway in little-endian hex; Windows `%SystemRoot%\System32\ROUTE.EXE print -4 0.0.0.0`, rows of IPv4 columns, the lowest metric | 2 s, 256 KiB |
+| M1 | **mDNS through the system's daemon** (`systemBrowseAll`) | dns-sd: the daemon's list of types (`-B _services._dns-sd._udp local.` for `systemBrowse`), and for each type it lists and each of `LAN_STATIC_TYPES` one `dns-sd -Z <type> local.` (every instance's PTR, SRV and TXT in one process), each host an SRV names looked up once with `-G v4`. avahi: one `avahi-browse -a -r -p -t -k`, its types learnt from its own browse lines | `-Z` 6 at a time, ended 200 ms after its last record, else after `systemResolve`; `-G` 4 at a time; the run cut at `systemBrowse + 2 × systemResolve` (avahi: browse + resolve); 48 listed types; 256 instances, 64 of a type, 128 hosts |
+| M2 | **mDNS from the helper's own socket** | `browseServiceTypes()`: the meta question (`_services._dns-sd._udp.local` PTR) for half of `mdnsWindow`, sent again halfway; then one `browse()` of those types and `LAN_STATIC_TYPES`, its PTR questions 12 to a packet. `ServiceInstance.from` says which address answered | 48 types; 256 instances |
+| R | **Reverse names**, after P, N, M1, M2 and S | For each address that is there with no `.local` name yet: macOS `dns-sd -fmc -q <d.c.b.a>.in-addr.arpa. PTR` (`-fmc` keeps it on mDNS: the router's DNS knows none of these names [V: it answered No Such Record for every host, while `-fmc` named the iPhones, the Pixel and this Mac]); Linux `avahi-resolve -a <address>` (`avahiResolvePath`, else looked up like `avahi-browse`); elsewhere one set of PTR questions from the helper's own socket. Only a `.local` answer counts | 64 addresses, 8 lookups at a time, each `lanReverse` (1.2 s), the step cut at twice that |
+| S | **SSDP** (`searchSsdp`) | One udp4 socket bound to `0.0.0.0` on an ephemeral port, multicast TTL 2; `M-SEARCH` with MX 2 for each of `LAN_SSDP_TARGETS` (`ssdp:all`, `upnp:rootdevice`) out of each interface looked at, twice, 500 ms apart; answers only from addresses on the local network, read as header lines | Answers for `lanSsdp` (3 s); a datagram over 2 KiB dropped; 256 answers; per address its first `SERVER` and `LOCATION` and 8 device types |
+| D | **UPnP description**, after S | GET of an answer's `LOCATION` only when `descriptionTarget()` allows it: `http:` (never https or another scheme), no user or password, its host an IPv4 address equal to the address the answer came from and on the local network (a device may point at itself only), port 1–65535. `node:http`, `Accept: text/xml`, no redirect followed, a 200 in XML only | 16 documents, 4 at a time, `lanDescription` (2 s) from connect to last byte, 64 KiB |
+
+Expected time on a /24: about 3.5–5.5 s (the presence check about 1.7 s; mDNS 2–4.5 s; SSDP 3 s, then the descriptions and the reverse names). The cut at 7 s holds whatever a source does.
+
+**Formats** (each line matched against its exact shape; anything else is ignored)
+
+- dns-sd's list of types: `22:56:04.523  Add  3  14 .  _tcp.local.  _ipp`: domain `.`, the protocol in the type column, the type's name in the instance column → `_ipp._tcp`. `if 1` (lo0) lines are this computer's own.
+- `dns-sd -Z`: `<owner>  PTR|SRV|TXT  <data>`, names relative to `local.` in presentation form (`\032`, `\.`, raw UTF-8), the owner padded to 47 columns; an SRV is `0 0 <port> <host> ; Replace with unicast FQDN of target host`; a TXT is `"…"` strings with `\"` and `\\` (`parseAvahiTxt`). No addresses; one block per instance and interface (the first SRV and TXT stand); it never exits by itself.
+- `dns-sd -q`: `23:56:38.928  Add  40000002  14  113.68.168.192.in-addr.arpa.  PTR  IN  BAULOCs-MacBook-Pro.local.`, or `0.0.0.0    No Such Record`.
+- avahi: a type is learnt from a browse line's last two fields (`+;eth0;IPv4;<name>;_ipp._tcp;local`), then resolved lines are read for each learnt type (§4.8); `avahi-resolve`: `<address>\t<host>`.
+- A service type must be `_name._tcp` or `_name._udp` (`^_[A-Za-z0-9][A-Za-z0-9_-]{0,61}\._(tcp|udp)$`) and its label may not hold 12 hex digits in a row (`_FC9F5ED42C8A._tcp` was on the owner's network): only such a type reaches a tool's arguments, a question, or the page.
+- SSDP answer: `HTTP/1.1 200 OK`, then `NAME: value` lines (names in any case, the first of each kept, each value cleaned and capped at 512); a device type from `ST` or `USN` (`uuid:…::urn:…:device:…:1`), or DIAL's `urn:dial-multiscreen-org:service:dial:1`.
+- The description: a tag scanner, not an XML parser. A document with `<!DOCTYPE` or `<!ENTITY` is refused whole (no entity is ever expanded); the first `<device>` is found and its `deviceType`, `friendlyName`, `manufacturer`, `modelName`, `modelNumber` are read only up to its own `<deviceList>` or end, as plain text (`&amp; &lt; &gt; &quot; &apos;` decoded; a field holding markup or CDATA skipped), cleaned, at most 100 characters.
+
+**Merging** (`mergeLan`, per IPv4 address as `offerableAddress()` writes it)
+
+- A device exists where a source puts one: this computer's own addresses (`self`), the gateway (when it is on a network looked at), an address that answered P, a complete neighbour entry on a network looked at (never its network or broadcast address, never this computer's own entry, never an all-zero, multicast or broadcast hardware address: Windows lists `<subnet>.255 ff-ff-ff-ff-ff-ff`), an mDNS service tied to an address, an SSDP answer. A reverse name only names one that exists.
+- **Addresses belong to the answer, not to the host name.** An mDNS service is tied to its IPv4 addresses on the local network (those on the networks looked at, when it has some). A host name that resolves to more than one of them, or `Android.local` (adbd's and Android TV's name on many devices at once), ties nothing by itself; only the helper's own browse, which heard the answer come from the device (`from`), still ties those. A device with several addresses is several rows: no guessing.
+- Per device: `hostnames` (SRV targets and reverse names, `.local` only, 4), `names` (instance names of the types whose instance is the device's own name: `_companion-link`, `_airplay`, `_raop`, `_androidtvremote2`, `_ipp`, `_ipps`, `_printer`, `_privet`, `_hap`, `_spotify-connect`, `_sonos`, `_smb`, `_workstation`; and the description's `friendlyName`; 8, each once whatever its case), `services` (`type`, `port`, the instance `name`, `txt`; one per type and instance; 24), `upnp` (the description's fields, else the first device type SSDP gave, and `SERVER`), `maker` and `privateAddress` (below), `found` in the fixed order `reply, neighbors, mdns, ssdp, reverse, gateway, self`.
+- Order: the gateway first, then by address as a number. At most `LIMITS.lanDevices` (256), with `truncated: true` beyond.
+
+**What is never passed on**
+
+- **Hardware addresses.** One is read from the neighbour table, an `_apple-mobdev2` instance (`<address>@<IPv6>-supportsRP-…`), a TXT `mac=` (printers) or avahi's `_workstation` (`<name> [<address>]`), and becomes two facts only: `privateAddress` (the locally administered bit: the private, per-network address phones, tablets and laptops make up) and, for an address that is not private, `maker`, its first three bytes (`6C02E0`); the neighbour table's is trusted first. Never AirPlay's `deviceid` (not a hardware address [V: it differs from this Mac's]).
+- **Nothing that carries one.** Every text sent beside those facts (host names, names, instance names, TXT values, the description's fields) loses any UUID, any hardware address written out, any run of 12 hex digits, and every hardware address read for that device (and AirPlay's ids: `deviceid`, `_raop`'s `<id>@`) whole or by its last three bytes, in any case, with or without `:` or `-`; brackets left empty and separators left dangling go too. A host name holding any of these is dropped whole. Without this, the HP printer of the owner's network would have given its whole address away: `maker` `6C02E0`, its instance `HP Neverstop Laser MFP 1200w (F25F81)` and host `NPIF25F81.local` the last three bytes. Brother's `BRW` + 12 hex digits and Espressif's `ESP_` + 6 go the same way.
+- **Ids and serials.** An `_apple-mobdev2` instance is never sent; `_raop`'s only after its `@`; an adb instance (`adb-<serial>`) never (the page joins "On this network" by address); a UUID instance (`_remotepairing`) never; `deviceid`, `pk`, `id`, `authTag`, `identifier`, `mac`, `UUID` never.
+- **TXT** is cut to `LAN_TXT_KEYS` (`model, md, fn, ty, product, usb_MFG, usb_MDL, mfg, mdl, am, rpMd, ci, n, given_name, name, api, manufacturer, friendly_name`), keys compared in any case and sent in the allowlist's spelling, 8 a service, each value cleaned and at most 100 characters.
+
+**`GET /api/lan/devices[?refresh=1]`** (bearer; the §2.1 pipeline; `LanResult`, §2.3; always 200, with `error?`/`note?`)
+
+- One look at a time: a second request joins it. A look answers for `lanCache` (30 s, from its start); `?refresh=1` starts a new one only `lanGap` (3 s) after the last one started. A look runs on the helper's shutdown signal, never a request's: a page that leaves stops waiting, and the look goes on for whoever else waits. Shutdown aborts a running look (every socket closed, every tool killed) and none starts after it.
+- Its explicit route line comes before the last fixed route (`POST /api/android/start-server`), so it can never reach the adb server. `--no-android` leaves it on, and health lists `lan.discover` always (since 1.2.0).
+- `BridgeOptions.lanScan` is the whole look: `helper:fake` and the page's tests stand a fake network in for it.
+
+**When a look cannot look**
+
+| `sources` | Values |
+| --- | --- |
+| `presence` | `ok`; `blocked` when not one datagram left; `off` on Windows, or with nothing to check |
+| `neighbors` | `ok` (entries read); `hidden` (read, none: macOS 27 for the helper; an empty table elsewhere); `none` (no tool or file, or it failed) |
+| `resolver` | `dns-sd` or `avahi` when the daemon looked, else `none` |
+| `ssdp` | `ok`; `blocked` when not one M-SEARCH left |
+
+- `error` only when nothing could look: not one of the helper's own packets left (the presence check, its mDNS question, its M-SEARCH) **and** the system's resolver did not look. Its `reason` and `detail` are the presence check's (else the mDNS question's), classified by `mdnsFailure()` as in §4.8: one host's EHOSTUNREACH is just "not there", every send refused at once is `blocked` (a VPN; macOS keeping the app that started the helper off the local network). The resolver's own words follow `; ` in `detail` when it failed too. What the tables gave is still listed (this computer, the gateway, the neighbours).
+- When the resolver looked although the sockets were blocked: no `error`, a `note` with the same reason and detail (`message` "Listed through this computer's own resolver: the helper's own packets could not reach the network, so only devices that announce themselves are here."), and what it found.
+- No network interface: `error` `no-network`, `detail` "no network interface has a private IPv4 address".
+
+**Terminal and `--doctor`** (T18: never a name)
+
+- After a look, one line, only when it differs from the last one printed: `Network: 8 devices on 192.168.68.0/24 (en0)` (a partly checked network adds `, 256 of 65534 addresses checked`; more than 256 devices reads `256 devices or more`). A blocked look prints `Network: could not look for devices: no route to host, so this computer can't reach the local network` (`not permitted` for EPERM) and §4.7's two fixes, the macOS one only on a Mac, then the summary when the tables found something; no network: `Network: could not look for devices: this computer is not on a network`; a note: `Network: listed through dns-sd only; the helper's own packets could not leave (send EHOSTUNREACH 192.168.68.1:9)` before the summary.
+- `--doctor` ends with a `Network` section: one look, its lines, what could look (`presence ok · neighbour table hidden by macOS · resolver dns-sd · SSDP ok`), then one line per device with its address, how it was found and the service types it announces: `192.168.68.110 · found by reply, mDNS · _apple-mobdev2._tcp, _remotepairing._tcp`. Never a name, a host name, a model or a hardware address.
+
+**Tested** (§9.2, `lan-net.test.ts`, `lan.test.ts`, and the `mdns`, `system-resolver`, `http`, `preflight` and `build` suites): the owner's network as in-process fakes (made-up hardware addresses and ids), the real presence and SSDP sockets and the description fetch on 127.0.0.1 only, every format above with hostile input, the pool and its time bound, one datagram per address, every socket closed on abort and on a bind that fails, and the reply, the terminal and `--doctor` grepped for every spelling of every fixture's hardware address.
+
+**Not verified on hardware yet:** a look from Terminal.app on the owner's network (on port 8797, never the tester's 8787), and how the TP-Link Deco, the HP printer, the iPhones and the Pixel answer the helper's own sockets.
 
 ---
 
@@ -2542,11 +2697,12 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
 | T15 | Orphan processes | `detached` groups; kill on timeout, abort, client gone and shutdown; synchronous `exit` hook; grandchild reaping tested [V] | — |
 | T16 | Privilege | Refuses root; never runs sudo; sudo commands are only shown for the user to copy | — |
 | T17 | Pair-record secrets | In memory only, and only the fields TLS needs; TLS uses in-memory PEM (no temp files); never logged or returned; `--doctor` prints shapes only | — |
-| T18 | Device privacy | Whitelists apply pre-session and in-session (§3.5); no MAC addresses, IMEI, phone number, ICCID or IMSI; no telemetry; `--verbose` never prints headers, queries or tokens; `--doctor` never prints device names | Log contents reach paired pages by design |
+| T18 | Device privacy | Whitelists apply pre-session and in-session (§3.5); no MAC addresses (for a network device, §4.9: only whether its address is private, and its maker's 3-byte prefix; never the address, nor any name that embeds one), IMEI, phone number, ICCID or IMSI; no telemetry; `--verbose` never prints headers, queries or tokens; `--doctor` never prints a device name, host name, model or hardware address | Log contents reach paired pages by design |
 | T19 | Unwanted device effects | Never Pair, no auto-pairing tools on untrusted devices, no Developer Mode toggles, no DDI automation; adb started only on a click and never killed; Wi‑Fi connect, pair and disconnect only on a click | — |
 | T20 | Lockdown TLS over Wi‑Fi | usbmuxd (root-owned) carries both USB and Wi‑Fi; the peer certificate is pinned to the pair record's `DeviceCertificate` and enforced (G25) | — |
 | T21 | Tampered download | HTTPS; `curl -fsSL` refuses to save a 404 page [V]; "Review the source" link; the Environment check compares SHA-256 and VERSION with the published file | Trust in GitHub Pages |
 | T22 | The Wi‑Fi routes as a way into the local network (a paired page makes the adb server dial addresses) | Bearer, Origin and the rest of §2.1 first; LAN-only addresses (private, link-local and CGNAT IPv4, ULA and link-local IPv6, `.local`/`.lan`/`.home.arpa` names), never loopback or public; names resolved and every address checked before adb sees them; ports as integers, codes as six digits; one exact string per service; one dial per host at a time; the pairing code never printed | adb resolves a name again, so DNS that changes between the two lookups is not caught; a paired page can make adb try `host:port` pairs on the LAN, one at a time, which is what the feature is |
+| T23 | The LAN list as a way to probe the network (§4.9) | Bearer and the rest of §2.1 first; no request names an address, range or port (`?refresh=1` only); only this computer's own private subnets on real interfaces, at most 512 addresses; one 1-byte datagram an address to port 9, no TCP port, no NetBIOS; the one HTTP request is a UPnP description at the very address that answered SSDP, plain HTTP, no redirect, 64 KiB, no entity expanded; every count, byte and time bounded; one look at a time, cached 30 s, never at startup or on a timer; every answer untrusted, a hardware address never returned | A paired page can make the helper look at its own network every 3 s (`lanGap`) |
 
 ---
 
@@ -2579,7 +2735,7 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
 **Layout**
 
 - `_app/helper/test/*.test.ts`, run by `helper/vitest.config.ts`: node environment, `pool: 'forks'` (the tests spawn real fake tools and send signals, and the helper installs a process-wide `exit` hook, so each file gets its own process).
-- Files: `util`, `process`, `cli`, `auth`, `registry`, `http`, `operations`, `logs`, `local-mode`, `lifecycle`, `banner`, `build`, `context` (core); `ios-codec`, `ios-clients`, `ios-lane`, `ios-screenshot`, `ios-logs` (iOS); `android`, `mdns`, `nearby`, `system-resolver`, `simulators`; `tools`, `preflight`; and the opt-in `android-real`, `simulators-real`.
+- Files: `util`, `process`, `cli`, `auth`, `registry`, `http`, `operations`, `logs`, `local-mode`, `lifecycle`, `banner`, `build`, `context` (core); `ios-codec`, `ios-clients`, `ios-lane`, `ios-screenshot`, `ios-logs` (iOS); `android`, `mdns`, `nearby`, `system-resolver`, `simulators`, `lan-net`, `lan` (§4.9); `tools`, `preflight`; and the opt-in `android-real`, `simulators-real`.
 - Every test builds its bridge with `createBridge({port: 0, searchPath: fakeBin, extraDirs: [], usbmuxdSocket, adbPort, upstream, xcodeSelectPath, plistBuddyPath, javaHomePath, applicationsDir, coreDeviceDir, coreSimulatorDir, home, open: false, timeouts: short})`, or a fixed Toolbox, so no real tool can leak in.
 - `test/build.test.ts` checks the built file: shebang and header first, the Node 18 denylist, the exports.
 
@@ -2595,7 +2751,8 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
 - **`certs.ts`**: at suite start, `/usr/bin/openssl` (LibreSSL 3.3.6 [V]) builds two RSA-2048 SHA-1 chains: **empty-name** (`-subj "/"`, like real records [V]) and **named**. The client must connect with both. TLS tests skip when openssl is missing. No private key is committed.
 - **`adb-server.ts`**: TCP on port 0: `host:version`, `track-devices-l` (the test pushes lists: unauthorized, offline, recovery, `no permissions (…)`, emulator, `ip:port`, mDNS serial), `devices-l`, transport + the `ADB_EXEC` commands from fixtures, screencap (warning + PNG + trailing text), endless logcat, `reconnect-offline`, `FAIL` cases, and the network side: `addNetworkDevice`, `connectAnswer`, `accept`, `refuse`, `drop`, `shield()`; a TV that has not allowed this Mac answers "failed to authenticate to X" and is listed `unauthorized`, as adb 36 does.
 - **`mdns.ts`**: a fake local network for the mDNS browser, no socket: `fakeMdnsNetwork()` answers each query with real DNS packets (name compression; legacy-unicast style with the query's id, its question and TTL ≤ 10 s, or multicast style with id 0, cache-flush bits and NSEC); `braviaTv()` and `pixel9()` are the two devices measured on 2026-10-04; `sendError`/`openError` play a blocked or absent network; `silentMdns()` is every isolated bridge's network. `adb-server.ts` answers `host:mdns:services` with `mdnsServices`.
-- **`dns-sd.ts`**: a fake `dns-sd` and a fake `avahi-browse` written into the bin directory (`fakeDnsSd`, `fakeAvahiBrowse`), answering by argument from fixtures, optionally after a delay, then running on as the real dns-sd does (or exiting with a code and stderr). `REAL_PIXEL` and `REAL_CAST` are byte for byte what the real dns-sd printed on the owner's Mac on 2026-10-04; `browseOutput`, `resolveOutput`, `lookupOutput` write the same formats.
+- **`dns-sd.ts`**: a fake `dns-sd` and a fake `avahi-browse` written into the bin directory (`fakeDnsSd`, `fakeAvahiBrowse`), answering by argument from fixtures, optionally after a delay, then running on as the real dns-sd does (or exiting with a code and stderr). `REAL_PIXEL` and `REAL_CAST` are byte for byte what the real dns-sd printed on the owner's Mac on 2026-10-04; `browseOutput`, `resolveOutput`, `lookupOutput` write the same formats. For §4.9 it also answers `dns-sd -Z <type>` (`zoneOutput`, with a block printed twice as for two interfaces), the list of types (`typesOutput`) and `dns-sd -fmc -q` (`queryOutput`); `fakeAvahiResolve` writes a fake `avahi-resolve`.
+- **`lan.ts`**: the LAN sources of §4.9 with no socket: `fakePresence()` (who answers port unreachable and after how long, `sendError` for a computer that sends nothing; it counts the sockets open at once, when the last closed and the datagrams each address got), `fakeSsdpNetwork()` with `decoRouter()` (the owner's TP-Link Deco as measured, made-up ids) and `DECO_DESCRIPTION`, `fakeDescriptions()`, `lanInterfaces()`; `silentPresence()`, `silentSsdp()` and `noDescription` are every isolated bridge's, with no interface (`lanInterfaces: () => []`).
 - **`upstream.ts`**: gzip-encoding HTTP server with ETag/304; `/device/` has an inline theme script **and** an inline script with attributes; `/assets/x.js`, `/assets/i.svg`.
 - **`lane.ts`**, **`devices.ts`**: scriptable fake lanes and rows, also used by `helper:fake` and the page's real-helper tests.
 
@@ -2605,11 +2762,12 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
 
 | Area | Cases |
 | --- | --- |
-| core | Loopback-only (LAN IP refused); Host 421 via raw `http.request` (Node `fetch` drops a custom Host [V]); Origin 403 for unknown, `null`, `http://bauloc.github.io` and `https://bauloc.github.io.evil.example`, with no ACAO; `--dev` origins only with the flag; Fetch Metadata 403 plus the navigation exception; preflight (with and without the PNA header); health has `tokenId` but never the token; **proof** equals a reference HMAC and changes with the port; challenge validation; 401 variants (missing, short, wrong, wrong scheme) readable with CORS; 413 (large, chunked, malformed length); `upgrade` destroyed; ids (`--help`, `-u`, `..`, `%2e%2e`, `a b`, malformed `%`, unlisted UDID, IPv6 serial); `rev`/`runId`; stream caps (4th → 429; same device → `replaced`); ping cadence; back-pressure pause and resume; client abort reaps group and grandchild; local mode (boot before the first script, CSP hashes cover every inline script, no copied encoding, correct length, **token absent from HTML**, assets immutable plus `sandbox` CSP, redirects, traversal → 302, favicon 404, offline last-good copy); `--keep-token` (0600 created; group-readable, symlink and foreign owner refused; `--new-token`); port-in-use messages (our helper vs another server); root refusal; SIGINT → `end:shutdown`, groups dead, exit 0, second signal 130; `--verbose` never prints Authorization or queries; "Page connected" wording; banner waits for lanes; Node-18 API denylist; BigInt replacer |
+| core | Loopback-only (LAN IP refused); Host 421 via raw `http.request` (Node `fetch` drops a custom Host [V]); Origin 403 for unknown, `null`, `http://bauloc.github.io` and `https://bauloc.github.io.evil.example`, with no ACAO; `--dev` origins only with the flag; Fetch Metadata 403 plus the navigation exception; preflight (with and without the PNA header); health has `tokenId` but never the token; **proof** equals a reference HMAC and changes with the port; challenge validation; 401 variants (missing, short, wrong, wrong scheme) readable with CORS; 413 (large, chunked, malformed length); `upgrade` destroyed; ids (`--help`, `-u`, `..`, `%2e%2e`, `a b`, malformed `%`, unlisted UDID, IPv6 serial); `rev`/`runId`; stream caps (4th → 429; same device → `replaced`); ping cadence; back-pressure pause and resume; client abort reaps group and grandchild; local mode (boot before the first script, CSP hashes cover every inline script, no copied encoding, correct length, **token absent from HTML**, assets immutable plus `sandbox` CSP, redirects, traversal → 302, favicon 404, offline last-good copy); `--keep-token` (0600 created; group-readable, symlink and foreign owner refused; `--new-token`); port-in-use messages (our helper vs another server); root refusal; SIGINT → `end:shutdown`, groups dead, exit 0, second signal 130; `--verbose` never prints Authorization or queries; "Page connected" wording; banner waits for lanes; Node-18 API denylist; no abort-listener warning from `linkSignals` on Node 18 or 20; BigInt replacer |
 | ios | Plist round trip (BigInt, data, date, real); `Attached` → `ready` within 500 ms; no record → `untrusted`; record appears via the 3 s `ReadPairRecord` poll → `ready`; `Paired` → re-probe; `InvalidHostID` → `untrusted`; TLS reset → `untrusted`; `PasswordProtected` on `StartSession` → `locked`; AFU (`PasswordProtected: true` in session) → `ready`, `locked: true` in detail; Developer Mode false → blocker + `screenshot:false`; iOS 15 → `developerMode: null`, no amfi request; **whitelists** (no IMEI, PhoneNumber, WiFiAddress, DieID, BasebandSerialNumber in any response); `UniqueChipID` as a decimal string; **TLS succeeds on both certificate chains with the §3.3 options, and a synchronous throw is caught** → `ideviceinfo` fallback or plaintext + `TOOL_MISSING`; pin mismatch ends the session; devicectl success plus every `classifyDevicectl` case; **wrapper never executed** (first-launch mismatch → `XCODE_SETUP_REQUIRED` and the real binary never spawned); `idevicescreenshot` and `screenshotr` → `IOS_DDI_REQUIRED`; nothing applies → `XCODE_REQUIRED`/`TOOL_MISSING`; syslog_relay framing, batching, `device-gone` on detach, abort closes the service socket within 100 ms; 8 s silence → `idevicesyslog` with a notice; Wi‑Fi entry ignored without `--wifi`; with it: 2 s for a new entry, none for a returning one, 120 s hold, a cut link before or after `Detached` keeps a ready row ready, a dropped log ends `DEVICE_DROPPED`, "real rhythm" replays of the measured presence; usbmuxd restart → reconnect and resync; non-phone `DeviceClass` ignored; allowlists (sending `Pair` throws) |
 | android | No server → `stopped`, **no adb process spawned at startup**; tracker rows and the state map; identity cache per `transport_id`; a listed phone turning ready changes in place; detail outputs byte-equal to the fixtures; screencap PNG extraction; logcat stream and abort closes the socket; `FAIL` mapping; `reconnect-offline` on Retry; server dies → rows cleared, `ADB_SERVER_STOPPED`; start-server spawns exactly `['start-server']` with ignored stdio, untracked, and waits for `host:version`; `ADB_START_FAILED` after 8 s; `ADB_EXEC` contains only constants; `ADB_HOST_NEVER` refused both ways; Wi‑Fi: host, port and code parsers, adb's reply texts, connect → Allow → ready with detail, screenshot and logs, every failure `reason`, pair, disconnect (mDNS and loopback refused), IPv6, 400 before anything is sent, names resolved (loopback and public answers refused), `BUSY`, server stopped, `--no-android`, a TV that leaves (socket hung and socket closed) |
-| discovery | Codec: the TV's answer written byte by byte, QU queries, escaped labels, RFC 5952 addresses, hostile names (pointer loops, forward pointers, overruns, reserved labels, 256 bytes), counts not trusted, every truncation and 6,000 corrupted packets without a throw; browse: TV and Pixel complete, follow-up SRV/TXT/A for a PTR alone, multicast answers taken and foreign ids dropped, PTR shape, goodbyes, `max`, abort, each errno → `blocked`/`no-network`/`failed`; the real UDP transport against a responder on 127.0.0.1, ENETDOWN and EADDRNOTAVAIL sending nothing; only local addresses offered; Cast name before Remote name; adb's list parsed; connected/paired/deviceId by address, mDNS name, same host and USB serial; dedupe, order, cap; terminal and doctor lines; the endpoint: shape, no server → no adb request, cache/gap/one-at-a-time, merged with adb's list as it is now, blocked with adb's finds and printed once, bearer/Origin/405, `?refresh=1` to the lane, `ANDROID_OFF`, `android.discover` |
-| system resolver | dns-sd's `-B`/`-L`/TXT/`-G` lines from the owner's Mac and hostile ones (headers, junk, wrong domain or type, ports out of range, bad escapes, `No Such Record`, IPv6); presentation names (`\032`, `\.`, UTF-8); avahi's `+`/`-`/`=` lines, a `;` in a name, quoted TXT; TXT details and API → Android version; browsing the owner's network through a fake dns-sd (the exact argv, each host looked up once, every process gone afterwards); a resolve that never answers and a lookup past its deadline cut off; 16 Cast entries whose `-L` never answers, with and without a cap of 4, while the Pixel still resolves; a dns-sd that ignores SIGTERM ending the run on its deadline and freeing its slot; avahi's per-group cap; slow answers inside it kept; `Rmv`; options, oversized names, foreign answers and non-`.local` hosts never passed on; two devices on `Android.local` get no address; caps; a dns-sd that fails at once did not look, a missing one never runs, a silent one looked; abort; avahi: IPv4 only, no daemon, hanging, removal; which tool per platform; merging: blocked + resolver looked → `note` and no `error`, no resolver → `blocked` as before, each source's finds once, TXT names filled in, dedupe by serial (same host, or adb's list), two boxes sharing a serial or a junk one kept apart, local-address rules and cap; both sources failed → the resolver's words in `error.detail`, the terminal and `--doctor`; the endpoint and `--doctor` with dns-sd while the helper's queries are blocked |
+| discovery | Codec: the TV's answer written byte by byte, QU queries, escaped labels, RFC 5952 addresses, hostile names (pointer loops, forward pointers, overruns, reserved labels, 256 bytes, labels that are not UTF-8), counts not trusted, every truncation and 6,000 corrupted packets without a throw; browse: TV and Pixel complete, follow-up SRV/TXT/A for a PTR alone, multicast answers taken and foreign ids dropped, PTR shape, goodbyes, `max`, abort, each errno → `blocked`/`no-network`/`failed`; an instance or host whose name could not be asked about dropped, with nothing thrown from the follow-up timer; a transport handing over a non-packet or throwing from `send` throws nothing out of a callback; a type that cannot be written refused before a socket opens; the real UDP transport against a responder on 127.0.0.1, ENETDOWN and EADDRNOTAVAIL sending nothing; only local addresses offered; Cast name before Remote name; adb's list parsed; connected/paired/deviceId by address, mDNS name, same host and USB serial; dedupe, order, cap; terminal and doctor lines; the endpoint: shape, no server → no adb request, cache/gap/one-at-a-time, merged with adb's list as it is now, blocked with adb's finds and printed once, bearer/Origin/405, `?refresh=1` to the lane, `ANDROID_OFF`, `android.discover` |
+| system resolver | dns-sd's `-B`/`-L`/TXT/`-G` lines from the owner's Mac and hostile ones (headers, junk, wrong domain or type, ports out of range, bad escapes, `No Such Record`, IPv6); presentation names (`\032`, `\.`, UTF-8); avahi's `+`/`-`/`=` lines, a `;` in a name, quoted TXT, a type with `(`, `[` or `+` found as text; TXT details and API → Android version; browsing the owner's network through a fake dns-sd (the exact argv, each host looked up once, every process gone afterwards); a resolve that never answers and a lookup past its deadline cut off; 16 Cast entries whose `-L` never answers, with and without a cap of 4, while the Pixel still resolves; a dns-sd that ignores SIGTERM ending the run on its deadline and freeing its slot; avahi's per-group cap; slow answers inside it kept; `Rmv`; options, oversized names, foreign answers and non-`.local` hosts never passed on; two devices on `Android.local` get no address; caps; a dns-sd that fails at once did not look, a missing one never runs, a silent one looked; abort; no MaxListenersExceededWarning from a dns-sd or avahi run, with every AbortController capped at 10 as on Node 18 and 20 (`listenerWarnings`, `harness.ts`); avahi: IPv4 only, no daemon, hanging, removal; which tool per platform; merging: blocked + resolver looked → `note` and no `error`, no resolver → `blocked` as before, each source's finds once, TXT names filled in, dedupe by serial (same host, or adb's list), two boxes sharing a serial or a junk one kept apart, local-address rules and cap; both sources failed → the resolver's words in `error.detail`, the terminal and `--doctor`; the endpoint and `--doctor` with dns-sd while the helper's queries are blocked |
+| network (§4.9) | The networks looked at: a /24 (its own addresses, network and broadcast never targets), a /16 reduced to the /24 around this computer, two /24s inside 512, a subnet two interfaces share checked once, tunnels/bridges/AirDrop/loopback/link-local/CGNAT/IPv6 refused. Presence: the owner's network found, one datagram each, the pool and the 4/10 ms pace, every socket closed, blocked and no-network; the real transport on 127.0.0.1 (a closed port refuses, a bound silent port and 127.0.0.2 stay silent), a bind that fails leaves no socket. Tables: macOS `arp -an` (unpadded, incomplete and multicast skipped), Linux `/proc/net/arp` (flags 0x2/0x6), Windows `arp -a` in German by shape (broadcast, multicast and empty rows no device); gateways the three ways. SSDP: the router's answers and searches, only local sources, 256 at most, blocked, a bind that fails; the real socket on 127.0.0.1. Description: where it may be fetched from (same IP, http, no redirect, 64 KiB, XML), the tag scanner (entity bomb, DOCTYPE, CDATA, nesting, over 64 KiB), the real fetch on 127.0.0.1. Merge: a shared host name ties nothing unless `from` heard it, several addresses no guess, names (`_raop` after `@`, `_workstation` without its address), a host name carrying a hardware address dropped, TXT allowlist, caps and truncation. Privacy: the reply, the terminal and `--doctor` grepped for every spelling of every fixture's hardware address and its last three bytes, ids, serials and UUIDs. error/note/neither; cut at `lanScan`; the endpoint (cache/gap/one-at-a-time, bearer/Origin/GET, `--no-android`, `lan.discover`, a client that leaves), shutdown, and the `--doctor` Network section without a name |
 | simulators | List join; filter iOS runtimes; screenshot refused when not Booted (no hang); `-` never used; compact log header and stderr dropped; grandchild reaped on abort; first-launch gate (CoreSimulator older) → `unavailable` |
 | tools, preflight | §12e matrix |
 
@@ -2625,6 +2783,7 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
   - `adb on|off|missing`, `android ready|auth|offline`, `simulators on|off`;
   - a fake "Living Room TV" at 192.168.1.42:5555: `tv answer ok|refused|unreachable|timeout|slow`, `tv allow|deny|drop|back|forget`, `tv pairing on|off` (prints a code and a pairing port);
   - `status`, `help`, `quit`.
+- The look at the network (§4.9) is one seam, `BridgeOptions.lanScan`, so `helper:fake` can stand a fake network in for it.
 - `node device/agent/device-bridge.mjs --dev --simulators` + `npm run dev`: real simulators through the hosted logic at `localhost:7360`.
 
 ### 9.4 Browsers
@@ -2870,10 +3029,10 @@ The sentences below are the design's. The helper's shipped words are in `helper/
 | `browser.secure` | `window.isSecureContext` | ok → "This page runs in a secure context." · blocking → "This page isn't in a secure context, so WebUSB and pairing can't work." → link `https://bauloc.github.io/device/` "Open the secure page" |
 | `browser.webusb` | `'usb' in navigator` | ok → "This browser reaches Android phones directly over WebUSB." · without WebUSB → "This browser has no WebUSB, so Android needs the helper and Google's adb." → step "Use Chrome or Edge for Android without the helper." |
 | `helper.lna` | Mode, `safariLike`, `loopbackPermission()` (§6.3) | local → ok "Not needed: the helper serves this page." · `granted` → ok "Allowed to reach apps on this device." (with a note that the grant covers the whole site, T12) · `unsupported` (not Safari) → ok "This browser doesn't ask for this permission." · `prompt` → not checked "The browser will ask once to let this page reach apps on this device; choose Allow." → action `connect` "Connect helper" · `denied` → blocking "This browser blocks this page from reaching apps on this device." → step "Chrome or Edge: Site settings → Apps on device → Allow. Firefox: Settings → Privacy & Security → Device apps and services." + action `open-local` · hosted Safari → blocking "Safari can't reach the helper from this secure page." → action `open-local` "Open the helper's page" |
-| `helper.running` | Phase | `connected` → ok "Helper 1.1.0 answers on 127.0.0.1:8787." · `off`/`checking` → not checked "Not checked yet." → action `connect` · `absent` → blocking "Nothing answers on 127.0.0.1:8787." (+ "…or the helper was started without --dev." on a dev origin) → command `curl -fsSL https://bauloc.github.io/device/agent/device-bridge.mjs -o ~/device-bridge.mjs && node ~/device-bridge.mjs` (dev: `node ../device/agent/device-bridge.mjs --dev`) · `lost` → blocking "The helper stopped." → command `node ~/device-bridge.mjs` · `foreign` → blocking "Another program answers on port 8787." → command `node ~/device-bridge.mjs --port 8788` · `dismissed`/`denied`/`safari` → not checked (see `helper.lna`) |
-| `helper.version` | `health.protocol` vs `[1,1]` | ok → "Protocol 1, version 1.1.0." · `outdated` → blocking "This helper (0.9.0) is older than this page needs." → the download command · `newer` → blocking "This page is older than the helper." → action `reload` |
+| `helper.running` | Phase | `connected` → ok "Helper 1.2.0 answers on 127.0.0.1:8787." · `off`/`checking` → not checked "Not checked yet." → action `connect` · `absent` → blocking "Nothing answers on 127.0.0.1:8787." (+ "…or the helper was started without --dev." on a dev origin) → command `curl -fsSL https://bauloc.github.io/device/agent/device-bridge.mjs -o ~/device-bridge.mjs && node ~/device-bridge.mjs` (dev: `node ../device/agent/device-bridge.mjs --dev`) · `lost` → blocking "The helper stopped." → command `node ~/device-bridge.mjs` · `foreign` → blocking "Another program answers on port 8787." → command `node ~/device-bridge.mjs --port 8788` · `dismissed`/`denied`/`safari` → not checked (see `helper.lna`) |
+| `helper.version` | `health.protocol` vs `[1,1]` | ok → "Protocol 1, version 1.2.0." · `outdated` → blocking "This helper (0.9.0) is older than this page needs." → the download command · `newer` → blocking "This page is older than the helper." → action `reload` |
 | `helper.paired` | Phase | ok → "Paired · fingerprint 4d1566a1 · this tab only" (or "· remembered on this computer") · `unpaired` → blocking "This page isn't paired with the helper." → action `pair` · `stale` → blocking "The helper restarted, so this page's pairing ended." → action `pair` · `foreign` → blocking "The program on port 8787 couldn't prove it is your helper; nothing was sent." |
-| `helper.update` | `readPublishedHelper()`: fetch `/device/agent/device-bridge.mjs`; SHA-256 + `VERSION` vs health | ok → "Matches the published helper (1.1.0)." · warning → "A newer helper (1.2.0) is published." → download command · warning → "This helper differs from the published file." → download command · not checked (offline, or not published yet) |
+| `helper.update` | `readPublishedHelper()`: fetch `/device/agent/device-bridge.mjs`; SHA-256 + `VERSION` vs health | ok → "Matches the published helper (1.2.0)." · warning → "A newer helper (1.3.0) is published." → download command · warning → "This helper differs from the published file." → download command · not checked (offline, or not published yet) |
 | `mac.tools` | Until a doctor report exists | not checked → "This Mac's tools aren't checked yet; start the helper to check Xcode, adb and the rest." (running but unpaired: "Checked once this page is paired…") |
 
 **Mac items (helper; §1.5 detection)**

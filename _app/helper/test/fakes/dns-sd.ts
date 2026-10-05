@@ -56,6 +56,84 @@ export function lookupOutput(host: string, addresses: readonly string[]): string
   )
 }
 
+/**
+ * What the real `dns-sd -B _services._dns-sd._udp local.` printed (§4.9): one line per type and
+ * interface (`if` 1 is lo0, this Mac's own; 14 is en0), domain `.`, the type's protocol in the
+ * type column and its name in the instance column.
+ */
+export function typesOutput(types: ReadonlyArray<{ type: string; if?: number }>): string {
+  const lines = [
+    'Browsing for _services._dns-sd._udp.local.',
+    'DATE: ---Sun 04 Oct 2026---',
+    '22:56:04.522  ...STARTING...',
+    'Timestamp     A/R    Flags  if Domain               Service Type         Instance Name',
+    ...types.map(({ type, if: index = 14 }) => {
+      const [name = '', proto = ''] = type.split('.')
+      return `22:56:04.523  Add        3 ${String(index).padStart(3)} .                    ${`${proto}.local.`.padEnd(20)} ${name}`
+    }),
+  ]
+  return lines.join('\n') + '\n'
+}
+
+/** A label as dns-sd writes it in a zone listing: `\032` for a space, `\.` and `\\` escaped. */
+function zoneLabel(label: string): string {
+  return label.replace(/\\/g, '\\\\').replace(/\./g, '\\.').replace(/ /g, '\\032')
+}
+
+/**
+ * What the real `dns-sd -Z <type> local.` printed (§4.9): the header, the `lb._dns-sd._udp`
+ * block once, then per instance its PTR, SRV and TXT, names relative to `local.`, padded to 47
+ * columns; `twice` repeats each block, as dns-sd does for a record seen on two interfaces.
+ */
+export function zoneOutput(
+  type: string,
+  entries: ReadonlyArray<{ instance: string; host: string; port: number; txt: string[] }>,
+  o: { twice?: boolean } = {},
+): string {
+  const out = [
+    `Browsing for ${type}.local.`,
+    'DATE: ---Sun 04 Oct 2026---',
+    '22:56:23.615  ...STARTING...',
+  ]
+  if (entries.length) {
+    out.push(
+      '',
+      "; To direct clients to browse a different domain, substitute that domain in place of '@'",
+      `${'lb._dns-sd._udp'.padEnd(47)} PTR     @`,
+      '',
+      '; In the list of services below, the SRV records will typically reference dot-local Multicast DNS names.',
+      "; When transferring this zone file data to your unicast DNS server, you'll need to replace those dot-local",
+      '; names with the correct fully-qualified (unicast) domain name of the target host offering the service.',
+    )
+  }
+  for (const e of entries) {
+    const name = `${zoneLabel(e.instance)}.${type}`
+    const block = [
+      '',
+      `${type.padEnd(47)} PTR     ${name}`,
+      `${name.padEnd(47)} SRV     0 0 ${String(e.port)} ${e.host} ; Replace with unicast FQDN of target host`,
+      `${name.padEnd(47)} TXT    ${e.txt.map((t) => ` "${t.replace(/[\\"]/g, '\\$&')}"`).join('')}`,
+    ]
+    out.push(...block, ...(o.twice ? block : []))
+  }
+  return out.join('\n') + '\n'
+}
+
+/** What the real `dns-sd -fmc -q <name> PTR` printed: the answer, or `No Such Record`. */
+export function queryOutput(name: string, answer: string | null): string {
+  return (
+    [
+      'Setting kDNSServiceFlagsForceMulticast flag for this request',
+      'DATE: ---Sun 04 Oct 2026---',
+      '23:56:38.928  ...STARTING...',
+      'Timestamp     A/R  Flags         IF  Name                          Type   Class  Rdata',
+      answer === null
+        ? `23:56:38.928  Add  40000002      14  ${name.padEnd(29)} PTR    IN     0.0.0.0    No Such Record`
+        : `23:56:38.928  Add  40000002      14  ${name.padEnd(29)} PTR    IN     ${answer}`,
+    ].join('\n') + '\n'
+  )
+}
+
 /** The Pixel 9 as the owner's dns-sd showed it, Wireless debugging on, the phone dozing. */
 export const REAL_PIXEL = {
   instance: 'adb-55090DLAQ0026D-nK25Qn',
@@ -121,12 +199,16 @@ export interface FakeAnswer {
 }
 
 export interface FakeDnsSd {
-  /** `dns-sd -B <type> local.` by type (`_adb._tcp`). */
+  /** `dns-sd -B <type> local.` by type (`_adb._tcp`, `_services._dns-sd._udp`). */
   browse?: Record<string, string | FakeAnswer>
   /** `dns-sd -L <instance> <type> local.` by `<instance>|<type>`. */
   resolve?: Record<string, string | FakeAnswer>
   /** `dns-sd -G v4 <host>` by host as passed. */
   lookup?: Record<string, string | FakeAnswer>
+  /** `dns-sd -Z <type> local.` by type (`_ipp._tcp`). */
+  zone?: Record<string, string | FakeAnswer>
+  /** `dns-sd -fmc -q <name> PTR` by name as passed (`110.68.168.192.in-addr.arpa.`). */
+  query?: Record<string, string | FakeAnswer>
   /** For anything else: print nothing and run on (the default), or exit with this code. */
   otherwise?: FakeAnswer
 }
@@ -176,6 +258,14 @@ ${cases('L', spec.resolve)}
 ${cases('G', spec.lookup)}
   *) ${otherwise} ;;
   esac ;;
+-Z) case "$2" in
+${cases('Z', spec.zone)}
+  *) ${otherwise} ;;
+  esac ;;
+-fmc) case "$3" in
+${cases('Q', spec.query)}
+  *) ${otherwise} ;;
+  esac ;;
 *) echo "dns-sd: unexpected $1" >&2; exit 2 ;;
 esac`,
   )
@@ -214,6 +304,24 @@ export function fakeAvahiBrowse(bin: FakeBin, spec: FakeAvahi): string {
 case "$type" in
 ${branches.join('\n')}
 ${otherwise}
+esac`,
+  )
+}
+
+/**
+ * Writes a fake `avahi-resolve` into bin.dir: `avahi-resolve -a <address>` prints
+ * `<address>\t<host>` for an address in `names` and exits 0, and fails as the real one does
+ * (`Failed to resolve address …`, exit 1) for any other.
+ */
+export function fakeAvahiResolve(bin: FakeBin, names: Record<string, string>): string {
+  const branches = Object.entries(names).map(([address, host]) =>
+    branch(bin, 'R', address, { out: `${address}\t${host}\n`, exit: 0 }),
+  )
+  return bin.tool(
+    'avahi-resolve',
+    `case "$2" in
+${branches.join('\n')}
+  *) echo "Failed to resolve address '$2': Timeout reached" >&2; exit 1 ;;
 esac`,
   )
 }

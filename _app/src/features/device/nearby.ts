@@ -1,3 +1,4 @@
+import { deviceErrorMessage } from './backends/backend'
 import { HelperError, isAbortError, type NetworkTarget } from './helper/client'
 import type { HelperConnection, HelperStatus, VisibilityLike } from './helper/connection'
 import { addressOf, sameTarget, targetOfSerial } from './helper/network'
@@ -53,7 +54,7 @@ export interface NearbySnapshot {
   readonly busy: boolean
   /** When the last answer came (ms since the epoch), or null before one. */
   readonly at: number | null
-  /** failed: the helper's sentence, or the page's code for it. */
+  /** failed: the helper's sentence, or the page's for the code. */
   readonly message?: string
   readonly code?: string
   /** blocked, failed: what the system said, as the helper passed it on. */
@@ -94,7 +95,15 @@ function failure(error: unknown): Partial<NearbySnapshot> {
         ...(error.body.detail ? { detail: error.body.detail } : {}),
       }
     }
-    return { state: 'failed', code: error.code, message: error.body?.message || error.message }
+    // Our own deadline: the helper may still be looking, but this page stopped waiting.
+    const code = error.kind === 'timeout' ? 'HELPER_TIMEOUT' : error.code
+    // The helper's own sentence when it sent one, else the page's words for the code: this
+    // page raises HELPER_UNREACHABLE and HELPER_BAD_REPLY itself, and they carry no sentence.
+    return {
+      state: 'failed',
+      code,
+      message: error.body?.message || deviceErrorMessage(new Error(code)),
+    }
   }
   return { state: 'failed', code: 'INTERNAL' }
 }
