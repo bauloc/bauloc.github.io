@@ -1,15 +1,7 @@
-import '@fontsource-variable/geist'
-
+import { House, Smartphone, SquareTerminal, UserRound, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 
-import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { Separator } from '@/components/ui/separator'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/cn'
 import { useMessages } from '@/lib/i18n'
 
@@ -23,52 +15,62 @@ export const SITE_URL = 'https://bauloc.github.io/'
 export type SiteSection = 'home' | 'profile' | 'xconsole' | 'device'
 
 /** The site's sections, in the header's order; each path is relative to the site's root. */
-const SECTIONS: readonly { readonly id: SiteSection; readonly path: string }[] = [
-  { id: 'home', path: '' },
-  { id: 'profile', path: 'profile/' },
-  { id: 'xconsole', path: 'xconsole/' },
-  { id: 'device', path: 'device/' },
+const SECTIONS: readonly {
+  readonly id: SiteSection
+  readonly path: string
+  readonly icon: LucideIcon
+}[] = [
+  { id: 'home', path: '', icon: House },
+  { id: 'profile', path: 'profile/', icon: UserRound },
+  { id: 'xconsole', path: 'xconsole/', icon: SquareTerminal },
+  { id: 'device', path: 'device/', icon: Smartphone },
 ]
 
 /**
- * The header every page under the home page shares, after ui.shadcn.com's own: the site's
- * sections as ghost buttons (Home first, the current one in the accent colour), then the
- * page's own controls, the language and the theme. On a phone the sections fold into a menu
- * named after the current one.
+ * The header every page under the home page shares, in two rows.
  *
- * It wears the console palette and face on every page, the Profile's Material one included
- * (theme.css scopes them to `[data-site-header]`), so it looks the same everywhere. Two things
- * follow the page: its ground (`--site-header-bg`) and the current section's colour
- * (`--site-header-accent`: the Profile's teal, the index's blue; the console indigo otherwise).
- * 56 px tall (`top-14` below it).
+ * The first is the site's, the same on every page and in both themes: a command line, dark and
+ * monospaced, so it reads as the site's own frame and not as part of the page below it. It
+ * prompts at the page's path (`bauloc@github.io:~/device $`), and on its right are the sections
+ * as icons named by their tooltips (the current one lit green), the language and the theme.
  *
- * Every link is a full page load, as between the site's sections anywhere. `base` is where the
- * site is: the helper's own copy of Device Lab is served from 127.0.0.1 and passes SITE_URL.
+ * The second is the page's own, on the page's ground (`--site-header-bg`): what it is (`title`,
+ * a PageTitle), what it reports (`status`, from lg up) and what it offers (`actions`). A page
+ * with nothing of its own (the 404) has no second row.
+ *
+ * The rows are 40 and 48 px, so what sticks below a two-row header starts at `top-22`; the
+ * header's bottom edge covers the pixel left over. Every link is a full page load, as between
+ * the site's sections anywhere. `base` is where the site is: the helper's own copy of Device
+ * Lab is served from 127.0.0.1 and passes SITE_URL.
  */
 export function SiteHeader({
   current,
+  path,
   leading,
+  title,
+  status,
   actions,
   base = '/',
   className,
 }: {
   /** The page's section; null on a page that is none of them (the 404). */
   current: SiteSection | null
-  /** Before the sections: XConsole's sidebar trigger. */
+  /** The page's own path for the prompt (`/profile/contact`); the section's by default. */
+  path?: string
+  /** First in the page's row: XConsole's sidebar trigger. */
   leading?: ReactNode
-  /** The page's own controls, before the language. */
+  /** What the page is: a PageTitle. Without it there is no second row. */
+  title?: ReactNode
+  /** What the page reports beside its title, from lg up: Device Lab's chips. */
+  status?: ReactNode
+  /** The page's own controls, at the end of its row. */
   actions?: ReactNode
   base?: string
   className?: string
 }) {
   const t = useMessages(SITE_MESSAGES)
   const label = (id: SiteSection) => (id === 'home' ? t.home : t.section[id])
-  const links = SECTIONS.map((section) => ({
-    ...section,
-    href: `${base}${section.path}`,
-    label: label(section.id),
-    current: section.id === current,
-  }))
+  const section = SECTIONS.find((s) => s.id === current)
 
   return (
     <header
@@ -78,72 +80,104 @@ export function SiteHeader({
         className,
       )}
     >
-      <div className="flex h-14 items-center gap-2 px-4 md:px-6">
-        {leading}
+      {/* The site's row: a command line. */}
+      <div className="font-terminal flex h-10 items-center gap-2 bg-zinc-950 px-4 text-[13px] text-zinc-300 sm:gap-3 md:px-6 dark:bg-zinc-900">
+        <Prompt path={path ?? `/${section?.path ?? ''}`} />
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              // Named "Menu: <section>"; its text is the section alone.
-              aria-label={current ? `${t.menu}: ${label(current)}` : undefined}
-              className="-ml-2 h-8 gap-2.5 px-2 md:hidden"
-            >
-              {/* shadcn's two-bar menu mark. */}
-              <span aria-hidden="true" className="relative size-4">
-                <span className="bg-foreground absolute top-1 left-0 h-0.5 w-4" />
-                <span className="bg-foreground absolute top-2.5 left-0 h-0.5 w-4" />
-              </span>
-              <span className="text-[15px] font-medium">{current ? label(current) : t.menu}</span>
-            </Button>
-          </DropdownMenuTrigger>
-          {/* Portalled into <body>: it carries the header's palette with it. */}
-          <DropdownMenuContent data-site-header align="start" className="font-console w-48">
-            {links.map((link) => (
-              <DropdownMenuItem key={link.id} asChild>
-                <a
-                  href={link.href}
-                  aria-current={link.current ? 'page' : undefined}
-                  className="font-medium aria-[current=page]:text-[var(--site-header-accent,var(--primary))]"
-                >
-                  {link.label}
-                </a>
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <TooltipProvider delayDuration={150}>
+          <nav aria-label={t.sections} className="ml-auto flex items-center gap-0.5">
+            {SECTIONS.map((link) => {
+              const Icon = link.icon
+              const name = label(link.id)
+              return (
+                <Tooltip key={link.id}>
+                  <TooltipTrigger asChild>
+                    <a
+                      href={`${base}${link.path}`}
+                      aria-label={name}
+                      aria-current={link.id === current ? 'page' : undefined}
+                      className="grid size-7 place-items-center rounded-md text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-green-400 aria-[current=page]:bg-white/10 aria-[current=page]:text-green-400 sm:size-8"
+                    >
+                      <Icon aria-hidden="true" className="size-4" />
+                    </a>
+                  </TooltipTrigger>
+                  {/* Portalled into <body>: it carries the header's palette with it. */}
+                  <TooltipContent data-site-header side="bottom" className="font-console">
+                    {name}
+                  </TooltipContent>
+                </Tooltip>
+              )
+            })}
+          </nav>
+        </TooltipProvider>
 
-        <nav aria-label={t.sections} className="hidden items-center md:flex">
-          {links.map((link) => (
-            <Button key={link.id} variant="ghost" size="sm" asChild>
-              <a
-                href={link.href}
-                title={link.id === 'home' ? t.homeTitle : undefined}
-                aria-current={link.current ? 'page' : undefined}
-                className="text-foreground/80 hover:text-foreground px-2.5 aria-[current=page]:text-[var(--site-header-accent,var(--primary))]"
-              >
-                {link.label}
-              </a>
-            </Button>
-          ))}
-        </nav>
-
-        <div className="ml-auto flex items-center gap-2">
-          {actions}
-          {actions ? (
-            <Separator
-              orientation="vertical"
-              className="hidden data-[orientation=vertical]:h-4 sm:block"
-            />
-          ) : null}
-          <LanguageToggle />
-          <Separator
-            orientation="vertical"
-            className="hidden data-[orientation=vertical]:h-4 sm:block"
-          />
-          <ThemeToggle className="size-8" />
-        </div>
+        <span aria-hidden="true" className="hidden h-4 w-px bg-white/15 sm:block" />
+        <LanguageToggle />
+        <ThemeToggle className="size-7 text-zinc-300 hover:bg-white/10 hover:text-zinc-50 focus-visible:ring-2 focus-visible:ring-green-400 sm:size-8 dark:hover:bg-white/10" />
       </div>
+
+      {/* The page's row. */}
+      {title !== undefined && (
+        <div className="flex h-12 items-center gap-3 px-4 md:px-6">
+          {leading}
+          {title}
+          {status !== undefined && (
+            <div className="hidden min-w-0 items-center gap-2 lg:flex">{status}</div>
+          )}
+          {actions !== undefined && (
+            <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div>
+          )}
+        </div>
+      )}
     </header>
+  )
+}
+
+/**
+ * `bauloc@github.io:~/device $` and a blinking caret: where the page is, as a shell would say
+ * it. On a phone only the path shows, and it gives way first when the row is short of room.
+ */
+function Prompt({ path }: { path: string }) {
+  const dir = `~${path.replace(/\/+$/, '')}`
+  return (
+    <p className="flex min-w-0 items-center whitespace-nowrap">
+      <span className="hidden text-green-400 sm:inline">bauloc@github.io</span>
+      <span className="hidden text-zinc-500 sm:inline">:</span>
+      <span className="truncate text-sky-400">{dir}</span>
+      <span className="ml-1.5 text-zinc-500">$</span>
+      <span
+        aria-hidden="true"
+        className="animate-blink ml-1.5 inline-block h-[1.05em] w-[0.6em] shrink-0 bg-zinc-300"
+      />
+    </p>
+  )
+}
+
+/**
+ * What a page is, first in its row of the site header: an optional mark, the place it belongs
+ * to (`parent`, hidden on a phone) and its own name, as a breadcrumb.
+ */
+export function PageTitle({
+  mark,
+  parent,
+  children,
+}: {
+  mark?: ReactNode
+  parent?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      {mark}
+      {parent !== undefined && (
+        <>
+          <span className="text-muted-foreground hidden shrink-0 sm:inline">{parent}</span>
+          <span aria-hidden="true" className="text-muted-foreground/50 hidden sm:inline">
+            /
+          </span>
+        </>
+      )}
+      <span className="truncate text-[15px] font-semibold tracking-tight">{children}</span>
+    </div>
   )
 }

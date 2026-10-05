@@ -1,0 +1,1 @@
+import{d as e}from"./c-button-M2M1MxAE.js";var t=e(`check`,[[`path`,{d:`M20 6 9 17l-5-5`,key:`1gmf2c`}]]);export{t};

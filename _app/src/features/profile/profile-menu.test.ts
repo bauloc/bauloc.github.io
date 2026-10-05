@@ -1,19 +1,31 @@
 import { describe, expect, it } from 'vitest'
 
-import { menuItemFor } from './profile-menu'
+import { PROFILE_MENU, menuItemFor, sectionId } from './profile-menu'
 
 describe('menuItemFor', () => {
   it('finds a section by the path the Flutter build used for it', () => {
-    expect(menuItemFor('/profile/about_me').id).toBe('about')
-    expect(menuItemFor('/profile/resume').id).toBe('resume')
+    expect(menuItemFor('/profile/about_me')?.id).toBe('about')
+    expect(menuItemFor('/profile/resume')?.id).toBe('resume')
   })
 
   it('ignores a trailing slash, which GitHub Pages adds to directory URLs', () => {
-    expect(menuItemFor('/profile/relax/').id).toBe('relax')
+    expect(menuItemFor('/profile/relax/')?.id).toBe('relax')
   })
 
-  it('opens /profile/ itself on Contact, as the Flutter build did', () => {
-    expect(menuItemFor('/profile/').id).toBe('contact')
-    expect(menuItemFor('/profile').id).toBe('contact')
+  it('names no section for /profile/ itself, which opens at the top of the page', () => {
+    expect(menuItemFor('/profile/')).toBeNull()
+    expect(menuItemFor('/profile')).toBeNull()
+  })
+})
+
+describe('sectionId', () => {
+  it('is the last part of the path, so a section lands where its address points', () => {
+    expect(PROFILE_MENU.map(sectionId)).toEqual([
+      'about_me',
+      'portfolio',
+      'resume',
+      'relax',
+      'contact',
+    ])
   })
 })

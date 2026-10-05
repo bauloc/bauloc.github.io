@@ -1,7 +1,8 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import './theme.css';
-@import '@fontsource-variable/inter-tight';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
 
 /* `dark:` follows the `.dark` class on <html> (src/lib/theme.ts), not the media query: the
    index lets you choose, and the class is also what the dark tokens are keyed on. */
@@ -16,14 +17,6 @@
 @custom-variant short-screen {
   @media (pointer: coarse) and (max-height: 680px) and (orientation: landscape),
     (max-height: 560px) {
-    @slot;
-  }
-}
-
-/* The profile's one breakpoint, ported from the Flutter build's `isSmallDevice` (width < 1000):
-   at `wide` the side panel appears, the menu rail widens and the padding grows. */
-@custom-variant wide {
-  @media (width >= 1000px) {
     @slot;
   }
 }
@@ -89,10 +82,10 @@
     color-scheme: dark;
   }
 
-  /* Device Lab's header sticks to the top: keep a control scrolled into view (Shift+Tab, a
-     find) out from under it. */
+  /* Device Lab's header (two rows, 89 px) sticks to the top: keep a control scrolled into
+     view (Shift+Tab, a find) out from under it. */
   html:has([data-page='device']) {
-    scroll-padding-top: 4.5rem;
+    scroll-padding-top: 6.5rem;
   }
 
   /* The profile's ground on the root too, so overscroll shows the page's own colour, light
@@ -102,22 +95,19 @@
     background: var(--profile-page);
   }
 
-  /* The site header's ground and current-section colour (components/site-header.tsx) on the
-     pages that are not consoles. On <html>, so its menu, portalled into <body>, gets them too. */
+  /* The ground of the site header's page row (components/site-header.tsx) on the pages that
+     are not consoles. */
   html:has([data-page='profile']) {
     --site-header-bg: var(--profile-page);
-    --site-header-accent: var(--profile-primary);
   }
 
   html:has([data-page='index']) {
     --site-header-bg: var(--index-ground);
-    --site-header-accent: var(--index-blue);
   }
 
-  /* The consoles set their face and ground on <body>, so dialogs and toasts portalled there
+  /* The consoles set their size and ground on <body>, so dialogs and toasts portalled there
      match them. Their palette is in theme.css section (f). */
   html:has([data-shell='console']) body {
-    font-family: var(--font-console);
     font-size: 0.875rem;
     background: var(--background);
     color: var(--foreground);
@@ -259,6 +249,41 @@ body[data-scroll-locked] [data-sonner-toaster][data-x-position='right'] {
     50% {
       opacity: 0.55;
     }
+  }
+}
+
+/*
+  The profile's portrait (features/profile/components/profile-intro.tsx): a light running round
+  its white ring, in the site header's green, with a soft green glow. It turns by animating the
+  gradient's angle, a registered property, so only colour changes and nothing is laid out or
+  rotated; with reduced motion the rule below stops it.
+*/
+@property --avatar-ring-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes avatar-ring-turn {
+  to {
+    --avatar-ring-angle: 360deg;
+  }
+}
+
+@layer components {
+  .avatar-ring {
+    background:
+      conic-gradient(
+        from var(--avatar-ring-angle),
+        transparent 0turn 0.4turn,
+        #4ade80 0.72turn,
+        #bbf7d0 0.9turn,
+        #ffffff 0.98turn,
+        transparent 1turn
+      ),
+      rgb(255 255 255 / 0.35);
+    box-shadow: 0 0 32px rgb(74 222 128 / 0.45);
+    animation: avatar-ring-turn 4s linear infinite;
   }
 }
 

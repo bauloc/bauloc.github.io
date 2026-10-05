@@ -23,8 +23,9 @@ const WORD_PROBE = 100
  * because the fallback face has different widths. The sheet's layout is in fixed design
  * units, so this never depends on the viewport.
  *
- * Centred on its capitals, as the reference centres its letters: with `leading-none`, Inter
- * Tight's cap height sits exactly mid-line, so -50% is the true centre. The right padding
+ * Centred on its capitals, as the reference centres its letters: with `leading-none`, Geist's
+ * cap height sits exactly mid-line (ascent 1005 − descent 295 = cap height 710), so -50% is
+ * the true centre. The right padding
  * gives back the letter-space the negative tracking takes after the last glyph, so that the
  * ink is what gets centred, not the advance box.
  */
@@ -83,7 +84,9 @@ export function Disc({ className }: { className: string }) {
  *
  * Centred on their capitals like the word above. The first letter keeps about 30 design px
  * clear of the circle, as the reference's does; it was set closer, and the two shapes
- * pinched. Its offset and the gap move together, so the second letter stays put.
+ * pinched. Its offset and the gap move together, so the second letter stays put, centred on
+ * the circle. Both are measured from Geist's B and L: a face with other side bearings moves
+ * the letters onto the circle's edge.
  */
 function Monogram({ letters }: { letters: string }) {
   const first = letters.slice(0, 1)
@@ -91,7 +94,7 @@ function Monogram({ letters }: { letters: string }) {
   return (
     <span aria-hidden="true" className="absolute inset-0">
       <Disc className="text-index-yellow group-hover:text-index-orange group-data-[active=true]:text-index-orange absolute top-0 right-0 size-[720px] transition-colors duration-500" />
-      <span className="absolute top-1/2 left-[44px] flex -translate-y-1/2 gap-[212px] text-[720px] leading-none font-medium tracking-[-0.04em]">
+      <span className="absolute top-1/2 left-[11px] flex -translate-y-1/2 gap-[165px] text-[720px] leading-none font-medium tracking-[-0.04em]">
         <span>{first}</span>
         {/* Sits wholly on the circle, which stays yellow in dark mode — so it stays dark. */}
         <span className="dark:text-index-on-yellow">{rest}</span>

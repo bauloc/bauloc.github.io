@@ -1,5 +1,3 @@
-import '@fontsource-variable/geist'
-
 import { Activity, FlaskConical, Loader2, Unplug, Wifi } from 'lucide-react'
 import {
   lazy,
@@ -12,7 +10,7 @@ import {
 } from 'react'
 import { toast } from 'sonner'
 
-import { SITE_URL, SiteHeader } from '@/components/site-header'
+import { PageTitle, SITE_URL, SiteHeader } from '@/components/site-header'
 import { Toaster } from '@/components/toaster'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -1096,29 +1094,41 @@ export function DeviceLabPage() {
       <SiteHeader
         current="device"
         base={window.DVC_BOOT?.mode === 'local' ? SITE_URL : '/'}
+        title={
+          <PageTitle
+            mark={
+              <span className="bg-primary text-primary-foreground grid size-6 shrink-0 place-items-center rounded-md text-xs font-bold">
+                D
+              </span>
+            }
+          >
+            Device Lab
+          </PageTitle>
+        }
+        // Two chips, deliberately: "helper unreachable" and "helper up, zero devices" must never
+        // look the same (Maestro #3012 reported "0 devices" while the agent was the failure).
+        status={
+          <>
+            <Badge
+              variant="outline"
+              className="gap-1.5"
+              title={webusb ? t.lane.title : t.lane.noneTitle}
+            >
+              <StateDot tone={laneTone} />
+              {laneText}
+            </Badge>
+            <HelperChip status={status} devices={helperDevices} on={helperOn} update={update} />
+          </>
+        }
         actions={
           <>
-            {/* Two chips, deliberately: "helper unreachable" and "helper up, zero devices" must
-                never look the same (Maestro #3012 reported "0 devices" while the agent was the
-                failure). From lg up, where they fit beside the sections. */}
-            <div className="hidden items-center gap-2 lg:flex">
-              <Badge
-                variant="outline"
-                className="gap-1.5"
-                title={webusb ? t.lane.title : t.lane.noneTitle}
-              >
-                <StateDot tone={laneTone} />
-                {laneText}
-              </Badge>
-              <HelperChip status={status} devices={helperDevices} on={helperOn} update={update} />
-            </div>
             {mock && (
               <Badge
                 variant="outline"
                 className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-300"
               >
                 <FlaskConical />
-                {/* The icon alone on a phone, where the language switch needs the room. */}
+                {/* The icon alone on a phone. */}
                 <span className="max-sm:sr-only">
                   {t.mock((text) => (
                     <span className="hidden md:inline">{text}</span>
@@ -1127,16 +1137,16 @@ export function DeviceLabPage() {
               </Badge>
             )}
             <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              aria-label={t.environmentCheck}
+              variant="outline"
+              size="sm"
               title={t.environmentCheck}
               onClick={() => {
                 setDoctorOpen(true)
               }}
             >
               <Activity />
+              {/* Its name stays in the button on a phone, where only the icon shows. */}
+              <span className="max-sm:sr-only">{t.environmentCheck}</span>
             </Button>
           </>
         }
@@ -1184,7 +1194,7 @@ export function DeviceLabPage() {
               <div className="mx-auto grid w-full max-w-7xl grid-cols-1 items-start gap-6 lg:grid-cols-[22rem_1fr]">
                 {/* At lg the list stays in view and scrolls on its own, as the legacy pane did, so
                   a long list is never cut off below the fold. The padding keeps focus rings whole. */}
-                <div className="lg:sticky lg:top-20 lg:-m-1 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto lg:p-1">
+                <div className="lg:sticky lg:top-28 lg:-m-1 lg:max-h-[calc(100dvh-8rem)] lg:overflow-y-auto lg:p-1">
                   <DeviceList
                     filterRef={filterRef}
                     devices={snap.devices}

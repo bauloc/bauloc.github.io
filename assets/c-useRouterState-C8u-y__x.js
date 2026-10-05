@@ -1,1 +1,0 @@
-import{Bt as e,Vt as t,zt as n}from"./index-ZtYu1LSS.js";function r(r){let i=t({warn:r?.router===void 0}),a=r?.router||i;return e(a.stores.__store,n(r,a))}export{r as t};
