@@ -102,6 +102,18 @@
     background: var(--profile-page);
   }
 
+  /* The site header's ground and current-section colour (components/site-header.tsx) on the
+     pages that are not consoles. On <html>, so its menu, portalled into <body>, gets them too. */
+  html:has([data-page='profile']) {
+    --site-header-bg: var(--profile-page);
+    --site-header-accent: var(--profile-primary);
+  }
+
+  html:has([data-page='index']) {
+    --site-header-bg: var(--index-ground);
+    --site-header-accent: var(--index-blue);
+  }
+
   /* The consoles set their face and ground on <body>, so dialogs and toasts portalled there
      match them. Their palette is in theme.css section (f). */
   html:has([data-shell='console']) body {
@@ -114,7 +126,8 @@
   /*
     shadcn's base rule, which its components assume: Tailwind v4 draws a bare `border` in
     currentColor, so without it every card and divider is outlined in near-black. Scoped to
-    the consoles — the index and the profile set their border colours explicitly.
+    the consoles and the site header — the index and the profile set their border colours
+    explicitly.
 
     The scope is two custom properties that only a console's <html> defines, read by a plain
     `*` rule. On every other page they are undefined, so the declarations are invalid at
@@ -126,7 +139,8 @@
     15 ms (60 ms on a slower machine), three to four times per open and close: the lag when
     an alert came up or went away.
   */
-  html:has([data-shell='console']) {
+  html:has([data-shell='console']),
+  [data-site-header] {
     --shell-border: var(--color-border);
     --shell-outline: color-mix(in oklab, var(--color-ring) 50%, transparent);
   }

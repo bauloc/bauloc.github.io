@@ -17,7 +17,7 @@ export function NavRail({ current }: { current: ProfileMenuItem }) {
   return (
     <nav
       aria-label={t.nav}
-      className="bg-profile-rail wide:w-[100px] sticky top-0 h-dvh w-[79px] shrink-0 self-start"
+      className="bg-profile-rail wide:w-[100px] sticky top-14 h-[calc(100dvh-3.5rem)] w-[79px] shrink-0 self-start"
     >
       <ul>
         {PROFILE_MENU.map((item) => {

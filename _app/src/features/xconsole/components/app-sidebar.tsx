@@ -33,7 +33,11 @@ export function AppSidebar({
   const { setOpenMobile } = useSidebar()
   const t = useMessages(XCONSOLE_MESSAGES)
   return (
-    <Sidebar collapsible="icon">
+    // Below the site header (--header-height, set by the layout), not over it.
+    <Sidebar
+      collapsible="icon"
+      className="top-(--header-height) h-[calc(100svh-var(--header-height))]!"
+    >
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>

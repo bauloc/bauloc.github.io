@@ -12,13 +12,10 @@ import {
 } from 'react'
 import { toast } from 'sonner'
 
-import { HomeButton, SITE_URL } from '@/components/home-button'
-import { LanguageToggle } from '@/components/language-toggle'
-import { ThemeToggle } from '@/components/theme-toggle'
+import { SITE_URL, SiteHeader } from '@/components/site-header'
 import { Toaster } from '@/components/toaster'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
 import { defineMessages, localized, useMessages } from '@/lib/i18n'
 import { useLocale } from '@/lib/locale'
 
@@ -1094,65 +1091,56 @@ export function DeviceLabPage() {
         <span key={snap.announcement.seq}>{snap.announcement.text}</span>
       </p>
 
-      <header className="bg-background/80 sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b px-3 backdrop-blur sm:gap-3 sm:px-4">
-        {/* The helper's own copy of this page (local mode) is served from 127.0.0.1, whose root
-            is the helper's, not the site's. */}
-        <HomeButton href={window.DVC_BOOT?.mode === 'local' ? SITE_URL : '/'} />
-        <Separator orientation="vertical" className="data-[orientation=vertical]:h-4" />
-        {/* The name only: the way home is the button before it, and a second link there would
-            be one more stop to tab past on every visit. */}
-        <div className="flex items-center gap-2.5">
-          <span className="bg-primary text-primary-foreground grid size-8 place-items-center rounded-lg text-base font-bold">
-            D
-          </span>
-          <span className="leading-tight">
-            <span className="block font-semibold">Device Lab</span>
-            <span className="text-muted-foreground hidden text-xs sm:block">bauloc.github.io</span>
-          </span>
-        </div>
-        {/* Two chips, deliberately: "helper unreachable" and "helper up, zero devices" must never
-            look the same (Maestro #3012 reported "0 devices" while the agent was the failure). */}
-        <div className="ml-2 hidden items-center gap-2 md:flex">
-          <Badge
-            variant="outline"
-            className="gap-1.5"
-            title={webusb ? t.lane.title : t.lane.noneTitle}
-          >
-            <StateDot tone={laneTone} />
-            {laneText}
-          </Badge>
-          <HelperChip status={status} devices={helperDevices} on={helperOn} update={update} />
-        </div>
-        <div className="ml-auto flex items-center gap-1 sm:gap-1.5">
-          {mock && (
-            <Badge
-              variant="outline"
-              className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-300"
+      {/* The helper's own copy of this page (local mode) is served from 127.0.0.1, whose root
+          is the helper's, not the site's: its header links to the site itself. */}
+      <SiteHeader
+        current="device"
+        base={window.DVC_BOOT?.mode === 'local' ? SITE_URL : '/'}
+        actions={
+          <>
+            {/* Two chips, deliberately: "helper unreachable" and "helper up, zero devices" must
+                never look the same (Maestro #3012 reported "0 devices" while the agent was the
+                failure). From lg up, where they fit beside the sections. */}
+            <div className="hidden items-center gap-2 lg:flex">
+              <Badge
+                variant="outline"
+                className="gap-1.5"
+                title={webusb ? t.lane.title : t.lane.noneTitle}
+              >
+                <StateDot tone={laneTone} />
+                {laneText}
+              </Badge>
+              <HelperChip status={status} devices={helperDevices} on={helperOn} update={update} />
+            </div>
+            {mock && (
+              <Badge
+                variant="outline"
+                className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-300"
+              >
+                <FlaskConical />
+                {/* The icon alone on a phone, where the language switch needs the room. */}
+                <span className="max-sm:sr-only">
+                  {t.mock((text) => (
+                    <span className="hidden md:inline">{text}</span>
+                  ))}
+                </span>
+              </Badge>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              aria-label={t.environmentCheck}
+              title={t.environmentCheck}
+              onClick={() => {
+                setDoctorOpen(true)
+              }}
             >
-              <FlaskConical />
-              {/* The icon alone on a phone, where the language switch needs the room. */}
-              <span className="max-sm:sr-only">
-                {t.mock((text) => (
-                  <span className="hidden md:inline">{text}</span>
-                ))}
-              </span>
-            </Badge>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={t.environmentCheck}
-            title={t.environmentCheck}
-            onClick={() => {
-              setDoctorOpen(true)
-            }}
-          >
-            <Activity />
-          </Button>
-          <LanguageToggle />
-          <ThemeToggle />
-        </div>
-      </header>
+              <Activity />
+            </Button>
+          </>
+        }
+      />
 
       {/* The whole page takes a dropped app: it goes to the selected phone, or says why not. */}
       <InstallDropZone

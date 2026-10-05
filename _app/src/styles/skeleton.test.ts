@@ -153,8 +153,9 @@ describe('the skeleton colours', () => {
   }
 
   it('derive from the console palette, in light and in dark, with no colour of their own', () => {
-    const light = consoleBlock("html:has([data-shell='console'])")
-    const dark = consoleBlock("html.dark:has([data-shell='console'])")
+    // The site header wears the same palette on every page (components/site-header.tsx).
+    const light = consoleBlock("html:has([data-shell='console']),\n[data-site-header]")
+    const dark = consoleBlock("html.dark:has([data-shell='console']),\n.dark [data-site-header]")
     // A base a little stronger than the accent tint shadcn's skeleton used.
     expect(light).toContain('--skeleton: color-mix(in oklab, var(--accent), var(--foreground) 7%);')
     // The band is lighter than the base in both modes: the background in light, the text in dark.

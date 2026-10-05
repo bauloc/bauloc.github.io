@@ -1,15 +1,15 @@
 import '@fontsource/roboto/400.css'
 import '@fontsource/roboto/700.css'
 
-import { Link } from '@tanstack/react-router'
+import { Printer } from 'lucide-react'
 import { useEffect, type ReactNode } from 'react'
 
+import { SiteHeader } from '@/components/site-header'
+import { Button } from '@/components/ui/button'
 import { useMessages } from '@/lib/i18n'
 import { useLocale } from '@/lib/locale'
 
 import avatar from '../assets/avatar.jpg'
-import { ELEVATED_BUTTON } from '../components/elevated-button'
-import { LanguageSegments, ThemeButton } from '../components/top-bar'
 import { CV, CV_CONTACT, CV_NAME } from '../cv'
 import { PROFILE_MESSAGES } from '../messages'
 import { OWN_APPS } from '../portfolio'
@@ -20,8 +20,7 @@ import { OWN_APPS } from '../portfolio'
   CV is its data and cannot drift from the profile — and `npm run cv` prints it to the PDF the
   DOWNLOAD button serves.
 
-  Screen: a white sheet on the rail's grey, with Back, the language, the theme and Print
-  above it. The sheet stays white in dark mode (`data-paper` keeps the profile's light
+  Screen: a white sheet on the rail's grey, under the site's header, which holds Print. The sheet stays white in dark mode (`data-paper` keeps the profile's light
   colours inside it): it is paper. Print: the sheet alone, with real page margins from @page
   so a second page would start below its top edge. `npm run cv` prints it once per language.
 */
@@ -55,36 +54,31 @@ export function CvPage() {
   return (
     <div
       data-page="profile"
-      className="bg-profile-rail font-profile text-profile-ink min-h-dvh py-6 print:bg-white print:py-0"
+      className="bg-profile-rail font-profile text-profile-ink min-h-dvh pb-6 [--site-header-bg:var(--profile-rail)] print:bg-white print:pb-0"
     >
       <style>{PRINT_CSS}</style>
 
-      <div className="mx-auto mb-4 flex w-[210mm] max-w-full flex-wrap items-center justify-between gap-3 px-4 print:hidden">
-        <Link
-          to="/profile"
-          className="text-profile-primary text-[15px] font-medium hover:underline"
-        >
-          {t.backToProfile}
-        </Link>
-        <div className="flex items-center gap-2">
-          <LanguageSegments />
-          <ThemeButton />
-          <button
-            type="button"
+      <SiteHeader
+        current="profile"
+        className="print:hidden"
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => {
               window.print()
             }}
-            className={ELEVATED_BUTTON}
           >
+            <Printer />
             {t.print}
-          </button>
-        </div>
-      </div>
+          </Button>
+        }
+      />
 
       <article
         data-paper
         lang={locale}
-        className="shadow-profile-2 mx-auto w-[210mm] max-w-full bg-white px-[16mm] py-[12mm] text-[9.5pt] leading-[1.4] text-black print:w-auto print:p-0 print:shadow-none"
+        className="shadow-profile-2 mx-auto mt-6 w-[210mm] max-w-full bg-white px-[16mm] py-[12mm] text-[9.5pt] leading-[1.4] text-black print:mt-0 print:w-auto print:p-0 print:shadow-none"
       >
         <header className="flex items-center gap-5">
           <div className="min-w-0 flex-1">

@@ -72,7 +72,6 @@ export const PROFILE_MESSAGES = defineMessages({
     sent: 'Thank you, I will respond as soon as possible.',
     failed: 'Request failed. Please try again.',
 
-    backToProfile: '← Back to profile',
     print: 'Print / Save as PDF',
   },
   vi: {
@@ -138,7 +137,6 @@ export const PROFILE_MESSAGES = defineMessages({
     sent: 'Cảm ơn bạn, tôi sẽ phản hồi sớm nhất có thể.',
     failed: 'Gửi không thành công. Vui lòng thử lại.',
 
-    backToProfile: '← Về trang hồ sơ',
     print: 'In / Lưu thành PDF',
   },
 })
