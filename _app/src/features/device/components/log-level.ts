@@ -1,3 +1,5 @@
+import { localized } from '@/lib/i18n'
+
 import type { Device } from '../model'
 
 /*
@@ -38,8 +40,14 @@ export function logLevel(line: string): LogLevel {
   return ''
 }
 
+/** The simulator's log, in words; logcat and syslog are their tools' names in any language. */
+const SOURCE_NAMES = localized({
+  en: { simulator: 'simulator log' },
+  vi: { simulator: 'log Simulator' },
+})
+
 /** What the log is called, by where it comes from: an Android phone, a simulator, an iPhone. */
 export function logSourceName(device: Pick<Device, 'platform' | 'connection'>): string {
   if (device.platform === 'android') return 'logcat'
-  return device.connection === 'simulator' ? 'simulator log' : 'syslog'
+  return device.connection === 'simulator' ? SOURCE_NAMES.simulator : 'syslog'
 }

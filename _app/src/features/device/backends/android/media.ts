@@ -1,5 +1,7 @@
 import type { Adb } from '@yume-chan/adb'
 
+import { localized } from '@/lib/i18n'
+
 import { listDirectory, pullFile, type DirEntry } from './files'
 import {
   androidError,
@@ -177,6 +179,12 @@ export function parseContentRows(
   })
 }
 
+/** Said when the phone said nothing at all, in the language on screen. */
+const SILENT = localized({
+  en: { text: 'MediaStore did not answer.' },
+  vi: { text: 'MediaStore không phản hồi.' },
+})
+
 /**
  * Why `content` listed nothing, in the phone's words, or null when it answered (rows, or
  * `No result found.`). An argument it refused prints the usage and `[ERROR] …` on stdout; a
@@ -195,7 +203,20 @@ export function contentFailure(
     .split('\n')
     .map((line) => line.trim())
     .find(Boolean)
-  return first ?? 'MediaStore did not answer.'
+  return first ?? SILENT.text
+}
+
+/**
+ * contentFailure as the error a listing rejects with. The phone's words stay as they came; the
+ * sentence for a phone that said nothing is worded again at each read of `message`, since the
+ * Images tab keeps the error and words it when shown, after a language switch too.
+ */
+function contentError(result: Pick<RunResult, 'stdout' | 'stderr'>, failure: string): Error {
+  const error = new Error(failure)
+  if (!`${result.stderr}\n${result.stdout}`.trim()) {
+    Object.defineProperty(error, 'message', { get: () => SILENT.text })
+  }
+  return error
 }
 
 const IMAGE_TYPES: Readonly<Record<string, string>> = {
@@ -432,7 +453,7 @@ export async function queryImages(
     result = await ask(sort)
   }
   const failure = contentFailure(result)
-  if (failure !== null) throw new Error(failure)
+  if (failure !== null) throw contentError(result, failure)
   return { rows: toImageRows(parseContentRows(result.stdout, imageColumns(sdk))), sort }
 }
 

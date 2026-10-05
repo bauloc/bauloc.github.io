@@ -13,6 +13,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/cn'
+import { defineMessages, useMessages } from '@/lib/i18n'
 
 import type { NetworkTarget, PairTarget } from '../helper/client'
 import type { HelperStatus } from '../helper/connection'
@@ -62,12 +63,112 @@ import { TONE_SURFACE } from './status'
   then allowing this computer, each with its sentence and its fix.
 */
 
-const HOST_WORDS: Readonly<Record<HostProblem, string>> = {
-  empty: COPY.wifi.hostEmpty,
-  invalid: COPY.wifi.hostInvalid,
-  public: COPY.wifi.hostPublic,
-  loopback: COPY.wifi.hostLoopback,
-  name: COPY.wifi.hostName,
+const WIFI_MESSAGES = defineMessages({
+  en: {
+    title: 'Connect over Wi‑Fi',
+    description:
+      'An Android TV or phone on the same Wi‑Fi as this computer, through the local helper. Details, screenshots and the log work over Wi‑Fi.',
+    close: 'Close',
+    found: 'Found on this network',
+    looking: 'Looking…',
+    pick: { pair: 'Pair', use: 'Use' },
+    recent: 'Recent',
+    notConnected: 'Not connected',
+    disconnect: 'Disconnect',
+    disconnectName: (label: string) => `Disconnect ${label}`,
+    connect: 'Connect',
+    connectName: (label: string) => `Connect ${label}`,
+    forget: 'Forget',
+    forgetName: (label: string) => `Forget ${label}`,
+    beforeConnect: 'Before you connect',
+    ipAddress: 'IP address',
+    port: 'Port',
+    addressHint:
+      'The address is on the device: in its network settings, or on the Wireless debugging screen. A TV’s Network debugging uses port 5555.',
+    connecting: 'Connecting…',
+    progress: 'Progress',
+    show: (name: string) => `Show ${name}`,
+    pairSummary: 'Pair with a code (Android 11 and newer)',
+    pairForm: 'Pair with a code',
+    pairHow: (path: ReactNode) => (
+      <>
+        Phones and Google TV with Wireless debugging: on the device, open {path}. Type the address,
+        port and code it shows, then connect with the port shown on the Wireless debugging screen
+        itself.
+      </>
+    ),
+    pairAddress: 'IP address & port',
+    pairCode: 'Pairing code',
+    pairing: 'Pairing…',
+    pair: 'Pair',
+    howTo: 'How to turn it on',
+    network: 'Network:',
+    sameWifi: 'The device and this computer must be on the same Wi‑Fi.',
+  },
+  vi: {
+    title: 'Kết nối qua Wi‑Fi',
+    description:
+      'Android TV hoặc điện thoại dùng cùng mạng Wi‑Fi với máy tính này, kết nối qua helper cục bộ. Thông tin chi tiết, ảnh chụp màn hình và log đều dùng được qua Wi‑Fi.',
+    close: 'Đóng',
+    found: 'Tìm thấy trên mạng này',
+    looking: 'Đang tìm…',
+    pick: { pair: 'Ghép nối', use: 'Dùng' },
+    recent: 'Gần đây',
+    notConnected: 'Chưa kết nối',
+    disconnect: 'Ngắt kết nối',
+    disconnectName: (label: string) => `Ngắt kết nối ${label}`,
+    connect: 'Kết nối',
+    connectName: (label: string) => `Kết nối ${label}`,
+    // Android's own word for forgetting a network or a paired device (Wireless debugging too).
+    forget: 'Xóa',
+    forgetName: (label: string) => `Xóa ${label}`,
+    beforeConnect: 'Trước khi kết nối',
+    ipAddress: 'Địa chỉ IP',
+    port: 'Cổng',
+    addressHint:
+      'Địa chỉ hiển thị trên thiết bị: trong phần cài đặt mạng, hoặc trên màn hình Gỡ lỗi qua Wi‑Fi. Gỡ lỗi mạng trên TV dùng cổng 5555.',
+    connecting: 'Đang kết nối…',
+    progress: 'Tiến trình',
+    show: (name: string) => `Xem ${name}`,
+    pairSummary: 'Ghép nối bằng mã (Android 11 trở lên)',
+    pairForm: 'Ghép nối bằng mã',
+    pairHow: (path: ReactNode) => (
+      <>
+        Điện thoại và Google TV có Gỡ lỗi qua Wi‑Fi: trên thiết bị, mở {path}. Nhập địa chỉ, cổng và
+        mã hiện ra, rồi kết nối bằng cổng hiển thị trên chính màn hình Gỡ lỗi qua Wi‑Fi.
+      </>
+    ),
+    pairAddress: 'Địa chỉ IP và cổng',
+    pairCode: 'Mã ghép nối',
+    pairing: 'Đang ghép nối…',
+    pair: 'Ghép nối',
+    howTo: 'Cách bật',
+    network: 'Mạng:',
+    sameWifi: 'Thiết bị và máy tính này phải dùng cùng một mạng Wi‑Fi.',
+  },
+})
+
+/**
+ * A field's error, as the key of its words in COPY.wifi: state keeps the key and the words are
+ * read when shown, so an error on screen follows a language switch.
+ */
+type FieldProblem =
+  | 'hostEmpty'
+  | 'hostInvalid'
+  | 'hostPublic'
+  | 'hostLoopback'
+  | 'hostName'
+  | 'portEmpty'
+  | 'portInvalid'
+  | 'codeEmpty'
+  | 'codeInvalid'
+
+const HOST_PROBLEM: Readonly<Record<HostProblem, FieldProblem>> = {
+  empty: 'hostEmpty',
+  invalid: 'hostInvalid',
+  public: 'hostPublic',
+  loopback: 'hostLoopback',
+  name: 'hostName',
 }
 
 /** One row of the checklist, in the dialog: status word, label, then its body. */
@@ -149,17 +250,18 @@ function FoundList({
   picked: string | null
   onPick: (row: NearbyRow) => void
 }) {
+  const t = useMessages(WIFI_MESSAGES)
   const headingId = `${useId()}-found`
   const hintId = `${headingId}-hint`
   return (
     <section aria-labelledby={headingId} aria-describedby={hintId} className="space-y-2">
       <div className="flex items-baseline gap-2">
         <h3 id={headingId} className="text-sm font-medium">
-          Found on this network
+          {t.found}
         </h3>
         {looking && (
           <Loader2
-            aria-label="Looking…"
+            aria-label={t.looking}
             className="text-muted-foreground size-3.5 animate-spin self-center"
           />
         )}
@@ -184,7 +286,7 @@ function FoundList({
             >
               <NearbySummary row={row} />
               <span className="text-muted-foreground shrink-0 text-xs font-medium">
-                {row.action.kind === 'pair' ? 'Pair' : 'Use'}
+                {row.action.kind === 'pair' ? t.pick.pair : t.pick.use}
               </span>
             </button>
           </li>
@@ -212,18 +314,19 @@ function RecentList({
   onDisconnect: (serial: string) => void
   onForget: (target: NetworkTarget) => void
 }) {
+  const t = useMessages(WIFI_MESSAGES)
   const headingId = `${useId()}-recent`
   return (
     <section aria-labelledby={headingId} className="space-y-2">
       <h3 id={headingId} className="text-sm font-medium">
-        Recent
+        {t.recent}
       </h3>
       <ul className="divide-y rounded-lg border">
         {recent.map((r) => {
           const label = recentLabel(r)
           const listed = devices.find((d) => {
-            const t = d.connection === 'network' ? targetOfSerial(d.id) : null
-            return t !== null && sameTarget(t, r)
+            const target = d.connection === 'network' ? targetOfSerial(d.id) : null
+            return target !== null && sameTarget(target, r)
           })
           return (
             <li key={addressOf(r)} className="flex items-center gap-2 px-3 py-2">
@@ -231,14 +334,14 @@ function RecentList({
                 <p className="truncate text-sm font-medium">{r.name || addressOf(r)}</p>
                 <p className="text-muted-foreground truncate text-xs">
                   {r.name && <span className="font-mono">{addressOf(r)} · </span>}
-                  {listed ? STATE_META[listed.state].label : 'Not connected'}
+                  {listed ? STATE_META[listed.state].label : t.notConnected}
                 </p>
               </div>
               {listed ? (
                 <Button
                   size="sm"
                   variant="outline"
-                  aria-label={`Disconnect ${label}`}
+                  aria-label={t.disconnectName(label)}
                   aria-disabled={disconnecting !== null || undefined}
                   className="aria-disabled:opacity-50"
                   onClick={() => {
@@ -246,28 +349,28 @@ function RecentList({
                   }}
                 >
                   {disconnecting === listed.id ? <Loader2 className="animate-spin" /> : <Unplug />}
-                  Disconnect
+                  {t.disconnect}
                 </Button>
               ) : (
                 <Button
                   size="sm"
                   variant="outline"
-                  aria-label={`Connect ${label}`}
+                  aria-label={t.connectName(label)}
                   aria-disabled={busy || undefined}
                   className="aria-disabled:opacity-50"
                   onClick={() => {
                     if (!busy) onConnect({ host: r.host, port: r.port })
                   }}
                 >
-                  Connect
+                  {t.connect}
                 </Button>
               )}
               <Button
                 size="icon"
                 variant="ghost"
                 className="size-8"
-                aria-label={`Forget ${label}`}
-                title="Forget"
+                aria-label={t.forgetName(label)}
+                title={t.forget}
                 onClick={() => {
                   onForget({ host: r.host, port: r.port })
                 }}
@@ -332,6 +435,7 @@ export function WifiDialog({
    */
   pick?: { readonly seq: number; readonly row: NearbyRow } | null
 }) {
+  const t = useMessages(WIFI_MESSAGES)
   const uid = useId()
   const opener = useRef<HTMLElement | null>(null)
   const portRef = useRef<HTMLInputElement>(null)
@@ -339,7 +443,7 @@ export function WifiDialog({
   const [port, setPort] = useState('')
   const [pairAddress, setPairAddress] = useState('')
   const [code, setCode] = useState('')
-  const [errors, setErrors] = useState<Record<string, string | null>>({})
+  const [errors, setErrors] = useState<Record<string, FieldProblem | null>>({})
   const [pairOpen, setPairOpen] = useState(false)
   /** After a pairing, the connect port is the one the device shows: 5555 would be a guess. */
   const [portRequired, setPortRequired] = useState(false)
@@ -437,13 +541,9 @@ export function WifiDialog({
     const fallback =
       address.ok && address.port !== null ? address.port : portRequired ? null : DEFAULT_ADB_PORT
     const portValue = parsePort(port, fallback)
-    const next = {
-      host: address.ok ? null : HOST_WORDS[address.problem],
-      port: portValue.ok
-        ? null
-        : portValue.problem === 'empty'
-          ? COPY.wifi.portEmpty
-          : COPY.wifi.portInvalid,
+    const next: Record<string, FieldProblem | null> = {
+      host: address.ok ? null : HOST_PROBLEM[address.problem],
+      port: portValue.ok ? null : portValue.problem === 'empty' ? 'portEmpty' : 'portInvalid',
     }
     setErrors(next)
     if (!address.ok || !portValue.ok) {
@@ -460,17 +560,13 @@ export function WifiDialog({
     if (running) return
     const address = parseAddress(pairAddress)
     const parsedCode = parsePairingCode(code)
-    const next = {
+    const next: Record<string, FieldProblem | null> = {
       pairAddress: !address.ok
-        ? HOST_WORDS[address.problem]
+        ? HOST_PROBLEM[address.problem]
         : address.port === null
-          ? COPY.wifi.portEmpty
+          ? 'portEmpty'
           : null,
-      code: parsedCode.ok
-        ? null
-        : parsedCode.problem === 'empty'
-          ? COPY.wifi.codeEmpty
-          : COPY.wifi.codeInvalid,
+      code: parsedCode.ok ? null : parsedCode.problem === 'empty' ? 'codeEmpty' : 'codeInvalid',
     }
     setErrors(next)
     if (!address.ok || address.port === null || !parsedCode.ok) {
@@ -491,7 +587,11 @@ export function WifiDialog({
     })
   }
 
-  const fieldError = (key: string) => errors[key] ?? null
+  /** A field's error in the language on screen, or null. */
+  const fieldError = (key: string) => {
+    const problem = errors[key]
+    return problem ? COPY.wifi[problem] : null
+  }
 
   let body: ReactNode
   if (!paired) {
@@ -505,13 +605,13 @@ export function WifiDialog({
     )
   } else if (!ready && helperRow) {
     body = (
-      <ul aria-label="Before you connect" className="space-y-2">
+      <ul aria-label={t.beforeConnect} className="space-y-2">
         <Row item={helperRow} wiring={wiring} />
       </ul>
     )
   } else if (adbRow && adbRow.status !== 'ok') {
     body = (
-      <ul aria-label="Before you connect" className="space-y-2">
+      <ul aria-label={t.beforeConnect} className="space-y-2">
         <Row item={adbRow} wiring={wiring} />
       </ul>
     )
@@ -524,7 +624,7 @@ export function WifiDialog({
     body = (
       <div className="space-y-5">
         {foundBlocked && attempt === null && (
-          <ul aria-label="Found on this network" className="space-y-2">
+          <ul aria-label={t.found} className="space-y-2">
             <Row item={foundBlocked} />
           </ul>
         )}
@@ -563,9 +663,9 @@ export function WifiDialog({
           />
         )}
 
-        <form onSubmit={connect} noValidate aria-label="Connect" className="space-y-3">
+        <form onSubmit={connect} noValidate aria-label={t.connect} className="space-y-3">
           <div className="grid grid-cols-[minmax(0,1fr)_6.5rem] items-start gap-3">
-            <Field id={ids.host} label="IP address" error={fieldError('host')}>
+            <Field id={ids.host} label={t.ipAddress} error={fieldError('host')}>
               <Input
                 {...fieldProps(ids.host, fieldError('host'), true)}
                 name="wifi-host"
@@ -579,7 +679,7 @@ export function WifiDialog({
                 }}
               />
             </Field>
-            <Field id={ids.port} label="Port" error={fieldError('port')}>
+            <Field id={ids.port} label={t.port} error={fieldError('port')}>
               <Input
                 {...fieldProps(ids.port, fieldError('port'), false)}
                 ref={portRef}
@@ -596,8 +696,7 @@ export function WifiDialog({
             </Field>
           </div>
           <p id={`${ids.host}-hint`} className="text-muted-foreground text-xs leading-relaxed">
-            The address is on the device: in its network settings, or on the Wireless debugging
-            screen. A TV’s Network debugging uses port 5555.
+            {t.addressHint}
           </p>
           <Button
             type="submit"
@@ -606,18 +705,18 @@ export function WifiDialog({
           >
             {running && attempt.kind === 'connect' ? (
               <>
-                <Loader2 className="animate-spin" /> Connecting…
+                <Loader2 className="animate-spin" /> {t.connecting}
               </>
             ) : (
               <>
-                <Wifi /> Connect
+                <Wifi /> {t.connect}
               </>
             )}
           </Button>
         </form>
 
         {showRow && (
-          <ul aria-label="Progress" className="space-y-2">
+          <ul aria-label={t.progress} className="space-y-2">
             {localRow && <Row item={localRow} wiring={wiring} />}
             {reachRow && <Row item={reachRow} wiring={wiring} />}
             {attempt.kind === 'connect' && attempt.state === 'ok' && authRow && (
@@ -632,7 +731,7 @@ export function WifiDialog({
               onShow(device.id)
             }}
           >
-            Show {device.name || device.id}
+            {t.show(device.name || device.id)}
           </Button>
         )}
 
@@ -644,27 +743,20 @@ export function WifiDialog({
           }}
         >
           <summary className="flex cursor-pointer list-none items-center gap-1 px-3 py-2.5 text-sm font-medium">
-            Pair with a code (Android 11 and newer)
+            {t.pairSummary}
             <ChevronDown className="ml-auto size-4 transition-transform group-open:rotate-180" />
           </summary>
           <form
             onSubmit={pair}
             noValidate
-            aria-label="Pair with a code"
+            aria-label={t.pairForm}
             className="space-y-3 border-t px-3 py-3"
           >
             <p className="text-muted-foreground text-xs leading-relaxed">
-              Phones and Google TV with Wireless debugging: on the device, open{' '}
-              <span className="text-foreground">{FIX.pairWithCode.path}</span>. Type the address,
-              port and code it shows, then connect with the port shown on the Wireless debugging
-              screen itself.
+              {t.pairHow(<span className="text-foreground">{FIX.pairWithCode.path}</span>)}
             </p>
             <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-start gap-3">
-              <Field
-                id={ids.pairAddress}
-                label="IP address & port"
-                error={fieldError('pairAddress')}
-              >
+              <Field id={ids.pairAddress} label={t.pairAddress} error={fieldError('pairAddress')}>
                 <Input
                   {...fieldProps(ids.pairAddress, fieldError('pairAddress'), false)}
                   ref={pairAddressRef}
@@ -679,7 +771,7 @@ export function WifiDialog({
                   }}
                 />
               </Field>
-              <Field id={ids.code} label="Pairing code" error={fieldError('code')}>
+              <Field id={ids.code} label={t.pairCode} error={fieldError('code')}>
                 <Input
                   {...fieldProps(ids.code, fieldError('code'), false)}
                   ref={codeRef}
@@ -705,10 +797,10 @@ export function WifiDialog({
             >
               {running && attempt.kind === 'pair' ? (
                 <>
-                  <Loader2 className="animate-spin" /> Pairing…
+                  <Loader2 className="animate-spin" /> {t.pairing}
                 </>
               ) : (
-                'Pair'
+                t.pair
               )}
             </Button>
           </form>
@@ -716,17 +808,15 @@ export function WifiDialog({
 
         <details className="group rounded-lg border">
           <summary className="flex cursor-pointer list-none items-center gap-1 px-3 py-2.5 text-sm font-medium">
-            How to turn it on
+            {t.howTo}
             <ChevronDown className="ml-auto size-4 transition-transform group-open:rotate-180" />
           </summary>
           <div className="space-y-2 border-t px-3 py-3">
             <PathFix fix={FIX.tvNetworkDebugging} />
             <PathFix fix={FIX.phoneWirelessDebugging} />
             <p className="text-xs leading-relaxed">
-              <span className="text-foreground font-medium">Network:</span>{' '}
-              <span className="text-muted-foreground">
-                The device and this computer must be on the same Wi‑Fi.
-              </span>
+              <span className="text-foreground font-medium">{t.network}</span>{' '}
+              <span className="text-muted-foreground">{t.sameWifi}</span>
             </p>
             <PathFix fix={ALLOW_DEBUGGING} />
           </div>
@@ -756,11 +846,8 @@ export function WifiDialog({
         }}
       >
         <DialogHeader>
-          <DialogTitle>Connect over Wi‑Fi</DialogTitle>
-          <DialogDescription>
-            An Android TV or phone on the same Wi‑Fi as this computer, through the local helper.
-            Details, screenshots and the log work over Wi‑Fi.
-          </DialogDescription>
+          <DialogTitle>{t.title}</DialogTitle>
+          <DialogDescription>{t.description}</DialogDescription>
         </DialogHeader>
 
         {/* Progress and results, spoken once each: the rows themselves stay quiet. */}
@@ -778,7 +865,7 @@ export function WifiDialog({
               close(false)
             }}
           >
-            Close
+            {t.close}
           </Button>
         </DialogFooter>
       </DialogContent>

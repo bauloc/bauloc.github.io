@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
+import { defineMessages, useMessages } from '@/lib/i18n'
 
 import type { HelperStatus } from '../helper/connection'
 import { helperNotice } from '../helper/status'
@@ -19,10 +20,28 @@ import { StateDot, TONE_SURFACE } from './status'
   the change once; this strip stays while it is true.
 */
 
-function copyCommand(command: string) {
+/** The copy toasts say what the site's do (SITE_MESSAGES), in both languages. */
+const NOTICE_MESSAGES = defineMessages({
+  en: {
+    region: 'Local helper',
+    copied: 'Copied',
+    copyFailed: 'Copy failed',
+    copyByHand: 'Select the text and copy it by hand.',
+  },
+  vi: {
+    region: 'Helper cục bộ',
+    copied: 'Đã sao chép',
+    copyFailed: 'Không sao chép được',
+    copyByHand: 'Hãy bôi đen đoạn chữ và tự sao chép.',
+  },
+})
+
+type NoticeMessages = (typeof NOTICE_MESSAGES)['en']
+
+function copyCommand(command: string, t: NoticeMessages) {
   navigator.clipboard.writeText(command).then(
-    () => toast.success('Copied', { description: command }),
-    () => toast.error('Copy failed', { description: 'Select the text and copy it by hand.' }),
+    () => toast.success(t.copied, { description: command }),
+    () => toast.error(t.copyFailed, { description: t.copyByHand }),
   )
 }
 
@@ -36,6 +55,7 @@ export function HelperNotice({
   /** helperUpdate(…): a newer published helper, said while this one is connected. */
   update?: HelperUpdate | null
 }) {
+  const t = useMessages(NOTICE_MESSAGES)
   const view = helperNotice(status, update)
   if (!view) return null
   const { action } = view
@@ -48,7 +68,7 @@ export function HelperNotice({
         variant="outline"
         title={command}
         onClick={() => {
-          copyCommand(command)
+          copyCommand(command, t)
         }}
       >
         {action.label}
@@ -66,7 +86,7 @@ export function HelperNotice({
   }
   return (
     <section
-      aria-label="Local helper"
+      aria-label={t.region}
       className={cn(
         'flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border px-4 py-3',
         TONE_SURFACE[view.tone],

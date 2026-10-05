@@ -58,13 +58,30 @@ function browserLanguages(): readonly string[] {
 }
 
 /**
+ * The language as last worked out, so the many lookups one render can make (Device Lab words
+ * every row of a long list) do not each read storage. Dropped whenever it may have changed:
+ * another tab's choice, the browser's languages; a choice here sets it.
+ */
+let cached: Locale | null = null
+
+if (typeof window !== 'undefined') {
+  // Registered before any component subscribes, so it runs first on the same event.
+  const drop = () => {
+    cached = null
+  }
+  window.addEventListener('storage', drop)
+  window.addEventListener('languagechange', drop)
+}
+
+/**
  * The language right now. For code outside React that words something on the spot — an
  * error, a toast — and is called again from a component that re-renders on a change.
  * English where there is no browser at all (a test in Node).
  */
 export function currentLocale(): Locale {
   if (typeof window === 'undefined') return 'en'
-  return resolveLocale(readSaved(), browserLanguages())
+  cached ??= resolveLocale(readSaved(), browserLanguages())
+  return cached
 }
 
 const listeners = new Set<() => void>()
@@ -87,6 +104,7 @@ function apply(locale: Locale) {
 /** Choose a language, remember it, and apply it at once. */
 export function setLocale(locale: Locale) {
   unsaved = locale
+  cached = locale
   try {
     window.localStorage.setItem(LOCALE_STORAGE_KEY, locale)
   } catch {

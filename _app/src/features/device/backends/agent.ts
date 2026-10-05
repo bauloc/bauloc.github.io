@@ -1,3 +1,5 @@
+import { defineMessages, localized } from '@/lib/i18n'
+
 import { HelperError } from '../helper/client'
 import type { HelperConnection } from '../helper/connection'
 import type { DetailResponse, HelperDevice, LogMsg } from '../helper/protocol'
@@ -48,11 +50,27 @@ export function toDevice(d: HelperDevice): Device {
   })
 }
 
+const AGENT_MESSAGES = defineMessages({
+  en: {
+    wifi: 'Wi‑Fi (local helper)',
+    usb: 'USB (local helper)',
+    logEnded: '— The log ended.',
+  },
+  vi: {
+    wifi: 'Wi‑Fi (helper cục bộ)',
+    usb: 'USB (helper cục bộ)',
+    logEnded: '— Log đã kết thúc.',
+  },
+})
+
+/** The lane's words, in the language on screen. */
+const WORDS = localized(AGENT_MESSAGES)
+
 /** What the Connection row says, per lane and transport. */
 export function connectionLabel(r: DetailResponse): string {
   if (r.kind === 'simulator') return 'Simulator'
   if (r.kind === 'ios') {
-    return r.facts.connection === 'network' ? 'Wi‑Fi (local helper)' : 'USB (local helper)'
+    return r.facts.connection === 'network' ? WORDS.wifi : WORDS.usb
   }
   return r.connection === 'network'
     ? 'Wi‑Fi (adb server)'
@@ -68,15 +86,23 @@ export function toDetail(r: DetailResponse): DeviceDetail {
       // The same six outputs WebUSB reads (the contract test holds the commands equal), so
       // only the Connection row differs.
       return androidDetail(r.outputs, r.serial, connectionLabel(r))
-    case 'ios':
-      return iosDetail(r.facts, connectionLabel(r))
+    case 'ios': {
+      const detail = iosDetail(r.facts, connectionLabel(r))
+      // The lane's name has words in it ("local helper"): read again at each access, like the
+      // values iosDetail words, so the stored detail follows a language switch.
+      Object.defineProperty(detail.status, 'Connection', { get: () => connectionLabel(r) })
+      return detail
+    }
     case 'simulator':
       return simulatorDetail(r.facts)
   }
 }
 
-/** Printed in the console when the device closes its log: an iPhone over Wi‑Fi says only eof. */
-export const LOG_ENDED_LINE = '— The log ended.'
+/**
+ * Printed in the console when the device closes its log: an iPhone over Wi‑Fi says only eof.
+ * This is the English; the console gets it in the language on screen.
+ */
+export const LOG_ENDED_LINE = AGENT_MESSAGES.en.logEnded
 
 type LogEnd = Extract<LogMsg, { t: 'end' }>
 
@@ -141,7 +167,7 @@ export async function streamLogs(
     conn.pollNow()
     return
   }
-  onLines([LOG_ENDED_LINE])
+  onLines([WORDS.logEnded])
 }
 
 /** The local helper lane. `conn` is built once per page and started through this lane. */

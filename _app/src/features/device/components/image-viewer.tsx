@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/cn'
+import { defineMessages, localized, useMessages } from '@/lib/i18n'
 
 import { browserCanShow, isHeif, type ImageRow } from '../backends/android/media'
 import type { Backend } from '../backends/backend'
@@ -37,6 +38,135 @@ import { InlineChecklist } from './checklist'
   files never import each other in a circle.
 */
 
+/** What the helpers below say (facts, progress, errors), worded when they run. */
+const IMAGE_TEXT = localized({
+  en: {
+    image: 'Image',
+    unknown: 'Unknown',
+    facts: {
+      taken: 'Taken',
+      modified: 'Modified',
+      dimensions: 'Dimensions',
+      size: 'Size',
+      type: 'Type',
+      folder: 'Folder',
+    },
+    progress: (sent: string, total: string, pct: number) => `${sent} of ${total} · ${String(pct)}%`,
+    cannotDraw: 'This browser couldn’t draw the image.',
+    cannotConvert: 'This browser couldn’t convert the image.',
+  },
+  vi: {
+    image: 'Ảnh',
+    unknown: 'Không rõ',
+    facts: {
+      taken: 'Ngày chụp',
+      modified: 'Ngày sửa đổi',
+      dimensions: 'Kích thước',
+      size: 'Dung lượng',
+      type: 'Loại',
+      folder: 'Thư mục',
+    },
+    progress: (sent: string, total: string, pct: number) => `${sent}/${total} · ${String(pct)}%`,
+    cannotDraw: 'Trình duyệt này không vẽ lại được ảnh.',
+    cannotConvert: 'Trình duyệt này không chuyển đổi được ảnh.',
+  },
+})
+
+const IMAGE_VIEWER_MESSAGES = defineMessages({
+  en: {
+    untitled: 'Untitled image',
+    position: (at: number, count: number, more: boolean) =>
+      `${String(at)} of ${String(count)}${more ? '+' : ''}`,
+    typeOn: (type: string, device: string) => `${type} on ${device}`,
+    previous: 'Previous image (←)',
+    previousTitle: 'Previous (←)',
+    next: 'Next image (→)',
+    nextTitle: 'Next (→)',
+    cannotRead: 'This connection can’t read files.',
+    saved: 'Saved',
+    theImage: 'the image',
+    readFailed: (name: string, device: string) => `Couldn’t read ${name} from ${device}`,
+    copyUnsupported: 'Copy image unsupported',
+    copyUnsupportedDetail: 'This browser can’t put images on the clipboard. Use Save.',
+    copied: 'Image copied',
+    copyFailed: 'Copy image failed',
+    writeRejected: 'The clipboard write was rejected.',
+    saveTitle: 'Save the original file',
+    cannotReadTitle: 'This connection can’t read files',
+    save: 'Save',
+    copyTitle: 'Copy the image',
+    cannotDrawTitle: 'This browser can’t draw this type',
+    copyImage: 'Copy image',
+    readStraight:
+      'Read straight from the phone into this tab. Nothing is uploaded, and nothing is written to the phone.',
+    path: 'Path',
+    copyPath: 'Copy path',
+    fromPhone: 'Image from the phone',
+    readingFrom: (device: string) => `Reading from ${device}`,
+    starting: 'Starting…',
+    reading: (name: string) => `Reading ${name}`,
+    cannotReadPhone: 'This connection can’t read files from the phone.',
+    readImageFailed: (device: string, reason: string) =>
+      `Couldn’t read the image from ${device}: ${reason}`,
+    retry: 'Retry',
+    noHeicPreview: 'No preview for HEIC in this browser.',
+    cannotShow: (browser: string, type: string) =>
+      `${browser} can’t show ${type} images. Save it to open it on this computer.`,
+    couldNotDraw: (browser: string) =>
+      `${browser} couldn’t draw this image. Save it to open it on this computer.`,
+    notRead: 'Not read yet.',
+  },
+  vi: {
+    untitled: 'Ảnh không tên',
+    position: (at: number, count: number, more: boolean) =>
+      `${String(at)}/${String(count)}${more ? '+' : ''}`,
+    typeOn: (type: string, device: string) => `${type} trên ${device}`,
+    previous: 'Ảnh trước (←)',
+    previousTitle: 'Trước (←)',
+    next: 'Ảnh tiếp theo (→)',
+    nextTitle: 'Tiếp (→)',
+    cannotRead: 'Kết nối này không đọc được tệp.',
+    saved: 'Đã lưu',
+    theImage: 'ảnh',
+    readFailed: (name: string, device: string) => `Không đọc được ${name} từ ${device}`,
+    copyUnsupported: 'Không hỗ trợ sao chép ảnh',
+    copyUnsupportedDetail: 'Trình duyệt này không sao chép được ảnh vào bộ nhớ tạm. Hãy dùng Lưu.',
+    copied: 'Đã sao chép ảnh',
+    copyFailed: 'Không sao chép được ảnh',
+    writeRejected: 'Trình duyệt từ chối ghi vào bộ nhớ tạm.',
+    saveTitle: 'Lưu tệp gốc',
+    cannotReadTitle: 'Kết nối này không đọc được tệp',
+    save: 'Lưu',
+    copyTitle: 'Sao chép ảnh',
+    cannotDrawTitle: 'Trình duyệt này không hiển thị được định dạng này',
+    copyImage: 'Sao chép ảnh',
+    readStraight:
+      'Đọc thẳng từ điện thoại vào thẻ này. Không tải lên gì cả và không ghi gì vào điện thoại.',
+    path: 'Đường dẫn',
+    copyPath: 'Sao chép đường dẫn',
+    fromPhone: 'Ảnh từ điện thoại',
+    readingFrom: (device: string) => `Đang đọc từ ${device}`,
+    starting: 'Đang bắt đầu…',
+    reading: (name: string) => `Đang đọc ${name}`,
+    cannotReadPhone: 'Kết nối này không đọc được tệp từ điện thoại.',
+    readImageFailed: (device: string, reason: string) =>
+      `Không đọc được ảnh từ ${device}: ${reason}`,
+    retry: 'Thử lại',
+    noHeicPreview: 'Trình duyệt này không xem trước được ảnh HEIC.',
+    cannotShow: (browser: string, type: string) =>
+      `${browser} không hiển thị được ảnh ${type}. Hãy lưu ảnh để mở trên máy tính này.`,
+    couldNotDraw: (browser: string) =>
+      `${browser} không hiển thị được ảnh này. Hãy lưu ảnh để mở trên máy tính này.`,
+    notRead: 'Chưa đọc ảnh.',
+  },
+})
+
+/**
+ * The same messages, read in the language on screen when a toast is raised: Save and Copy
+ * toast once the original has been read over USB, which may be after a language switch.
+ */
+const SAID = localized(IMAGE_VIEWER_MESSAGES)
+
 /* ---------------------------------------------------------------- *
  * Facts, as text
  * ---------------------------------------------------------------- */
@@ -59,10 +189,14 @@ export function imageWhen(row: Pick<ImageRow, 'taken' | 'modified'>): {
   return { at: null, source: null }
 }
 
+/** `image/jpeg` → `jpeg`, `image/x-adobe-dng` → `dng`, as MediaStore wrote it; null if unknown. */
+function imageSubtype(mime: string): string | null {
+  return /^image\/(?:x-adobe-)?([\w.+-]+)$/i.exec(mime)?.[1] ?? null
+}
+
 /** `image/jpeg` → `JPEG`, `image/x-adobe-dng` → `DNG`; `Image` when the type is unknown. */
 export function typeLabel(mime: string): string {
-  const sub = /^image\/(?:x-adobe-)?([\w.+-]+)$/i.exec(mime)?.[1]
-  return sub ? sub.toUpperCase() : 'Image'
+  return imageSubtype(mime)?.toUpperCase() ?? IMAGE_TEXT.image
 }
 
 /** The tile's second line and the viewer's subtitle: `4032 × 3024 · 3.1 MB`. */
@@ -79,14 +213,14 @@ export function imageFacts(row: Pick<ImageRow, 'width' | 'height' | 'size'>): st
 export function viewerFacts(
   row: Pick<ImageRow, 'taken' | 'modified' | 'width' | 'height' | 'size' | 'mime' | 'folder'>,
 ): [label: string, value: string][] {
-  const unknown = 'Unknown'
+  const { unknown, facts } = IMAGE_TEXT
   return [
-    ['Taken', row.taken === null ? unknown : fmtDateTime(new Date(row.taken))],
-    ['Modified', row.modified === null ? unknown : fmtDateTime(new Date(row.modified))],
-    ['Dimensions', fmtDimensions(row.width, row.height) ?? unknown],
-    ['Size', row.size === null ? unknown : fmtBytes(row.size)],
-    ['Type', row.mime || unknown],
-    ['Folder', row.folder || unknown],
+    [facts.taken, row.taken === null ? unknown : fmtDateTime(new Date(row.taken))],
+    [facts.modified, row.modified === null ? unknown : fmtDateTime(new Date(row.modified))],
+    [facts.dimensions, fmtDimensions(row.width, row.height) ?? unknown],
+    [facts.size, row.size === null ? unknown : fmtBytes(row.size)],
+    [facts.type, row.mime || unknown],
+    [facts.folder, row.folder || unknown],
   ]
 }
 
@@ -101,7 +235,8 @@ export function saveName(name: string, mime: string): string {
     .replace(/[\u0000-\u001f\u007f]/g, '')
     .trim()
   if (clean && !/^\.*$/.test(clean)) return clean
-  const ext = typeLabel(mime).toLowerCase()
+  // From the type itself: typeLabel's word for an unknown type is in the language on screen.
+  const ext = imageSubtype(mime)?.toLowerCase() ?? 'image'
   return `image.${ext === 'image' ? 'jpg' : ext === 'jpeg' ? 'jpg' : ext}`
 }
 
@@ -367,12 +502,12 @@ async function toPng(blob: Blob): Promise<Blob> {
     canvas.width = bitmap.width
     canvas.height = bitmap.height
     const context = canvas.getContext('2d')
-    if (!context) throw new Error('This browser couldn’t draw the image.')
+    if (!context) throw new Error(IMAGE_TEXT.cannotDraw)
     context.drawImage(bitmap, 0, 0)
     return await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob((png) => {
         if (png) resolve(png)
-        else reject(new Error('This browser couldn’t convert the image.'))
+        else reject(new Error(IMAGE_TEXT.cannotConvert))
       }, 'image/png')
     })
   } finally {
@@ -398,13 +533,14 @@ type Original =
   | { readonly status: 'idle' }
   | { readonly status: 'loading'; readonly sent: number; readonly total: number | null }
   | { readonly status: 'ready'; readonly blob: Blob }
-  | { readonly status: 'failed'; readonly message: string }
+  // The error, not its message: worded when shown, so it follows a language switch.
+  | { readonly status: 'failed'; readonly error: unknown }
 
 /** `2.1 of 4.3 MB · 48%`, or just the bytes so far when the size is unknown. */
 export function progressText(sent: number, total: number | null): string {
   if (!total || total <= 0) return fmtBytes(sent)
   const pct = Math.min(100, Math.floor((sent / total) * 100))
-  return `${fmtBytes(sent)} of ${fmtBytes(total)} · ${String(pct)}%`
+  return IMAGE_TEXT.progress(fmtBytes(sent), fmtBytes(total), pct)
 }
 
 /** Which way a key moves through the album, or null for a key the viewer leaves alone. */
@@ -459,6 +595,7 @@ export function ImageViewer({
   onCloseFocus?: () => void
   previews?: PreviewSource
 }) {
+  const t = useMessages(IMAGE_VIEWER_MESSAGES)
   const row = index === null ? undefined : rows[index]
   /**
    * The photo last shown. Closing clears `index` at once, but the dialog fades out for a moment
@@ -518,7 +655,7 @@ export function ImageViewer({
 
   const at = shown?.index ?? 0
   const atEnd = at >= rows.length - 1 && !hasMore
-  const position = `${String(at + 1)} of ${String(rows.length)}${hasMore ? '+' : ''}`
+  const position = t.position(at + 1, rows.length, hasMore)
   const ahead = index === null ? undefined : rows[index + travel.dir]
 
   return (
@@ -545,20 +682,18 @@ export function ImageViewer({
           <>
             <DialogHeader className="min-w-0 pr-8 text-left">
               <DialogTitle className="truncate leading-tight" title={shown.row.name}>
-                {shown.row.name || 'Untitled image'}
+                {shown.row.name || t.untitled}
               </DialogTitle>
               {/* Two lines kept on a phone and one beside the picture: never a line more or less. */}
               <DialogDescription className="line-clamp-2 min-h-[2lh] md:line-clamp-1 md:min-h-0">
-                {[position, imageFacts(shown.row), `${typeLabel(shown.row.mime)} on ${device.name}`]
+                {[position, imageFacts(shown.row), t.typeOn(typeLabel(shown.row.mime), device.name)]
                   .filter(Boolean)
                   .join(' · ')}
               </DialogDescription>
             </DialogHeader>
             {/* Focus stays on ← or →, so the new photo is said here; opening reads the title. */}
             <p role="status" aria-live="polite" className="sr-only">
-              {travel.stepped && !closing
-                ? `${shown.row.name || 'Untitled image'}, ${position}`
-                : ''}
+              {travel.stepped && !closing ? `${shown.row.name || t.untitled}, ${position}` : ''}
             </p>
             <ViewerBody
               device={device}
@@ -573,8 +708,8 @@ export function ImageViewer({
                   <Button
                     variant="outline"
                     size="icon"
-                    aria-label="Previous image (←)"
-                    title="Previous (←)"
+                    aria-label={t.previous}
+                    title={t.previousTitle}
                     aria-disabled={at === 0}
                     className="aria-disabled:opacity-50"
                     onClick={() => {
@@ -586,8 +721,8 @@ export function ImageViewer({
                   <Button
                     variant="outline"
                     size="icon"
-                    aria-label="Next image (→)"
-                    title="Next (→)"
+                    aria-label={t.next}
+                    title={t.nextTitle}
                     aria-disabled={atEnd || extending}
                     className="aria-disabled:opacity-50"
                     onClick={forward}
@@ -693,6 +828,7 @@ function ViewerBody({
   previews: PreviewSource | undefined
   nav: ReactNode
 }) {
+  const t = useMessages(IMAGE_VIEWER_MESSAGES)
   const key = originalKey(device.id, row)
   const displayable = canDisplay(row.mime, browser)
   const pull = backend.pull
@@ -739,7 +875,7 @@ function ViewerBody({
 
   /** Reads this photo's original into the state, sharing the read with anyone else. */
   const read = (signal: AbortSignal): Promise<Blob> => {
-    if (!pull || !row.path) return Promise.reject(new Error('This connection can’t read files.'))
+    if (!pull || !row.path) return Promise.reject(new Error(t.cannotRead))
     const forKey = key
     let last = 0
     return readOriginal(
@@ -763,10 +899,7 @@ function ViewerBody({
       },
       (error: unknown) => {
         if (!signal.aborted) {
-          patch(forKey, (p) => ({
-            ...p,
-            original: { status: 'failed', message: deviceErrorMessage(error) },
-          }))
+          patch(forKey, (p) => ({ ...p, original: { status: 'failed', error } }))
         }
         throw error
       },
@@ -895,11 +1028,11 @@ function ViewerBody({
     ensureOriginal(signal).then(
       (blob) => {
         saveBlob(blob, saveName(row.name, row.mime))
-        toast.success('Saved', { description: saveName(row.name, row.mime) })
+        toast.success(SAID.saved, { description: saveName(row.name, row.mime) })
       },
       (error: unknown) => {
         if (signal?.aborted) return
-        toast.error(`Couldn’t read ${row.name || 'the image'} from ${device.name}`, {
+        toast.error(SAID.readFailed(row.name || SAID.theImage, device.name), {
           description: deviceErrorMessage(error),
         })
       },
@@ -908,8 +1041,8 @@ function ViewerBody({
 
   const copy = () => {
     if (!('ClipboardItem' in window) || !('write' in navigator.clipboard)) {
-      toast.error('Copy image unsupported', {
-        description: 'This browser can’t put images on the clipboard. Use Save.',
+      toast.error(t.copyUnsupported, {
+        description: t.copyUnsupportedDetail,
       })
       return
     }
@@ -921,10 +1054,10 @@ function ViewerBody({
       plan.convert ? toPng(blob) : blob,
     )
     navigator.clipboard.write([new ClipboardItem({ [plan.type]: data })]).then(
-      () => toast.success('Image copied'),
+      () => toast.success(SAID.copied),
       (error: unknown) => {
-        toast.error('Copy image failed', {
-          description: error instanceof Error ? error.message : 'The clipboard write was rejected.',
+        toast.error(SAID.copyFailed, {
+          description: error instanceof Error ? error.message : SAID.writeRejected,
         })
       },
     )
@@ -966,24 +1099,21 @@ function ViewerBody({
           {nav}
           <Button
             disabled={!canRead}
-            title={canRead ? 'Save the original file' : 'This connection can’t read files'}
+            title={canRead ? t.saveTitle : t.cannotReadTitle}
             onClick={save}
           >
-            <Download /> Save
+            <Download /> {t.save}
           </Button>
           <Button
             variant="outline"
             disabled={!canRead || !displayable || photo.broken}
-            title={displayable ? 'Copy the image' : 'This browser can’t draw this type'}
+            title={displayable ? t.copyTitle : t.cannotDrawTitle}
             onClick={copy}
           >
-            <Copy /> Copy image
+            <Copy /> {t.copyImage}
           </Button>
         </div>
-        <p className="text-muted-foreground text-xs leading-relaxed">
-          Read straight from the phone into this tab. Nothing is uploaded, and nothing is written to
-          the phone.
-        </p>
+        <p className="text-muted-foreground text-xs leading-relaxed">{t.readStraight}</p>
         <dl className="divide-y text-sm">
           {viewerFacts(row).map(([label, value]) => (
             <div key={label} className="grid grid-cols-[5.5rem_1fr] gap-2 py-1.5">
@@ -994,10 +1124,10 @@ function ViewerBody({
           {row.path && (
             // Top-aligned: a path that wraps to one line more moves nothing beside it.
             <div className="grid grid-cols-[5.5rem_1fr] items-start gap-2 py-1.5">
-              <dt className="text-muted-foreground">Path</dt>
+              <dt className="text-muted-foreground">{t.path}</dt>
               <dd className="flex min-w-0 items-start gap-1">
                 <span className="min-w-0 flex-1 font-mono text-xs wrap-anywhere">{row.path}</span>
-                <CopyButton text={row.path} label="Copy path" />
+                <CopyButton text={row.path} label={t.copyPath} />
               </dd>
             </div>
           )}
@@ -1036,6 +1166,7 @@ function Frame({
   /** The preflight note for a type this browser can't draw (HEIC), shown in the frame. */
   note: ReactNode
 }) {
+  const t = useMessages(IMAGE_VIEWER_MESSAGES)
   const { original } = photo
   const layers = frameLayers({
     canRead,
@@ -1071,7 +1202,7 @@ function Frame({
         <img
           key={photo.key}
           src={urlOf(original.blob)}
-          alt={row.name || 'Image from the phone'}
+          alt={row.name || t.fromPhone}
           decoding="async"
           className={cn(
             'absolute inset-0 size-full object-scale-down',
@@ -1134,15 +1265,16 @@ function ReadProgress({
   total: number | null
   deviceName: string
 }) {
+  const t = useMessages(IMAGE_VIEWER_MESSAGES)
   const pct = total && total > 0 ? Math.min(100, Math.floor((sent / total) * 100)) : null
   return (
     <div className="bg-background/90 text-muted-foreground absolute inset-x-0 bottom-3 mx-auto flex w-72 max-w-[calc(100%-1.5rem)] flex-col gap-1.5 rounded-md border p-3 text-sm shadow-sm backdrop-blur-sm">
       <p className="flex min-w-0 items-center gap-2">
         <Loader2 className="size-4 shrink-0 motion-safe:animate-spin" />
-        <span className="truncate">Reading from {deviceName}</span>
+        <span className="truncate">{t.readingFrom(deviceName)}</span>
       </p>
       <p className="truncate text-xs tabular-nums">
-        {sent > 0 ? progressText(sent, total) : 'Starting…'}
+        {sent > 0 ? progressText(sent, total) : t.starting}
       </p>
       <div
         className="bg-muted h-1.5 w-full overflow-hidden rounded-full"
@@ -1150,7 +1282,7 @@ function ReadProgress({
           ? {}
           : {
               role: 'progressbar',
-              'aria-label': `Reading ${row.name || 'the image'}`,
+              'aria-label': t.reading(row.name || t.theImage),
               'aria-valuemin': 0,
               'aria-valuemax': 100,
               'aria-valuenow': pct,
@@ -1191,14 +1323,15 @@ function FrameNote({
   onRetry: () => void
   note: ReactNode
 }) {
+  const t = useMessages(IMAGE_VIEWER_MESSAGES)
   if (!canRead) {
-    return <Placeholder text="This connection can’t read files from the phone." />
+    return <Placeholder text={t.cannotReadPhone} />
   }
   if (original.status === 'failed') {
     return (
-      <Placeholder text={`Couldn’t read the image from ${deviceName}: ${original.message}`}>
+      <Placeholder text={t.readImageFailed(deviceName, deviceErrorMessage(original.error))}>
         <Button size="sm" variant="outline" onClick={onRetry}>
-          Retry
+          {t.retry}
         </Button>
       </Placeholder>
     )
@@ -1214,21 +1347,15 @@ function FrameNote({
       )
     }
     return isHeif(row.mime) ? (
-      <Placeholder text="No preview for HEIC in this browser." />
+      <Placeholder text={t.noHeicPreview} />
     ) : (
-      <Placeholder
-        text={`${browserName} can’t show ${typeLabel(row.mime)} images. Save it to open it on this computer.`}
-      />
+      <Placeholder text={t.cannotShow(browserName, typeLabel(row.mime))} />
     )
   }
   if (original.status === 'ready') {
-    return (
-      <Placeholder
-        text={`${browserName} couldn’t draw this image. Save it to open it on this computer.`}
-      />
-    )
+    return <Placeholder text={t.couldNotDraw(browserName)} />
   }
-  return <Placeholder text="Not read yet." />
+  return <Placeholder text={t.notRead} />
 }
 
 function Placeholder({ text, children }: { text: string; children?: ReactNode }) {

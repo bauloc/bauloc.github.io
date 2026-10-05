@@ -14,6 +14,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { untilAborted } from '@/lib/abort'
 import { cn } from '@/lib/cn'
+import { defineMessages, localized, useMessages } from '@/lib/i18n'
+import { INTL_LOCALE } from '@/lib/locale'
 
 import {
   IMAGE_PAGE_SIZE,
@@ -52,29 +54,89 @@ import { ImageViewer, imageFacts, imageWhen, typeLabel, type PreviewSource } fro
   preview says why; it never toasts.
 */
 
+/** The albums' names, in the language on screen whenever one is read. */
+const ALBUM_LABELS = localized<Readonly<Record<Album, string>>>({
+  en: { screenshots: 'Screenshots', camera: 'Camera', all: 'All images' },
+  vi: { screenshots: 'Ảnh chụp màn hình', camera: 'Máy ảnh', all: 'Tất cả ảnh' },
+})
+
 /**
  * The albums, in the segmented control's order. Screenshots first: it is what testers want.
- * Downloads and Videos come in P2 (PLAN §4.5).
+ * Downloads and Videos come in P2 (PLAN §4.5). Each label is a getter, so it reads the
+ * language at the moment it is shown.
  */
-export const IMAGE_ALBUMS: readonly { readonly value: Album; readonly label: string }[] = [
-  { value: 'screenshots', label: 'Screenshots' },
-  { value: 'camera', label: 'Camera' },
-  { value: 'all', label: 'All images' },
-]
+export const IMAGE_ALBUMS: readonly { readonly value: Album; readonly label: string }[] = (
+  ['screenshots', 'camera', 'all'] as const
+).map((value) => ({
+  value,
+  get label() {
+    return ALBUM_LABELS[value]
+  },
+}))
 
 const isAlbum = (value: string): value is Album => IMAGE_ALBUMS.some((a) => a.value === value)
 
-/** What an empty album says. */
-function emptyText(album: Album, deviceName: string): string {
-  switch (album) {
-    case 'screenshots':
-      return `No screenshots on ${deviceName}.`
-    case 'camera':
-      return `No camera photos on ${deviceName}.`
-    case 'all':
-      return `No images on ${deviceName}.`
-  }
-}
+const IMAGES_TAB_MESSAGES = defineMessages({
+  en: {
+    title: 'Images',
+    readStraight: (device: string) =>
+      `Read straight from ${device} into this tab. Nothing is uploaded, and nothing is written to the phone.`,
+    size: 'Size',
+    thumbnailSize: 'Thumbnail size',
+    refreshLabel: 'Refresh images',
+    refreshTitle: 'Read the album again',
+    refresh: 'Refresh',
+    album: 'Album',
+    cannotList: 'This connection can’t list the phone’s images.',
+    loading: 'Loading images',
+    /** What an empty album says. */
+    empty: {
+      screenshots: (device: string) => `No screenshots on ${device}.`,
+      camera: (device: string) => `No camera photos on ${device}.`,
+      all: (device: string) => `No images on ${device}.`,
+    },
+    albumOn: (album: string, device: string) => `${album} on ${device}`,
+    count: (count: number, more: boolean) =>
+      `${count.toLocaleString('en')} ${count === 1 ? 'image' : 'images'}${more ? ' so far' : ''}`,
+    loadMore: 'Load more',
+    loadingMore: 'Loading…',
+    moreFailed: (device: string, reason: string) =>
+      `Couldn’t read more images from ${device}: ${reason}`,
+    dateUnknown: 'Date unknown',
+    image: 'Image',
+    fileTime: 'File time: the photo has no date taken',
+    taken: 'Taken',
+  },
+  vi: {
+    title: 'Ảnh',
+    readStraight: (device: string) =>
+      `Đọc thẳng từ ${device} vào thẻ này. Không tải lên gì cả và không ghi gì vào điện thoại.`,
+    size: 'Cỡ',
+    thumbnailSize: 'Cỡ ảnh thu nhỏ',
+    refreshLabel: 'Làm mới ảnh',
+    refreshTitle: 'Đọc lại album',
+    refresh: 'Làm mới',
+    album: 'Album',
+    cannotList: 'Kết nối này không liệt kê được ảnh trên điện thoại.',
+    loading: 'Đang tải ảnh',
+    empty: {
+      screenshots: (device: string) => `Không có ảnh chụp màn hình nào trên ${device}.`,
+      camera: (device: string) => `Không có ảnh chụp từ máy ảnh nào trên ${device}.`,
+      all: (device: string) => `Không có ảnh nào trên ${device}.`,
+    },
+    albumOn: (album: string, device: string) => `${album} trên ${device}`,
+    count: (count: number, more: boolean) =>
+      `${more ? 'Đã tải ' : ''}${count.toLocaleString(INTL_LOCALE.vi)} ảnh`,
+    loadMore: 'Tải thêm',
+    loadingMore: 'Đang tải…',
+    moreFailed: (device: string, reason: string) =>
+      `Không đọc thêm được ảnh từ ${device}: ${reason}`,
+    dateUnknown: 'Không rõ ngày',
+    image: 'Ảnh',
+    fileTime: 'Thời gian của tệp: ảnh không có ngày chụp',
+    taken: 'Ngày chụp',
+  },
+})
 
 /** Page two onwards, without a photo a shifted page would repeat. */
 export function appendPage(rows: readonly ImageRow[], page: readonly ImageRow[]): ImageRow[] {
@@ -93,13 +155,22 @@ export type Preview =
   | { readonly kind: 'ready'; readonly url: string }
   | { readonly kind: 'none'; readonly reason: PreviewReason }
 
-export const PREVIEW_REASON_TEXT: Readonly<Record<PreviewReason, string>> = {
-  heic: 'HEIC: open it to save',
-  unsupported: 'No preview for this type',
-  'too-large': 'Large file: open it to view',
-  unavailable: 'No preview',
-  failed: 'Preview failed',
-}
+export const PREVIEW_REASON_TEXT = localized<Readonly<Record<PreviewReason, string>>>({
+  en: {
+    heic: 'HEIC: open it to save',
+    unsupported: 'No preview for this type',
+    'too-large': 'Large file: open it to view',
+    unavailable: 'No preview',
+    failed: 'Preview failed',
+  },
+  vi: {
+    heic: 'HEIC: mở ảnh để lưu',
+    unsupported: 'Không xem trước được định dạng này',
+    'too-large': 'Tệp lớn: mở ảnh để xem',
+    unavailable: 'Không có bản xem trước',
+    failed: 'Lỗi xem trước',
+  },
+})
 
 /**
  * Where a row's preview comes from, and the reason its tile shows when there is none. The
@@ -459,6 +530,7 @@ export function ImagesTab({
   zoom: number
   onZoom: (zoom: number) => void
 }) {
+  const t = useMessages(IMAGES_TAB_MESSAGES)
   const [album, setAlbum] = useState<Album>('screenshots')
   const [reload, setReload] = useState(0)
   const refresh = () => {
@@ -469,21 +541,18 @@ export function ImagesTab({
   return (
     <Card className="gap-4">
       <CardHeader>
-        <CardTitle>Images</CardTitle>
-        <CardDescription>
-          Read straight from {device.name} into this tab. Nothing is uploaded, and nothing is
-          written to the phone.
-        </CardDescription>
+        <CardTitle>{t.title}</CardTitle>
+        <CardDescription>{t.readStraight(device.name)}</CardDescription>
         <CardAction className="flex items-center gap-3">
           <label className="text-muted-foreground hidden items-center gap-2 text-xs sm:flex">
-            Size
+            {t.size}
             <input
               type="range"
               min={80}
               max={480}
               step={20}
               value={zoom}
-              aria-label="Thumbnail size"
+              aria-label={t.thumbnailSize}
               className="accent-primary w-28"
               onChange={(e) => {
                 onZoom(Number(e.target.value))
@@ -493,11 +562,11 @@ export function ImagesTab({
           <Button
             variant="ghost"
             size="sm"
-            aria-label="Refresh images"
-            title="Read the album again"
+            aria-label={t.refreshLabel}
+            title={t.refreshTitle}
             onClick={refresh}
           >
-            <RefreshCw /> Refresh
+            <RefreshCw /> {t.refresh}
           </Button>
         </CardAction>
       </CardHeader>
@@ -507,7 +576,7 @@ export function ImagesTab({
           variant="outline"
           size="sm"
           value={album}
-          aria-label="Album"
+          aria-label={t.album}
           className="flex-wrap"
           onValueChange={(value) => {
             // Radix sends '' when the pressed item is pressed again; an album stays chosen.
@@ -530,9 +599,7 @@ export function ImagesTab({
             onRetry={refresh}
           />
         ) : (
-          <p className="text-muted-foreground text-sm">
-            This connection can’t list the phone’s images.
-          </p>
+          <p className="text-muted-foreground text-sm">{t.cannotList}</p>
         )}
       </CardContent>
     </Card>
@@ -541,7 +608,8 @@ export function ImagesTab({
 
 type Listing =
   | { readonly status: 'loading' }
-  | { readonly status: 'failed'; readonly message: string }
+  // The error, not its message: worded when shown, so it follows a language switch.
+  | { readonly status: 'failed'; readonly error: unknown }
   | {
       readonly status: 'ready'
       readonly rows: readonly ImageRow[]
@@ -553,7 +621,9 @@ type Listing =
 /** What preflight's `images.mediastore` row is told. */
 function outcomeOf(listing: Listing): ImagesOutcome {
   if (listing.status === 'loading') return { status: 'loading' }
-  if (listing.status === 'failed') return { status: 'failed', stderr: listing.message }
+  if (listing.status === 'failed') {
+    return { status: 'failed', stderr: deviceErrorMessage(listing.error) }
+  }
   return listing.fallback ? { status: 'fallback' } : { status: 'listed' }
 }
 
@@ -571,9 +641,11 @@ function AlbumGrid({
   zoom: number
   onRetry: () => void
 }) {
+  const t = useMessages(IMAGES_TAB_MESSAGES)
   const [listing, setListing] = useState<Listing>({ status: 'loading' })
   const [loadingMore, setLoadingMore] = useState(false)
-  const [moreError, setMoreError] = useState<string | null>(null)
+  /** Why the last page failed, worded when shown. */
+  const [moreError, setMoreError] = useState<{ readonly error: unknown } | null>(null)
   const [viewing, setViewing] = useState<number | null>(null)
   const lastViewed = useRef(0)
   const grid = useRef<HTMLUListElement>(null)
@@ -612,7 +684,7 @@ function AlbumGrid({
           commit({ status: 'ready', rows, more: rows.length >= IMAGE_PAGE_SIZE, fallback })
         },
         (error: unknown) => {
-          if (alive.current) commit({ status: 'failed', message: deviceErrorMessage(error) })
+          if (alive.current) commit({ status: 'failed', error })
         },
       )
     return () => {
@@ -655,7 +727,7 @@ function AlbumGrid({
       })
       return rows.length > now.rows.length
     } catch (error) {
-      if (alive.current) setMoreError(deviceErrorMessage(error))
+      if (alive.current) setMoreError({ error })
       return false
     } finally {
       if (alive.current) setLoadingMore(false)
@@ -705,7 +777,7 @@ function AlbumGrid({
 
   if (listing.status === 'loading') {
     return (
-      <ul className="flex flex-wrap gap-3" aria-label="Loading images">
+      <ul className="flex flex-wrap gap-3" aria-label={t.loading}>
         {Array.from({ length: 8 }, (_, i) => (
           <li key={i} style={{ width: tileWidth(zoom) }}>
             <Skeleton className="aspect-square w-full rounded-lg" />
@@ -733,13 +805,16 @@ function AlbumGrid({
       {rows.length === 0 ? (
         <div className="text-muted-foreground flex flex-col items-center rounded-lg border border-dashed py-10 text-sm">
           <Images className="mb-2 size-7 opacity-60" />
-          {emptyText(album, device.name)}
+          {t.empty[album](device.name)}
         </div>
       ) : (
         <ul
           ref={grid}
           className="flex flex-wrap gap-3"
-          aria-label={`${IMAGE_ALBUMS.find((a) => a.value === album)?.label ?? 'Images'} on ${device.name}`}
+          aria-label={t.albumOn(
+            IMAGE_ALBUMS.find((a) => a.value === album)?.label ?? t.title,
+            device.name,
+          )}
           onKeyDown={onGridKey}
         >
           {rows.map((row, index) => (
@@ -762,8 +837,7 @@ function AlbumGrid({
       {rows.length > 0 && (
         <div ref={sentinel} className="flex flex-wrap items-center gap-3 text-sm">
           <span className="text-muted-foreground tabular-nums">
-            {rows.length.toLocaleString('en')} {rows.length === 1 ? 'image' : 'images'}
-            {listing.more ? ' so far' : ''}
+            {t.count(rows.length, listing.more)}
           </span>
           {listing.more && (
             <Button
@@ -776,12 +850,12 @@ function AlbumGrid({
               }}
             >
               {loadingMore && <Loader2 className="animate-spin" />}
-              {loadingMore ? 'Loading…' : 'Load more'}
+              {loadingMore ? t.loadingMore : t.loadMore}
             </Button>
           )}
           {moreError !== null && (
             <span role="status" className="text-red-600 dark:text-red-400">
-              Couldn’t read more images from {device.name}: {moreError}
+              {t.moreFailed(device.name, deviceErrorMessage(moreError.error))}
             </span>
           )}
         </div>
@@ -832,6 +906,7 @@ function Tile({
   zoom: number
   onOpen: () => void
 }) {
+  const t = useMessages(IMAGES_TAB_MESSAGES)
   const key = previewKey(device.id, row)
   const [preview, setPreview] = useState<Preview | undefined>(() => previews.get(key))
   // Without IntersectionObserver (old browsers, tests) every tile counts as on screen.
@@ -889,9 +964,9 @@ function Tile({
   }, [visible, preview, key, backend, device.id, row, attempt])
 
   const when = imageWhen(row)
-  const date = when.at === null ? 'Date unknown' : fmtDateTime(new Date(when.at))
+  const date = when.at === null ? t.dateUnknown : fmtDateTime(new Date(when.at))
   const facts = imageFacts(row)
-  const label = [row.name || 'Image', date, facts].filter(Boolean).join(', ')
+  const label = [row.name || t.image, date, facts].filter(Boolean).join(', ')
 
   return (
     <li
@@ -933,7 +1008,7 @@ function Tile({
             'text-muted-foreground truncate font-mono tabular-nums',
             when.source === 'modified' && 'italic',
           )}
-          title={when.source === 'modified' ? 'File time: the photo has no date taken' : 'Taken'}
+          title={when.source === 'modified' ? t.fileTime : t.taken}
         >
           {date}
         </p>

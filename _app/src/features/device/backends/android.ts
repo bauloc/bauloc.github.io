@@ -1,3 +1,5 @@
+import { localized } from '@/lib/i18n'
+
 import { fmtBytes, type DeviceDetail } from '../model'
 
 /*
@@ -32,6 +34,35 @@ export function parseGetprop(text: string): Record<string, string> {
   for (const line of text.split('\n')) {
     const m = /^\[([^\]]+)\]:\s*\[(.*)\]$/.exec(line.trim())
     if (m?.[1] !== undefined && m[2] !== undefined) out[m[1]] = m[2]
+  }
+  return out
+}
+
+/** The words in the detail's values, in the language on screen when it is read. */
+const VALUES = localized({
+  en: {
+    charging: ' · charging',
+    storage: (free: string, total: string) => `${free} free of ${total}`,
+    used: (percent: string) => ` (${percent}% used)`,
+    androidIdNote: 'This is the shell user’s ANDROID_ID — an app reports a different value.',
+  },
+  vi: {
+    charging: ' · đang sạc',
+    storage: (free: string, total: string) => `Còn trống ${free} trên ${total}`,
+    used: (percent: string) => ` (đã dùng ${percent}%)`,
+    androidIdNote: 'Đây là ANDROID_ID của người dùng shell — ứng dụng sẽ đọc được giá trị khác.',
+  },
+})
+
+/**
+ * A detail group whose worded values (the functions) are read again at every access: the store
+ * keeps the detail it read, and the pane still says it in the language on screen after a switch.
+ */
+function fields(values: Readonly<Record<string, string | (() => string)>>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(values)) {
+    if (typeof value === 'string') out[key] = value
+    else Object.defineProperty(out, key, { enumerable: true, configurable: true, get: value })
   }
   return out
 }
@@ -97,20 +128,24 @@ export function androidDetail(
       Locale: prop('persist.sys.locale'),
       Timezone: prop('persist.sys.timezone'),
     },
-    status: {
+    status: fields({
       Battery: battLevel
-        ? `${battLevel[1] ?? ''}%` +
-          (charging ? ' · charging' : '') +
-          (battTemp ? ` · ${(Number(battTemp[1]) / 10).toFixed(1)} °C` : '')
+        ? () =>
+            `${battLevel[1] ?? ''}%` +
+            (charging ? VALUES.charging : '') +
+            (battTemp ? ` · ${(Number(battTemp[1]) / 10).toFixed(1)} °C` : '')
         : '',
       Storage:
         Number.isFinite(kFree) && Number.isFinite(kTotal)
-          ? `${fmtBytes(kFree * 1024)} free of ${fmtBytes(kTotal * 1024)}` +
-            (Number.isFinite(kUsed) ? ` (${String(Math.round((kUsed / kTotal) * 100))}% used)` : '')
+          ? () =>
+              VALUES.storage(fmtBytes(kFree * 1024), fmtBytes(kTotal * 1024)) +
+              (Number.isFinite(kUsed)
+                ? VALUES.used(String(Math.round((kUsed / kTotal) * 100)))
+                : '')
           : '',
       Connection: connection,
-      'ANDROID_ID note': 'This is the shell user’s ANDROID_ID — an app reports a different value.',
-    },
+      'ANDROID_ID note': () => VALUES.androidIdNote,
+    }),
     raw: { getprop: o.getprop },
   }
 }

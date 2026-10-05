@@ -2,6 +2,7 @@ import { Check, ExternalLink } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { cn } from '@/lib/cn'
+import { defineMessages, useMessages } from '@/lib/i18n'
 
 import { STATUS_META } from '../preflight/copy'
 import type { CheckItem, CheckStatus, Fix } from '../preflight/types'
@@ -14,6 +15,19 @@ import { TONE_SURFACE } from './status'
   (preflight/checks.ts); the iPhone's are the helper's phases (helper-card.tsx). One look for
   both, so switching platforms changes the words and nothing else.
 */
+
+/** What the steps say only to a screen reader; the steps' own words come from their callers. */
+const SETUP_STEPS_MESSAGES = defineMessages({
+  en: {
+    /** Before a step's heading: "Step 2: " then the heading. */
+    step: (n: number) => `Step ${String(n)}: `,
+    newTab: ' (opens in a new tab)',
+  },
+  vi: {
+    step: (n: number) => `Bước ${String(n)}: `,
+    newTab: ' (mở trong thẻ mới)',
+  },
+})
 
 /**
  * Where a step stands. `done` shows a check; `current` is the one to do now; `todo` can be done
@@ -49,6 +63,7 @@ export function StepItem({
   bodyId?: string
   children?: ReactNode
 }) {
+  const t = useMessages(SETUP_STEPS_MESSAGES)
   const flagged = status === 'warning' || status === 'blocking'
   return (
     <li
@@ -85,7 +100,7 @@ export function StepItem({
               state === 'waiting' && !flagged && 'text-muted-foreground',
             )}
           >
-            <span className="sr-only">Step {n}: </span>
+            <span className="sr-only">{t.step(n)}</span>
             {label}
           </h3>
           {/* A done step's check says OK already; Not checked says nothing. */}
@@ -118,6 +133,7 @@ export function TextLink({
   icon?: ReactNode
   children: ReactNode
 }) {
+  const t = useMessages(SETUP_STEPS_MESSAGES)
   return (
     <a
       href={href}
@@ -131,7 +147,7 @@ export function TextLink({
       {download === undefined && (
         <>
           <ExternalLink aria-hidden="true" />
-          <span className="sr-only"> (opens in a new tab)</span>
+          <span className="sr-only">{t.newTab}</span>
         </>
       )}
     </a>

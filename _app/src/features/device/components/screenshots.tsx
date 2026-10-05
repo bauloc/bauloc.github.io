@@ -10,10 +10,114 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { defineMessages, localized, useMessages } from '@/lib/i18n'
+import { INTL_LOCALE } from '@/lib/locale'
 
-import { BLACK_SHOT_TEXT } from '../black-shot'
+import { BLACK_SHOT } from '../black-shot'
 import { fmtBytes, fmtClock } from '../model'
 import type { Shot } from '../store'
+
+/** What the copy menu's work says (its errors, sizes and toasts), worded when it runs. */
+const COPY_TEXT = localized({
+  en: {
+    tooBig: (width: number, height: number, size: string) =>
+      `Even at ${String(width)} × ${String(height)} px it was ${size}.`,
+    cannotScale: 'It could not be scaled down.',
+    noCanvas: 'Canvas is unavailable',
+    noEncoder: 'The browser could not encode a PNG',
+    bytes: (size: number) => `${size.toLocaleString('en-US')} bytes`,
+    copiedOriginal: (size: string) => `Copied original · ${size}`,
+    asCaptured: 'The PNG as captured.',
+    copiedSmall: (size: string) => `Copied ≤ 1 MB · ${size}`,
+    alreadySmall: 'Already under 1 MB, so this is the original.',
+    recompressed: (width: number, height: number, from: string) =>
+      `Full size, ${String(width)} × ${String(height)} px, re-compressed from ${from}.`,
+    scaledDown: (width: number, height: number, from: string) =>
+      `Scaled down to ${String(width)} × ${String(height)} px from ${from}.`,
+    notUnderCap: 'Couldn’t get it under 1 MB',
+    suggestOriginal: (reason: string) => `${reason} Use Copy original or Save instead.`,
+    shrinkFailed: 'Couldn’t shrink the screenshot',
+    /** `reason` without its full stop: browsers end some messages with one and not others. */
+    shrinkFailedDetail: (reason: string) => `${reason}. Use Copy original or Save instead.`,
+    unreadable: 'The image could not be read',
+    copyFailed: 'Copy image failed',
+    copySmallFailed: 'Copy ≤ 1 MB failed',
+    writeRejected: 'The clipboard write was rejected.',
+    unsupported: 'Copy image unsupported',
+    unsupportedDetail: 'This browser cannot put images on the clipboard. Use Save.',
+    shrinking: 'Shrinking the screenshot under 1 MB…',
+  },
+  vi: {
+    tooBig: (width: number, height: number, size: string) =>
+      `Ngay cả ở ${String(width)} × ${String(height)} px, ảnh vẫn nặng ${size}.`,
+    cannotScale: 'Không thu nhỏ được ảnh.',
+    noCanvas: 'Canvas không khả dụng',
+    noEncoder: 'Trình duyệt không mã hóa được ảnh PNG',
+    bytes: (size: number) => `${size.toLocaleString(INTL_LOCALE.vi)} byte`,
+    copiedOriginal: (size: string) => `Đã sao chép bản gốc · ${size}`,
+    asCaptured: 'Ảnh PNG đúng như lúc chụp.',
+    copiedSmall: (size: string) => `Đã sao chép bản ≤ 1 MB · ${size}`,
+    alreadySmall: 'Ảnh vốn đã dưới 1 MB nên đây là bản gốc.',
+    recompressed: (width: number, height: number, from: string) =>
+      `Nguyên kích thước ${String(width)} × ${String(height)} px, đã nén lại từ ${from}.`,
+    scaledDown: (width: number, height: number, from: string) =>
+      `Đã thu nhỏ xuống ${String(width)} × ${String(height)} px từ ${from}.`,
+    notUnderCap: 'Không thu nhỏ được xuống dưới 1 MB',
+    suggestOriginal: (reason: string) => `${reason} Hãy dùng Sao chép bản gốc hoặc Lưu.`,
+    shrinkFailed: 'Không thu nhỏ được ảnh chụp màn hình',
+    shrinkFailedDetail: (reason: string) => `${reason}. Hãy dùng Sao chép bản gốc hoặc Lưu.`,
+    unreadable: 'Không đọc được ảnh',
+    copyFailed: 'Không sao chép được ảnh',
+    copySmallFailed: 'Không sao chép được bản ≤ 1 MB',
+    writeRejected: 'Trình duyệt từ chối ghi vào bộ nhớ tạm.',
+    unsupported: 'Không hỗ trợ sao chép ảnh',
+    unsupportedDetail: 'Trình duyệt này không sao chép được ảnh vào bộ nhớ tạm. Hãy dùng Lưu.',
+    shrinking: 'Đang thu nhỏ ảnh chụp màn hình xuống dưới 1 MB…',
+  },
+})
+
+const SCREENSHOTS_MESSAGES = defineMessages({
+  en: {
+    copyImage: 'Copy image',
+    copyOriginal: 'Copy original',
+    copySmall: 'Copy ≤ 1 MB',
+    smallerCopy: 'smaller copy',
+    title: 'Screenshots',
+    size: 'Size',
+    thumbnailSize: 'Thumbnail size',
+    clearTitle: 'Clear screenshots',
+    clear: 'Clear',
+    takeTitle: 'Take a screenshot (S)',
+    take: 'Take Screenshot',
+    empty: 'No screenshots yet — press S or Take Screenshot.',
+    openFull: 'Open full size',
+    shotAlt: (device: string, clock: string, black: boolean) =>
+      `Screenshot of ${device} at ${clock}${black ? ', all black' : ''}`,
+    allBlack: 'All black.',
+    saveFile: (fileName: string) => `Save ${fileName}`,
+    save: 'Save',
+  },
+  vi: {
+    copyImage: 'Sao chép ảnh',
+    copyOriginal: 'Sao chép bản gốc',
+    copySmall: 'Sao chép bản ≤ 1 MB',
+    smallerCopy: 'bản nhỏ hơn',
+    title: 'Ảnh chụp màn hình',
+    size: 'Cỡ',
+    thumbnailSize: 'Cỡ ảnh thu nhỏ',
+    clearTitle: 'Xóa các ảnh chụp màn hình',
+    clear: 'Xóa',
+    takeTitle: 'Chụp màn hình (S)',
+    take: 'Chụp màn hình',
+    empty: 'Chưa có ảnh chụp màn hình nào — bấm S hoặc Chụp màn hình.',
+    openFull: 'Mở ảnh cỡ đầy đủ',
+    shotAlt: (device: string, clock: string, black: boolean) =>
+      `Ảnh chụp màn hình của ${device} lúc ${clock}${black ? ', toàn màu đen' : ''}`,
+    allBlack: 'Toàn màu đen.',
+    saveFile: (fileName: string) => `Lưu ${fileName}`,
+    save: 'Lưu',
+  },
+})
 
 /**
  * "Copy ≤ 1 MB" stays at or under a million bytes: under 1 MB however the place it is pasted
@@ -129,8 +233,8 @@ export async function searchScale(
   if (best) return best
   throw new TooBigError(
     smallest
-      ? `Even at ${String(smallest.width)} × ${String(smallest.height)} px it was ${fmtBytes(smallest.size)}.`
-      : 'It could not be scaled down.',
+      ? COPY_TEXT.tooBig(smallest.width, smallest.height, fmtBytes(smallest.size))
+      : COPY_TEXT.cannotScale,
   )
 }
 
@@ -145,13 +249,13 @@ async function decodeRaster(blob: Blob): Promise<Raster & { close: () => void }>
       canvas.width = width
       canvas.height = height
       const ctx = canvas.getContext('2d')
-      if (!ctx) return Promise.reject(new Error('Canvas is unavailable'))
+      if (!ctx) return Promise.reject(new Error(COPY_TEXT.noCanvas))
       ctx.imageSmoothingQuality = 'high'
       ctx.drawImage(bitmap, 0, 0, width, height)
       return new Promise((resolve, reject) => {
         canvas.toBlob((png) => {
           if (png) resolve(png)
-          else reject(new Error('The browser could not encode a PNG'))
+          else reject(new Error(COPY_TEXT.noEncoder))
         }, 'image/png')
       })
     },
@@ -201,7 +305,7 @@ export type CopyKind = 'original' | 'small'
 export function sizeText(size: number): string {
   const shown = fmtBytes(size)
   if (size <= COPY_CAP || !(shown.endsWith(' KB') || shown === '1.0 MB')) return shown
-  return `${size.toLocaleString('en-US')} bytes`
+  return COPY_TEXT.bytes(size)
 }
 
 /** The toast after a copy: which one went on the clipboard, and its size. */
@@ -213,25 +317,25 @@ export function copiedText(
   const size = fmtBytes(copied.blob.size)
   if (kind === 'original') {
     return {
-      title: `Copied original · ${sizeText(copied.blob.size)}`,
-      description: 'The PNG as captured.',
+      title: COPY_TEXT.copiedOriginal(sizeText(copied.blob.size)),
+      description: COPY_TEXT.asCaptured,
     }
   }
   if (copied.original || copied.width === null || copied.height === null) {
     return {
-      title: `Copied ≤ 1 MB · ${size}`,
-      description: 'Already under 1 MB, so this is the original.',
+      title: COPY_TEXT.copiedSmall(size),
+      description: COPY_TEXT.alreadySmall,
     }
   }
   if (copied.scale >= 1) {
     return {
-      title: `Copied ≤ 1 MB · ${size}`,
-      description: `Full size, ${String(copied.width)} × ${String(copied.height)} px, re-compressed from ${sizeText(originalSize)}.`,
+      title: COPY_TEXT.copiedSmall(size),
+      description: COPY_TEXT.recompressed(copied.width, copied.height, sizeText(originalSize)),
     }
   }
   return {
-    title: `Copied ≤ 1 MB · ${size}`,
-    description: `Scaled down to ${String(copied.width)} × ${String(copied.height)} px from ${sizeText(originalSize)}.`,
+    title: COPY_TEXT.copiedSmall(size),
+    description: COPY_TEXT.scaledDown(copied.width, copied.height, sizeText(originalSize)),
   }
 }
 
@@ -249,20 +353,22 @@ export function failedText(
 ): { title: string; description: string } {
   if (reason instanceof TooBigError) {
     return {
-      title: 'Couldn’t get it under 1 MB',
-      description: `${reason.message} Use Copy original or Save instead.`,
+      title: COPY_TEXT.notUnderCap,
+      description: COPY_TEXT.suggestOriginal(reason.message),
     }
   }
   if (reason !== null) {
     return {
-      title: 'Couldn’t shrink the screenshot',
+      title: COPY_TEXT.shrinkFailed,
       // Browsers end some messages with a full stop and not others.
-      description: `${(messageOf(reason) ?? 'The image could not be read').replace(/\.$/, '')}. Use Copy original or Save instead.`,
+      description: COPY_TEXT.shrinkFailedDetail(
+        (messageOf(reason) ?? COPY_TEXT.unreadable).replace(/\.$/, ''),
+      ),
     }
   }
   return {
-    title: kind === 'original' ? 'Copy image failed' : 'Copy ≤ 1 MB failed',
-    description: messageOf(writeError) ?? 'The clipboard write was rejected.',
+    title: kind === 'original' ? COPY_TEXT.copyFailed : COPY_TEXT.copySmallFailed,
+    description: messageOf(writeError) ?? COPY_TEXT.writeRejected,
   }
 }
 
@@ -308,8 +414,8 @@ function showResult(
  */
 function copyShot(shot: Shot, kind: CopyKind) {
   if (!('ClipboardItem' in window) || !('write' in navigator.clipboard)) {
-    toast.error('Copy image unsupported', {
-      description: 'This browser cannot put images on the clipboard. Use Save.',
+    toast.error(COPY_TEXT.unsupported, {
+      description: COPY_TEXT.unsupportedDetail,
     })
     return
   }
@@ -318,7 +424,7 @@ function copyShot(shot: Shot, kind: CopyKind) {
       ? Promise.resolve({ blob: shot.blob, original: true, width: null, height: null, scale: 1 })
       : shrinkForClipboard(shot.blob)
   const slow = kind === 'small' && shot.blob.size > COPY_CAP
-  const id = slow ? toast.loading('Shrinking the screenshot under 1 MB…') : undefined
+  const id = slow ? toast.loading(COPY_TEXT.shrinking) : undefined
   if (id !== undefined) frontCopyToast = id
   const reason = work.then(
     () => null,
@@ -368,6 +474,7 @@ function copyShot(shot: Shot, kind: CopyKind) {
 
 /** A tile's copy button: a small menu of the original or a copy under 1 MB. */
 function CopyMenu({ shot }: { shot: Shot }) {
+  const t = useMessages(SCREENSHOTS_MESSAGES)
   const size = shot.blob.size
   return (
     <DropdownMenu modal={false}>
@@ -376,8 +483,8 @@ function CopyMenu({ shot }: { shot: Shot }) {
           variant="ghost"
           size="icon"
           className="size-7"
-          aria-label="Copy image"
-          title="Copy image"
+          aria-label={t.copyImage}
+          title={t.copyImage}
         >
           <Copy />
         </Button>
@@ -389,7 +496,7 @@ function CopyMenu({ shot }: { shot: Shot }) {
             copyShot(shot, 'original')
           }}
         >
-          Copy original
+          {t.copyOriginal}
           <DropdownMenuShortcut className="tracking-normal tabular-nums">
             {sizeText(size)}
           </DropdownMenuShortcut>
@@ -399,10 +506,10 @@ function CopyMenu({ shot }: { shot: Shot }) {
             copyShot(shot, 'small')
           }}
         >
-          Copy ≤ 1 MB
+          {t.copySmall}
           <DropdownMenuShortcut className="tracking-normal tabular-nums">
             {/* Not "scaled down": the browser's PNG of every pixel sometimes fits. */}
-            {size > COPY_CAP ? 'smaller copy' : fmtBytes(size)}
+            {size > COPY_CAP ? t.smallerCopy : fmtBytes(size)}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -437,23 +544,24 @@ export function Screenshots({
   onZoom: (zoom: number) => void
   onClear: () => void
 }) {
+  const t = useMessages(SCREENSHOTS_MESSAGES)
   return (
     <Card className="gap-4">
       {/* A row rather than the header's grid, so the title centres on the taller buttons and
           the controls wrap under it on a very narrow screen. */}
       <CardHeader className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <CardTitle>Screenshots</CardTitle>
+        <CardTitle>{t.title}</CardTitle>
         {/* At 390 px the two buttons drop their words; the names stay for screen readers. */}
         <CardAction className="ml-auto flex items-center gap-2 sm:gap-3">
           <label className="text-muted-foreground flex items-center gap-2 text-xs">
-            Size
+            {t.size}
             <input
               type="range"
               min={80}
               max={480}
               step={20}
               value={zoom}
-              aria-label="Thumbnail size"
+              aria-label={t.thumbnailSize}
               className="accent-primary w-20 sm:w-28"
               onChange={(e) => {
                 onZoom(Number(e.target.value))
@@ -466,12 +574,12 @@ export function Screenshots({
             size="sm"
             aria-disabled={shots.length === 0}
             className="aria-disabled:opacity-50"
-            title="Clear screenshots"
+            title={t.clearTitle}
             onClick={() => {
               if (shots.length > 0) onClear()
             }}
           >
-            <Trash2 /> <span className="sr-only sm:not-sr-only">Clear</span>
+            <Trash2 /> <span className="sr-only sm:not-sr-only">{t.clear}</span>
           </Button>
           {/* Busy is aria-disabled for the same reason: focus stays on the button. */}
           <Button
@@ -481,13 +589,13 @@ export function Screenshots({
             aria-describedby={canCapture ? undefined : captureDescribedBy}
             aria-keyshortcuts="S"
             className="aria-disabled:opacity-50"
-            title={captureTitle ?? 'Take a screenshot (S)'}
+            title={captureTitle ?? t.takeTitle}
             onClick={() => {
               if (!capturing && canCapture) onCapture()
             }}
           >
             {capturing ? <Loader2 className="animate-spin" /> : <Camera />}
-            <span className="sr-only sm:not-sr-only">Take Screenshot</span>
+            <span className="sr-only sm:not-sr-only">{t.take}</span>
           </Button>
         </CardAction>
       </CardHeader>
@@ -495,7 +603,7 @@ export function Screenshots({
         {shots.length === 0 ? (
           <div className="text-muted-foreground flex flex-col items-center rounded-lg border border-dashed py-10 text-sm">
             <Camera className="mb-2 size-7 opacity-60" />
-            No screenshots yet — press S or Take Screenshot.
+            {t.empty}
           </div>
         ) : (
           <ul className="flex flex-wrap gap-3">
@@ -505,10 +613,10 @@ export function Screenshots({
                 className="bg-muted/30 overflow-hidden rounded-lg border"
                 style={{ width: zoom }}
               >
-                <a href={shot.url} target="_blank" rel="noopener noreferrer" title="Open full size">
+                <a href={shot.url} target="_blank" rel="noopener noreferrer" title={t.openFull}>
                   <img
                     src={shot.url}
-                    alt={`Screenshot of ${shot.deviceName} at ${fmtClock(shot.at)}${shot.black ? ', all black' : ''}`}
+                    alt={t.shotAlt(shot.deviceName, fmtClock(shot.at), shot.black)}
                     loading="lazy"
                     className="block w-full"
                   />
@@ -521,8 +629,8 @@ export function Screenshots({
                       className="mt-px size-3.5 shrink-0 text-amber-600 dark:text-amber-400"
                     />
                     <span>
-                      <span className="font-medium">All black.</span>{' '}
-                      <span className="text-muted-foreground">{BLACK_SHOT_TEXT}</span>
+                      <span className="font-medium">{t.allBlack}</span>{' '}
+                      <span className="text-muted-foreground">{BLACK_SHOT.text}</span>
                     </span>
                   </p>
                 )}
@@ -535,8 +643,8 @@ export function Screenshots({
                     <a
                       href={shot.url}
                       download={shot.fileName}
-                      aria-label={`Save ${shot.fileName}`}
-                      title="Save"
+                      aria-label={t.saveFile(shot.fileName)}
+                      title={t.save}
                     >
                       <Download />
                     </a>

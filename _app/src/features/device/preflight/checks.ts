@@ -1,3 +1,5 @@
+import { localized } from '@/lib/i18n'
+
 import type {
   Capability,
   DoctorReport,
@@ -64,6 +66,53 @@ import {
     and never dresses ignorance up as a warning.
   - Every non-OK row carries a fix, or says what to do in its sentence.
 */
+
+/*
+  The few words this file writes itself: the labels of the fixes and device rows it builds, and
+  how it joins names. Read as each row is built, so they are in the language on screen. Product
+  names (iPhone, adb server, Wi‑Fi, VPN, macOS) are written where they are used, in both.
+*/
+const WORDS = localized({
+  en: {
+    copyCommand: 'Copy command',
+    /** A settings path or what to try, under the row that needs it. */
+    steps: 'Steps',
+    phone: 'Phone',
+    onTheDevice: 'On the device',
+    androidPhone: 'Android phone',
+    /** What a device row checks, after the device's name ("Ngọc’s iPhone: Trust"). */
+    device: {
+      iosVersion: 'iOS version',
+      trust: 'Trust',
+      unlocked: 'Unlocked',
+      developerMode: 'Developer Mode',
+      screenshots: 'Screenshots',
+      usbDebugging: 'USB debugging',
+      connection: 'Connection',
+      debugging: 'Debugging',
+    },
+    /** "Pixel 9 and Galaxy S21": `head` is every name but the last, comma-separated. */
+    and: (head: string, last: string) => `${head} and ${last}`,
+  },
+  vi: {
+    copyCommand: 'Sao chép lệnh',
+    steps: 'Các bước',
+    phone: 'Điện thoại',
+    onTheDevice: 'Trên thiết bị',
+    androidPhone: 'Điện thoại Android',
+    device: {
+      iosVersion: 'Phiên bản iOS',
+      trust: 'Tin cậy',
+      unlocked: 'Đã mở khóa',
+      developerMode: 'Chế độ nhà phát triển',
+      screenshots: 'Chụp màn hình',
+      usbDebugging: 'Gỡ lỗi qua USB',
+      connection: 'Kết nối',
+      debugging: 'Gỡ lỗi',
+    },
+    and: (head: string, last: string) => `${head} và ${last}`,
+  },
+})
 
 /** Installs need Android 7.0 (decision 6): the session path the plan tests. */
 export const MIN_INSTALL_SDK = 24
@@ -151,8 +200,11 @@ const CONNECTED: ReadonlySet<DeviceState> = new Set(['ready', 'busy'])
 /** Device Lab owns the interface and is waiting on "Allow USB debugging?". */
 const AUTHORIZING: ReadonlySet<DeviceState> = new Set(['authorizing', 'unauthorized'])
 
-/** "If adb comes straight back, an IDE is restarting it…": today's wording, from the hint. */
-const IDE_RESTART = DEVICE_HINTS.ADB_SERVER_HOLDING?.extra ?? ''
+/**
+ * "If adb comes straight back, an IDE is restarting it…": today's wording, from the hint. Read
+ * when the row is built, so it is in the language on screen.
+ */
+const ideRestart = () => DEVICE_HINTS.ADB_SERVER_HOLDING?.extra ?? ''
 
 /**
  * Whether the system, not another program, refused to let the browser open the phone. Until
@@ -308,7 +360,7 @@ function notHeldRow({ device, otherTab, holder, os }: PhoneInput, denied: boolea
         'blocking',
         COPY.notHeld.heldWindows,
         [FIX.killServer, FIX.winUsbSwitch, FIX.winUsb, primary(FIX.reconnect)],
-        IDE_RESTART,
+        ideRestart(),
       )
     }
     return row(
@@ -317,7 +369,7 @@ function notHeldRow({ device, otherTab, holder, os }: PhoneInput, denied: boolea
       'blocking',
       COPY.notHeld.held,
       [FIX.killServer, primary(FIX.reconnect)],
-      IDE_RESTART,
+      ideRestart(),
     )
   }
   if (CONNECTED.has(device.state) || AUTHORIZING.has(device.state)) {
@@ -339,7 +391,7 @@ function heldBy(holder: UsbHolder, name: string): CheckItem {
       'blocking',
       COPY.notHeld.adb(holder.pid, name),
       [FIX.killServer, primary(FIX.reconnect)],
-      IDE_RESTART,
+      ideRestart(),
     )
   }
   if (BROWSER_PROCESS.test(holder.process)) {
@@ -430,7 +482,7 @@ const ANSWERED: ReadonlySet<HelperProbe['phase']> = new Set([
 const helperAddress = (probe: HelperProbe) => `127.0.0.1:${String(probe.env.port)}`
 
 const copyCommand = (command: string, primaryFix = false): Fix => ({
-  label: 'Copy command',
+  label: WORDS.copyCommand,
   copy: command,
   ...(primaryFix ? { primary: true } : {}),
 })
@@ -627,7 +679,7 @@ export function toolFix(fix: PreflightFix, port: number): Fix {
     case 'link':
       return { label: fix.label, href: fix.href }
     case 'step':
-      return { label: 'Steps', path: fix.text }
+      return { label: WORDS.steps, path: fix.text }
     case 'action':
       return fix.action === 'open-local'
         ? { ...helperPageFix(port), label: fix.label, primary: false }
@@ -776,11 +828,12 @@ function iosRows(d: Device, tools: readonly CheckItem[]): CheckItem[] {
   const label = (what: string) => COPY.device.label(name, what)
   const at = (what: string): DeviceCheckId => `device.${d.id}.${what}`
   const major = majorOf(d.osVersion)
+  const words = WORDS.device
 
   let version: CheckItem[] = []
   if (major !== null) {
     const v = (status: CheckStatus, sentence: string, fixes: readonly Fix[] = []) =>
-      cell(at('ios-version'), label('iOS version'), status, sentence, fixes)
+      cell(at('ios-version'), label(words.iosVersion), status, sentence, fixes)
     version = [
       major > IOS_KNOWN_MAX
         ? v('warning', COPY.device.iosNew(major), [copyCommand(DOWNLOAD_COMMAND)])
@@ -793,38 +846,38 @@ function iosRows(d: Device, tools: readonly CheckItem[]): CheckItem[] {
   if (d.state === 'untrusted' || d.state === 'authorizing') {
     // Nothing else can be read until the iPhone trusts this Mac.
     return [
-      cell(at('trust'), label('Trust'), 'blocking', COPY.device.trust, [
+      cell(at('trust'), label(words.trust), 'blocking', COPY.device.trust, [
         { label: 'iPhone', path: COPY.device.noneIosStep },
       ]),
       ...version,
     ]
   }
-  const rows = [cell(at('trust'), label('Trust'), 'ok', COPY.device.trustOk)]
+  const rows = [cell(at('trust'), label(words.trust), 'ok', COPY.device.trustOk)]
   rows.push(
     d.state === 'locked'
-      ? cell(at('lock'), label('Unlocked'), 'blocking', COPY.device.lock, [
+      ? cell(at('lock'), label(words.unlocked), 'blocking', COPY.device.lock, [
           { label: 'iPhone', path: COPY.device.lockStep },
         ])
-      : cell(at('lock'), label('Unlocked'), 'ok', COPY.device.lockOk),
+      : cell(at('lock'), label(words.unlocked), 'ok', COPY.device.lockOk),
   )
   // iOS 15 has no Developer Mode at all.
   if (major === null || major >= 16) {
     rows.push(
       d.blockers.includes('IOS_DEVELOPER_MODE_OFF')
-        ? cell(at('devmode'), label('Developer Mode'), 'warning', COPY.device.devMode, [
+        ? cell(at('devmode'), label(words.developerMode), 'warning', COPY.device.devMode, [
             { label: 'iPhone', path: COPY.device.devModeStep },
           ])
-        : cell(at('devmode'), label('Developer Mode'), 'ok', COPY.device.devModeOk),
+        : cell(at('devmode'), label(words.developerMode), 'ok', COPY.device.devModeOk),
     )
   }
   rows.push(...version)
   if (d.state === 'ready') {
     if (d.capabilities.screenshot) {
-      rows.push(cell(at('screenshots'), label('Screenshots'), 'ok', COPY.device.shotsOk))
+      rows.push(cell(at('screenshots'), label(words.screenshots), 'ok', COPY.device.shotsOk))
     } else if (d.blockers.includes('IOS_DDI_REQUIRED')) {
       // A warning, as the tool rows that cause it are: everything else on a ready device works.
       rows.push(
-        cell(at('screenshots'), label('Screenshots'), 'warning', COPY.device.ddi, [
+        cell(at('screenshots'), label(words.screenshots), 'warning', COPY.device.ddi, [
           { label: 'iPhone', path: COPY.device.ddiStep },
         ]),
       )
@@ -834,7 +887,7 @@ function iosRows(d: Device, tools: readonly CheckItem[]): CheckItem[] {
       rows.push(
         cell(
           at('screenshots'),
-          label('Screenshots'),
+          label(words.screenshots),
           'warning',
           COPY.device.shotsOff,
           tool?.fixes ?? [],
@@ -886,25 +939,39 @@ function androidRows(d: Device, connected: boolean): CheckItem[] {
     return [
       cell(
         `device.${d.id}.android-auth`,
-        label('USB debugging'),
+        label(WORDS.device.usbDebugging),
         'blocking',
         COPY.device.androidAuth,
-        [{ label: 'Phone', path: COPY.device.androidAuthStep }],
+        [{ label: WORDS.phone, path: COPY.device.androidAuthStep }],
       ),
     ]
   }
   if (d.state === 'offline') {
     return [
-      cell(`device.${d.id}.offline`, label('Connection'), 'warning', COPY.device.offline, [
-        { label: 'Steps', path: COPY.device.offlineStep },
-      ]),
+      cell(
+        `device.${d.id}.offline`,
+        label(WORDS.device.connection),
+        'warning',
+        COPY.device.offline,
+        [{ label: WORDS.steps, path: COPY.device.offlineStep }],
+      ),
     ]
   }
   return [cell(`device.${d.id}.adb-conflict`, label('adb server'), 'ok', COPY.device.shared)]
 }
 
-/** Where a Wi‑Fi device asks to allow this computer: on its screen, with the remote on a TV. */
-export const ALLOW_DEBUGGING = { label: 'On the device', path: COPY.wifi.allowStep } satisfies Fix
+/**
+ * Where a Wi‑Fi device asks to allow this computer: on its screen, with the remote on a TV.
+ * Its words are read at each use, so the one object follows the language on screen.
+ */
+export const ALLOW_DEBUGGING = {
+  get label() {
+    return WORDS.onTheDevice
+  },
+  get path() {
+    return COPY.wifi.allowStep
+  },
+} satisfies Fix
 
 /** A Wi‑Fi device's rows: allowing this computer is done with the TV's remote, not a cable. */
 function wifiDeviceRows(d: Device): CheckItem[] {
@@ -913,7 +980,7 @@ function wifiDeviceRows(d: Device): CheckItem[] {
     return [
       cell(
         `device.${d.id}.android-auth`,
-        label('Debugging'),
+        label(WORDS.device.debugging),
         'blocking',
         COPY.wifi.authWaiting(nameOf(d)),
         [ALLOW_DEBUGGING],
@@ -923,7 +990,7 @@ function wifiDeviceRows(d: Device): CheckItem[] {
   if (d.state === 'offline') {
     return [
       cell(`device.${d.id}.offline`, label('Wi‑Fi'), 'warning', COPY.wifi.offline(nameOf(d)), [
-        { label: 'Steps', path: COPY.wifi.offlineStep },
+        { label: WORDS.steps, path: COPY.wifi.offlineStep },
         FIX.openWifi,
       ]),
     ]
@@ -962,8 +1029,8 @@ export function deviceChecks(devices: readonly Device[], ctx: DeviceCheckContext
   }
   if (!ctx.webusb && !phones.some((d) => d.platform === 'android')) {
     rows.push(
-      cell('device.none.android', 'Android phone', 'unchecked', COPY.device.noneAndroid, [
-        { label: 'Phone', path: COPY.device.noneAndroidStep },
+      cell('device.none.android', WORDS.androidPhone, 'unchecked', COPY.device.noneAndroid, [
+        { label: WORDS.phone, path: COPY.device.noneAndroidStep },
       ]),
     )
   }
@@ -1004,17 +1071,28 @@ export function gateChecks(items: readonly CheckItem[]): CheckItem[] {
 
 const plural = (n: number, one: string, many: string) => `${String(n)} ${n === 1 ? one : many}`
 
+/** The Gate's summary counts, each language with its own plurals (Vietnamese has none). */
+const SUMMARY = localized({
+  en: {
+    attention: (n: number) => plural(n, 'needs attention', 'need attention'),
+    passed: (n: number) => plural(n, 'passed', 'passed'),
+    unchecked: (n: number) => plural(n, 'not checked yet', 'not checked yet'),
+  },
+  vi: {
+    attention: (n: number) => `${String(n)} cần chú ý`,
+    passed: (n: number) => `${String(n)} đạt`,
+    unchecked: (n: number) => `${String(n)} chưa kiểm tra`,
+  },
+})
+
 /** "2 need attention · 5 passed · 3 not checked yet", for the Gate's checklist card. */
 export function gateSummary(items: readonly CheckItem[]): string {
   const count = (...statuses: CheckStatus[]) =>
     items.filter((item) => statuses.includes(item.status)).length
   const parts = [
-    [
-      count('blocking', 'warning'),
-      plural(count('blocking', 'warning'), 'needs attention', 'need attention'),
-    ],
-    [count('ok'), plural(count('ok'), 'passed', 'passed')],
-    [count('unchecked'), plural(count('unchecked'), 'not checked yet', 'not checked yet')],
+    [count('blocking', 'warning'), SUMMARY.attention(count('blocking', 'warning'))],
+    [count('ok'), SUMMARY.passed(count('ok'))],
+    [count('unchecked'), SUMMARY.unchecked(count('unchecked'))],
   ] as const
   return parts
     .filter(([n]) => n > 0)
@@ -1171,7 +1249,7 @@ function keyRow({ keystore }: AndroidDoctor): CheckItem {
 /** "Pixel 9", "Pixel 9 and Galaxy S21", "A, B and C". */
 function joinNames(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? ''
-  return `${names.slice(0, -1).join(', ')} and ${names.at(-1) ?? ''}`
+  return WORDS.and(names.slice(0, -1).join(', '), names.at(-1) ?? '')
 }
 
 function adbServerRow({ adbServer }: AndroidDoctor): CheckItem {
@@ -1495,12 +1573,12 @@ export function wifiFailure(a: WifiAttempt): {
       switch (a.reason) {
         case 'refused':
           return out(COPY.wifi.refused(a.host, a.port), [
-            { label: 'Steps', path: COPY.wifi.refusedStep },
+            { label: WORDS.steps, path: COPY.wifi.refusedStep },
             ...(a.kind === 'pair' ? [FIX.pairWithCode] : deviceSteps),
           ])
         case 'unreachable':
           return out(COPY.wifi.unreachable(address), [
-            { label: 'Steps', path: COPY.wifi.unreachableStep },
+            { label: WORDS.steps, path: COPY.wifi.unreachableStep },
           ])
         case 'blocked':
           // Never left this computer: a VPN, or macOS keeping the helper off the local network.
@@ -1510,14 +1588,14 @@ export function wifiFailure(a: WifiAttempt): {
           ])
         case 'timeout':
           return out(COPY.wifi.timeout(address), [
-            { label: 'Steps', path: COPY.wifi.unreachableStep },
+            { label: WORDS.steps, path: COPY.wifi.unreachableStep },
           ])
         case 'unresolved':
           return out(COPY.wifi.unresolved(a.host), [
-            { label: 'Steps', path: COPY.wifi.unresolvedStep },
+            { label: WORDS.steps, path: COPY.wifi.unresolvedStep },
           ])
         case 'wrong-code':
-          return out(COPY.wifi.pairWrong, [{ label: 'Steps', path: COPY.wifi.pairWrongStep }])
+          return out(COPY.wifi.pairWrong, [{ label: WORDS.steps, path: COPY.wifi.pairWrongStep }])
         case 'unsupported':
           return out(COPY.wifi.pairUnsupported, [primary(FIX.updateAdb)])
         case 'unpaired':
@@ -1527,7 +1605,7 @@ export function wifiFailure(a: WifiAttempt): {
           // only waiting for Allow, and the helper answers those as connected (§4.7).
           return out(
             a.kind === 'pair' ? COPY.wifi.pairFailed(address) : COPY.wifi.failed(address),
-            [{ label: 'Steps', path: COPY.wifi.unreachableStep }],
+            [{ label: WORDS.steps, path: COPY.wifi.unreachableStep }],
           )
       }
     case 'ADB_SERVER_STOPPED':
@@ -1546,7 +1624,9 @@ export function wifiFailure(a: WifiAttempt): {
       return { status: 'unchecked', sentence: COPY.wifi.busy(a.host), fixes: [], detail: '' }
     case 'TOOL_TIMEOUT':
     case 'HELPER_TIMEOUT':
-      return out(COPY.wifi.timeout(address), [{ label: 'Steps', path: COPY.wifi.unreachableStep }])
+      return out(COPY.wifi.timeout(address), [
+        { label: WORDS.steps, path: COPY.wifi.unreachableStep },
+      ])
     default:
       // The helper's own sentence (BAD_REQUEST names what it refused), or the code's.
       return out(a.message || COPY.wifi.failed(address))
@@ -1579,7 +1659,7 @@ function wifiReachRow(a: WifiAttempt | null, device: WifiInput['device']): Check
     const name = device.name || device.id
     return device.state === 'offline'
       ? row(id, 'wifi', 'warning', COPY.wifi.offline(name), [
-          { label: 'Steps', path: COPY.wifi.offlineStep },
+          { label: WORDS.steps, path: COPY.wifi.offlineStep },
           FIX.openWifi,
         ])
       : row(id, 'wifi', 'ok', COPY.wifi.reachOk(device.id))

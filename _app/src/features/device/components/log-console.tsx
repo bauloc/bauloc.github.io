@@ -13,6 +13,8 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/cn'
+import { defineMessages, localized, useMessages } from '@/lib/i18n'
+import { INTL_LOCALE } from '@/lib/locale'
 
 import { clockSeconds, type LogDevice, type LogSessions } from '../log-sessions'
 import { logSourceName, type LogLevel } from './log-level'
@@ -28,14 +30,67 @@ const LEVEL_CLASS: Readonly<Record<LogLevel, string>> = {
   '': '',
 }
 
+/** The stream's state, for logStatusText. */
+const STATUS_TEXT = localized({
+  en: {
+    waiting: 'waiting for the device to come back',
+    waitingUntil: (clock: string) => `waiting for the device until ${clock}`,
+    newestLast: 'newest at the bottom',
+  },
+  vi: {
+    waiting: 'đang chờ thiết bị kết nối lại',
+    waitingUntil: (clock: string) => `đang chờ thiết bị cho đến ${clock}`,
+    newestLast: 'mới nhất ở dưới cùng',
+  },
+})
+
+const LOG_CONSOLE_MESSAGES = defineMessages({
+  en: {
+    title: 'Device log',
+    lines: (count: number) => `${count.toLocaleString('en')} lines`,
+    stop: 'Stop',
+    start: 'Start',
+    filter: 'Filter lines',
+    filterLabel: 'Filter log lines',
+    autoScroll: 'Auto-scroll',
+    copied: (count: number) => `Copied ${String(count)} lines`,
+    copyFailed: 'Copy failed',
+    clipboardBlocked: 'Your browser blocked clipboard access.',
+    copy: 'Copy',
+    clear: 'Clear',
+    logOf: (name: string) => `Log of ${name}`,
+    noMatch: 'No line matches the filter.',
+    waitingDevice: 'Waiting for the device to come back…',
+    waitingLines: 'Waiting for lines…',
+    pressStart: 'Press Start to stream the device log.',
+  },
+  vi: {
+    title: 'Log thiết bị',
+    lines: (count: number) => `${count.toLocaleString(INTL_LOCALE.vi)} dòng`,
+    stop: 'Dừng',
+    start: 'Bắt đầu',
+    filter: 'Lọc dòng',
+    filterLabel: 'Lọc các dòng log',
+    autoScroll: 'Tự cuộn',
+    copied: (count: number) => `Đã sao chép ${String(count)} dòng`,
+    copyFailed: 'Không sao chép được',
+    clipboardBlocked: 'Trình duyệt đã chặn quyền truy cập bộ nhớ tạm.',
+    copy: 'Sao chép',
+    clear: 'Xóa',
+    logOf: (name: string) => `Log của ${name}`,
+    noMatch: 'Không có dòng nào khớp với bộ lọc.',
+    waitingDevice: 'Đang chờ thiết bị kết nối lại…',
+    waitingLines: 'Đang chờ dòng log…',
+    pressStart: 'Bấm Bắt đầu để xem log trực tiếp của thiết bị.',
+  },
+})
+
 /** What the card's description says about the stream, after its source and line count. */
 export function logStatusText(phase: 'idle' | 'running' | 'waiting', until: number | null): string {
   if (phase === 'waiting') {
-    return until === null
-      ? 'waiting for the device to come back'
-      : `waiting for the device until ${clockSeconds(until)}`
+    return until === null ? STATUS_TEXT.waiting : STATUS_TEXT.waitingUntil(clockSeconds(until))
   }
-  return 'newest at the bottom'
+  return STATUS_TEXT.newestLast
 }
 
 /**
@@ -62,6 +117,7 @@ export function LogConsole({
     () => sessions.view(device.id),
   )
   const { lines, phase } = view
+  const t = useMessages(LOG_CONSOLE_MESSAGES)
   const [filter, setFilter] = useState('')
   const [follow, setFollow] = useState(true)
   const viewport = useRef<HTMLDivElement>(null)
@@ -80,14 +136,13 @@ export function LogConsole({
   return (
     <Card className="gap-3">
       <CardHeader>
-        <CardTitle>Device log</CardTitle>
+        <CardTitle>{t.title}</CardTitle>
         <CardDescription className="flex flex-wrap items-center gap-x-1.5">
           {phase === 'waiting' && (
             <Loader2 aria-hidden="true" className="size-3.5 shrink-0 animate-spin" />
           )}
           <span>
-            {logSourceName(device)}, {logStatusText(phase, view.until)} ·{' '}
-            {lines.length.toLocaleString('en')} lines
+            {logSourceName(device)}, {logStatusText(phase, view.until)} · {t.lines(lines.length)}
           </span>
         </CardDescription>
         <CardAction className="flex gap-2">
@@ -99,11 +154,11 @@ export function LogConsole({
                 sessions.stop(device.id)
               }}
             >
-              <Square /> Stop
+              <Square /> {t.stop}
             </Button>
           ) : (
             <Button size="sm" onClick={onStart} disabled={!onStart}>
-              <Play /> Start
+              <Play /> {t.start}
             </Button>
           )}
         </CardAction>
@@ -113,8 +168,8 @@ export function LogConsole({
           <Input
             type="search"
             className="h-8 max-w-xs"
-            placeholder="Filter lines"
-            aria-label="Filter log lines"
+            placeholder={t.filter}
+            aria-label={t.filterLabel}
             value={filter}
             onChange={(e) => {
               setFilter(e.target.value)
@@ -130,7 +185,7 @@ export function LogConsole({
               atBottom.current = true
             }}
           >
-            <ArrowDownToLine /> Auto-scroll
+            <ArrowDownToLine /> {t.autoScroll}
           </Button>
           <Button
             size="sm"
@@ -138,15 +193,15 @@ export function LogConsole({
             disabled={shown.length === 0}
             onClick={() => {
               navigator.clipboard.writeText(shown.map((l) => l.text).join('\n')).then(
-                () => toast.success(`Copied ${String(shown.length)} lines`),
+                () => toast.success(t.copied(shown.length)),
                 () =>
-                  toast.error('Copy failed', {
-                    description: 'Your browser blocked clipboard access.',
+                  toast.error(t.copyFailed, {
+                    description: t.clipboardBlocked,
                   }),
               )
             }}
           >
-            <ClipboardCopy /> Copy
+            <ClipboardCopy /> {t.copy}
           </Button>
           <Button
             size="sm"
@@ -158,14 +213,14 @@ export function LogConsole({
               sessions.clear(device.id)
             }}
           >
-            <Eraser /> Clear
+            <Eraser /> {t.clear}
           </Button>
         </div>
         <div
           ref={viewport}
           role="log"
           aria-live="off"
-          aria-label={`Log of ${device.name}`}
+          aria-label={t.logOf(device.name)}
           tabIndex={0}
           onScroll={(e) => {
             const el = e.currentTarget
@@ -176,12 +231,12 @@ export function LogConsole({
           {shown.length === 0 ? (
             <p className="text-muted-foreground p-2">
               {lines.length
-                ? 'No line matches the filter.'
+                ? t.noMatch
                 : phase === 'waiting'
-                  ? 'Waiting for the device to come back…'
+                  ? t.waitingDevice
                   : running
-                    ? 'Waiting for lines…'
-                    : 'Press Start to stream the device log.'}
+                    ? t.waitingLines
+                    : t.pressStart}
             </p>
           ) : (
             shown.map((l) => (

@@ -1,3 +1,5 @@
+import { localized } from '@/lib/i18n'
+
 import type { UsbFinding } from './types'
 
 /*
@@ -111,18 +113,46 @@ function productName(device: UsbDescription): string {
   return (device.productName ?? '').replace(/_/g, ' ').trim()
 }
 
+/**
+ * What a device is called when it reports no name of its own. The sentences put a name after
+ * a verb, so the Vietnamese is lower case: "Đã cắm điện thoại của bạn nhưng…".
+ */
+const UNNAMED = localized({
+  en: {
+    phone: 'Your phone',
+    makersPhone: (maker: string) => `Your ${maker} phone`,
+    device: 'That device',
+  },
+  vi: {
+    phone: 'điện thoại của bạn',
+    makersPhone: (maker: string) => `điện thoại ${maker} của bạn`,
+    device: 'thiết bị đó',
+  },
+})
+
 /** What one device the tester picked in "Find my phone…" says about their phone. */
 export function diagnosePicked(device: UsbDescription): UsbFinding {
   const name = productName(device)
-  if (hasAdbInterface(device)) return { kind: 'adb', name: name || 'Your phone' }
+  // `name` is a getter: the store keeps a finding while the language on screen may change, so
+  // a fallback is worded when a row reads it, not once here.
+  const phone = (kind: 'adb' | 'bootloader' | 'debugging-off', fallback: () => string) => ({
+    kind,
+    get name() {
+      return name || fallback()
+    },
+  })
+  if (hasAdbInterface(device)) return phone('adb', () => UNNAMED.phone)
   const maker = androidMaker(device.vendorId, device.productId)
-  const fallback = maker ? `Your ${maker} phone` : 'Your phone'
+  const fallback = () => (maker ? UNNAMED.makersPhone(maker) : UNNAMED.phone)
   // Only Android's bootloader speaks fastboot, whoever made the phone.
-  if (hasInterface(device, FASTBOOT_PROTOCOL)) return { kind: 'bootloader', name: name || fallback }
-  if (maker !== undefined) return { kind: 'debugging-off', name: name || fallback }
+  if (hasInterface(device, FASTBOOT_PROTOCOL)) return phone('bootloader', fallback)
+  if (maker !== undefined) return phone('debugging-off', fallback)
+  const own = name || (device.manufacturerName ?? '').trim()
   return {
     kind: 'not-android',
-    name: name || (device.manufacturerName ?? '').trim() || 'That device',
+    get name() {
+      return own || UNNAMED.device
+    },
     sure: device.vendorId === APPLE,
   }
 }

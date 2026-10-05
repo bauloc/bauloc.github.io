@@ -13,6 +13,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { defineMessages, useMessages } from '@/lib/i18n'
 
 import type { HelperStatus, PairResult } from '../helper/connection'
 import { localPairingNote, pairError, rememberNote } from '../helper/status'
@@ -28,6 +29,27 @@ import { HELPER_CARD_TITLE_ID } from './helper-card'
   and it is cleared whenever the dialog closes.
 */
 
+const PAIR_MESSAGES = defineMessages({
+  en: {
+    title: 'Pair this page with the helper',
+    description: 'Paste the token or the link the helper printed in Terminal.',
+    input: 'Token or link',
+    remember: 'Remember on this computer',
+    cancel: 'Cancel',
+    pairing: 'Pairing…',
+    pair: 'Pair',
+  },
+  vi: {
+    title: 'Ghép nối trang này với helper',
+    description: 'Dán token hoặc liên kết mà helper đã in ra trong Terminal.',
+    input: 'Token hoặc liên kết',
+    remember: 'Ghi nhớ trên máy tính này',
+    cancel: 'Hủy',
+    pairing: 'Đang ghép nối…',
+    pair: 'Ghép nối',
+  },
+})
+
 export function PairDialog({
   open,
   onOpenChange,
@@ -40,13 +62,17 @@ export function PairDialog({
   /** HelperConnection.pair. */
   onPair: (input: string, remember: boolean) => Promise<PairResult>
 }) {
+  const t = useMessages(PAIR_MESSAGES)
   const uid = useId()
   // Opened from the chip, the Gate, a notice or a checklist row, none a DialogTrigger: put focus
   // back on whichever it was, instead of leaving it on <body>.
   const opener = useRef<HTMLElement | null>(null)
   const [input, setInput] = useState('')
   const [remember, setRemember] = useState(status.remember)
-  const [error, setError] = useState<string | null>(null)
+  // The failure, not its sentence: worded when shown, so it follows a language switch. It keeps
+  // the port it tried, so the words stay the ones it failed with.
+  const [failure, setFailure] = useState<Exclude<PairResult, { ok: true }> | null>(null)
+  const error = failure ? pairError(failure, status) : null
   const [busy, setBusy] = useState(false)
   const persistent = status.health?.tokenPersistent ?? status.pairing?.tokenPersistent ?? false
   // The helper's own page never remembers a pairing (connection.ts), so it offers no switch.
@@ -58,7 +84,7 @@ export function PairDialog({
   const close = (next: boolean) => {
     if (!next) {
       setInput('')
-      setError(null)
+      setFailure(null)
     }
     onOpenChange(next)
   }
@@ -67,14 +93,14 @@ export function PairDialog({
     e.preventDefault()
     if (busy) return
     setBusy(true)
-    setError(null)
+    setFailure(null)
     onPair(input, remember && !local)
       .then((result) => {
         if (result.ok) close(false)
-        else setError(pairError(result, status))
+        else setFailure({ ...result, port: result.port ?? status.env.port })
       })
       .catch(() => {
-        setError(pairError({ ok: false, reason: 'unreachable' }, status))
+        setFailure({ ok: false, reason: 'unreachable', port: status.env.port })
       })
       .finally(() => {
         setBusy(false)
@@ -102,21 +128,19 @@ export function PairDialog({
       >
         <form onSubmit={submit} className="grid gap-4">
           <DialogHeader>
-            <DialogTitle>Pair this page with the helper</DialogTitle>
-            <DialogDescription>
-              Paste the token or the link the helper printed in Terminal.
-            </DialogDescription>
+            <DialogTitle>{t.title}</DialogTitle>
+            <DialogDescription>{t.description}</DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-2">
-            <Label htmlFor={inputId}>Token or link</Label>
+            <Label htmlFor={inputId}>{t.input}</Label>
             <Input
               id={inputId}
               name="helper-token"
               value={input}
               onChange={(e) => {
                 setInput(e.target.value)
-                if (error) setError(null)
+                if (failure) setFailure(null)
               }}
               autoComplete="off"
               autoCapitalize="off"
@@ -149,7 +173,7 @@ export function PairDialog({
                   onCheckedChange={setRemember}
                   aria-describedby={noteId}
                 />
-                <Label htmlFor={`${uid}-remember`}>Remember on this computer</Label>
+                <Label htmlFor={`${uid}-remember`}>{t.remember}</Label>
               </div>
               <p id={noteId} className="text-muted-foreground text-xs leading-relaxed">
                 {rememberNote(persistent)}
@@ -165,7 +189,7 @@ export function PairDialog({
                 close(false)
               }}
             >
-              Cancel
+              {t.cancel}
             </Button>
             {/* aria-disabled while pairing: disabling the focused button drops focus to <body>. */}
             <Button
@@ -177,7 +201,7 @@ export function PairDialog({
               }}
             >
               {busy && <Loader2 className="animate-spin" />}
-              {busy ? 'Pairing…' : 'Pair'}
+              {busy ? t.pairing : t.pair}
             </Button>
           </DialogFooter>
         </form>

@@ -1,3 +1,6 @@
+import { defineMessages, localized } from '@/lib/i18n'
+import { currentLocale, type Locale } from '@/lib/locale'
+
 import type { Backend } from './backends/backend'
 import { logLevel, type LogLevel } from './components/log-level'
 import type { Device } from './model'
@@ -148,27 +151,56 @@ export function clockSeconds(ms: number): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-/** "2 minutes", "30 seconds": a span as the page says it. */
-export function spanText(ms: number): string {
+const SPANS = defineMessages({
+  en: {
+    minutes: (n: number) => (n === 1 ? '1 minute' : `${String(n)} minutes`),
+    seconds: (n: number) => (n === 1 ? '1 second' : `${String(n)} seconds`),
+  },
+  vi: {
+    minutes: (n: number) => `${String(n)} phút`,
+    seconds: (n: number) => `${String(n)} giây`,
+  },
+})
+
+function span(ms: number, locale: Locale): string {
   const s = Math.round(ms / 1000)
-  if (s % 60 === 0) return s === 60 ? '1 minute' : `${String(s / 60)} minutes`
-  return s === 1 ? '1 second' : `${String(s)} seconds`
+  return s % 60 === 0 ? SPANS[locale].minutes(s / 60) : SPANS[locale].seconds(s)
 }
 
-/** The wait, in words: the page's announcements say it too. */
-export const RESUME_WINDOW_TEXT = spanText(RESUME_WINDOW_MS)
+/** "2 minutes", "30 seconds": a span as the page says it, in the language on screen. */
+export function spanText(ms: number): string {
+  return span(ms, currentLocale())
+}
 
-/** The page's own lines in a log, in the console's "— " voice. */
-export const LOG_NOTES = {
-  dropped: (name: string, at: number) =>
-    `— Lost the connection to ${name} at ${clockSeconds(at)}. While it’s still listed, the log picks up again by itself if it’s back within ${RESUME_WINDOW_TEXT}.`,
-  resumed: (name: string, at: number) =>
-    `— ${name} is back (${clockSeconds(at)}). The log resumed.`,
-  gaveUp: (name: string) =>
-    `— ${name} didn’t come back within ${RESUME_WINDOW_TEXT}, so the log stopped. Press Start once it’s connected again.`,
-  unlisted: (name: string, at: number) =>
-    `— ${name} left the device list at ${clockSeconds(at)}, so the log stopped. Press Start once it’s connected again.`,
-} as const
+/**
+ * The wait, in words: the page's announcements say it too. In English only, since a string read
+ * once can't follow a language switch; words on screen say `spanText(RESUME_WINDOW_MS)`.
+ */
+export const RESUME_WINDOW_TEXT = span(RESUME_WINDOW_MS, 'en')
+
+/** The page's own lines in a log, in the console's "— " voice and the language on screen. */
+export const LOG_NOTES = localized({
+  en: {
+    dropped: (name: string, at: number) =>
+      `— Lost the connection to ${name} at ${clockSeconds(at)}. While it’s still listed, the log picks up again by itself if it’s back within ${RESUME_WINDOW_TEXT}.`,
+    resumed: (name: string, at: number) =>
+      `— ${name} is back (${clockSeconds(at)}). The log resumed.`,
+    gaveUp: (name: string) =>
+      `— ${name} didn’t come back within ${RESUME_WINDOW_TEXT}, so the log stopped. Press Start once it’s connected again.`,
+    unlisted: (name: string, at: number) =>
+      `— ${name} left the device list at ${clockSeconds(at)}, so the log stopped. Press Start once it’s connected again.`,
+  } as const,
+  vi: {
+    dropped: (name: string, at: number) =>
+      `— Mất kết nối với ${name} lúc ${clockSeconds(at)}. Nếu thiết bị vẫn còn trong danh sách và kết nối lại trong vòng ${span(RESUME_WINDOW_MS, 'vi')}, log sẽ tự chạy tiếp.`,
+    resumed: (name: string, at: number) =>
+      `— ${name} đã kết nối lại (${clockSeconds(at)}). Log đã chạy tiếp.`,
+    gaveUp: (name: string) =>
+      `— ${name} không kết nối lại trong vòng ${span(RESUME_WINDOW_MS, 'vi')}, nên log đã dừng. Hãy bấm Bắt đầu khi thiết bị đã kết nối lại.`,
+    unlisted: (name: string, at: number) =>
+      `— ${name} đã rời danh sách thiết bị lúc ${clockSeconds(at)}, nên log đã dừng. Hãy bấm Bắt đầu khi thiết bị đã kết nối lại.`,
+  },
+})
 
 /** The error's code, as the lanes reject: Error.message (HelperError's is the code it words). */
 function codeOf(error: unknown): string {

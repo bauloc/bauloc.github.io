@@ -34,6 +34,8 @@ import {
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/cn'
+import { defineMessages, localized, useMessages } from '@/lib/i18n'
+import { useLocale } from '@/lib/locale'
 import { useHeldWhileClosing } from '@/lib/use-held-while-closing'
 
 import {
@@ -90,6 +92,217 @@ import { TONE_SURFACE } from './status'
   announcements. Closing the dialog mid-send leaves the job in the jobs strip, where it can
   still be cancelled; the dialog follows it through the `job` prop.
 */
+
+const INSTALL_MESSAGES = defineMessages({
+  en: {
+    gate: {
+      blocked: 'Fix what’s marked Blocking above first.',
+      notReady: (device: string) => `${device} isn’t ready. Reconnect it to install.`,
+      busy: (device: string) => `Another install is running on ${device}. Wait for it to finish.`,
+      installAnyway: 'Turn on “Install anyway” to install an app that targets an old Android.',
+      allowDowngrade:
+        'Turn on “Allow downgrade” under Options to put the older version over the newer one.',
+      uninstallWontHelp:
+        'Uninstalling wouldn’t help yet: something else marked Blocking above stops the install. Fix that first.',
+    },
+    theApp: 'the app',
+    apks: (parts: number) => `${String(parts)} APKs`,
+    apksForPhone: (parts: number, offered: number) =>
+      `${String(parts)} of ${String(offered)} APKs for this phone`,
+    part: {
+      of: (module: string) => ` of ${module}`,
+      base: 'The app itself',
+      feature: (module: string) => `Module ${module}, installed with the app`,
+      assetPack: (module: string) => `Asset pack ${module}, installed with the app`,
+      abi: (abi: string, of: string) => `Native code for ${abi}${of}`,
+      density: (dpi: string, of: string) => `Graphics for ${dpi} dpi screens${of}`,
+      language: (language: string, of: string) => `Language ${language}${of}`,
+      other: (value: string, of: string) => `For ${value}${of}`,
+      unnamed: (of: string) => `Part${of}`,
+    },
+    sendingTo: (device: string) => `Sending to ${device}`,
+    installedOn: (app: string, version: string, device: string) =>
+      `Installed ${app}${version ? ` ${version}` : ''} on ${device}.`,
+    retry: 'Retry',
+    noAnswer: 'The install ended without an answer from the phone. Check the Apps tab.',
+    theFile: 'the file',
+    files: (count: number) => `${String(count)} files`,
+
+    openFailed: (pkg: string) => `Android couldn’t open ${pkg}`,
+    installedWithWarnings: 'Installed, with warnings.',
+    open: 'Open',
+    installFailedOn: (app: string, device: string) => `Couldn’t install ${app} on ${device}`,
+    show: 'Show',
+    notUninstalled: (pkg: string) => `Didn’t uninstall ${pkg}`,
+    uninstallFailed: (pkg: string) => `Couldn’t uninstall ${pkg}`,
+    nothingInstalledAfter: (message: string) => `${message} Nothing was installed.`,
+    copiedDetails: 'Copied the details',
+    copyFailed: 'Copy failed',
+    copyByHand: 'Select the text and copy it by hand.',
+    dropUnreadable: 'Couldn’t read what was dropped',
+    dropUnreadableHint: 'Pick the files with Install app instead.',
+
+    title: (device: string) => `Install on ${device}`,
+    description: 'The file is read on this computer. Nothing is sent until you press Install.',
+    issueTitle: { blocking: 'Can’t install this yet', warning: 'Before you install' },
+    details: 'Details',
+    copyOutput: 'Copy the phone’s output',
+    whyThese: 'Why these?',
+    installAnyway: 'Install anyway',
+    uninstallFirst: 'Uninstall and install…',
+    close: 'Close',
+    done: 'Done',
+    backToInstall: 'Back to install',
+    next: (files: string) => `Next: ${files}. It’s read once this install ends.`,
+    reading: (files: string, device: string) => `Reading ${files} and ${device}’s details…`,
+    unreadable: 'Couldn’t get ready to install',
+    reload: 'Reload',
+    tryAgain: 'Try again',
+    options: 'Options',
+    grant: 'Grant all runtime permissions',
+    grantHint:
+      'The app won’t ask for the camera, location and the like. Leave it off to test those prompts.',
+    allowDowngrade: 'Allow downgrade',
+    allowDowngradeHint:
+      'The installed copy is debuggable, so Android lets an older version replace it and keeps its data.',
+    install: 'Install',
+    uninstallingFrom: (pkg: string, device: string) => `Uninstalling ${pkg} from ${device}…`,
+    uninstalling: (pkg: string) => `Uninstalling ${pkg}`,
+    installing: 'Installing on the phone…',
+    installingBar: 'Installing on the phone',
+    stillInstalling:
+      'Still installing. Check the phone: it may be asking you to confirm (Play Protect).',
+    keepsRunning:
+      'Closing this window doesn’t stop the install: its progress and Cancel stay on the page.',
+    cancelInstall: 'Cancel install',
+    cancelled: 'Cancelled. Nothing was installed.',
+    nothingInstalled: 'Nothing was installed.',
+    installedWithWarningsList: 'Installed, with warnings:',
+    openApp: 'Open app',
+    installFailed: (app: string) => `Couldn’t install ${app}`,
+    pickAgain: 'Pick again…',
+    notReadyFirst: (device: string) => `${device} isn’t ready. Reconnect it first.`,
+    replaceTitle: (app: string, device: string) => `Replace ${app} on ${device}?`,
+    replaceSigned:
+      'The installed copy is signed with a different key (for example from Google Play), so Android can’t update it. Device Lab will uninstall it, which deletes its data on the phone, and then install this build.',
+    replaceNewer:
+      'A newer version is installed, and Android won’t put an older one over it. Device Lab will uninstall it, which deletes its data on the phone, and then install this build.',
+    uninstallOtherTitle: (pkg: string, device: string) => `Uninstall ${pkg} from ${device}?`,
+    uninstallOtherBody: (app: string) =>
+      `This removes the app and all of its data on the phone: accounts, settings and files. It can’t be undone. Device Lab then installs ${app}.`,
+    cancel: 'Cancel',
+    uninstallAndInstall: 'Uninstall and install',
+    dropToInstall: (device: string) => `Drop to install on ${device}`,
+    installApp: 'Install app',
+  },
+  vi: {
+    gate: {
+      blocked: 'Hãy xử lý trước các mục Đang chặn ở trên.',
+      notReady: (device: string) => `${device} chưa sẵn sàng. Hãy kết nối lại để cài.`,
+      busy: (device: string) => `${device} đang có một lượt cài khác. Hãy đợi lượt đó xong.`,
+      installAnyway: 'Bật “Vẫn cài” để cài ứng dụng nhắm tới Android cũ.',
+      allowDowngrade:
+        'Bật “Cho phép hạ cấp” trong Tùy chọn để cài phiên bản cũ đè lên bản mới hơn.',
+      uninstallWontHelp:
+        'Gỡ cài đặt lúc này chưa giúp được gì: vẫn còn mục Đang chặn khác ở trên ngăn việc cài. Hãy xử lý mục đó trước.',
+    },
+    theApp: 'ứng dụng',
+    apks: (parts: number) => `${String(parts)} APK`,
+    apksForPhone: (parts: number, offered: number) =>
+      `${String(parts)}/${String(offered)} APK cho điện thoại này`,
+    part: {
+      of: (module: string) => ` của ${module}`,
+      base: 'Phần chính của ứng dụng',
+      feature: (module: string) => `Mô-đun ${module}, cài cùng ứng dụng`,
+      assetPack: (module: string) => `Gói tài nguyên ${module}, cài cùng ứng dụng`,
+      abi: (abi: string, of: string) => `Mã native cho ${abi}${of}`,
+      density: (dpi: string, of: string) => `Đồ họa cho màn hình ${dpi} dpi${of}`,
+      language: (language: string, of: string) => `Ngôn ngữ ${language}${of}`,
+      other: (value: string, of: string) => `Dành cho ${value}${of}`,
+      unnamed: (of: string) => `Thành phần${of}`,
+    },
+    sendingTo: (device: string) => `Đang gửi tới ${device}`,
+    installedOn: (app: string, version: string, device: string) =>
+      `Đã cài ${app}${version ? ` ${version}` : ''} lên ${device}.`,
+    retry: 'Thử lại',
+    noAnswer: 'Lượt cài đã kết thúc mà điện thoại không trả lời. Hãy xem thẻ Ứng dụng.',
+    theFile: 'tệp',
+    files: (count: number) => `${String(count)} tệp`,
+
+    openFailed: (pkg: string) => `Android không mở được ${pkg}`,
+    installedWithWarnings: 'Đã cài, có cảnh báo.',
+    open: 'Mở',
+    installFailedOn: (app: string, device: string) => `Không cài được ${app} lên ${device}`,
+    show: 'Xem',
+    notUninstalled: (pkg: string) => `Chưa gỡ cài đặt ${pkg}`,
+    uninstallFailed: (pkg: string) => `Không gỡ cài đặt được ${pkg}`,
+    nothingInstalledAfter: (message: string) => `${message} Chưa cài gì cả.`,
+    copiedDetails: 'Đã sao chép chi tiết',
+    copyFailed: 'Không sao chép được',
+    copyByHand: 'Hãy bôi đen đoạn chữ và tự sao chép.',
+    dropUnreadable: 'Không đọc được nội dung vừa thả',
+    dropUnreadableHint: 'Hãy chọn tệp bằng nút Cài ứng dụng.',
+
+    title: (device: string) => `Cài đặt lên ${device}`,
+    description: 'Tệp được đọc ngay trên máy tính này. Chưa gửi gì cho đến khi bạn bấm Cài đặt.',
+    issueTitle: { blocking: 'Chưa cài được', warning: 'Trước khi cài' },
+    details: 'Chi tiết',
+    copyOutput: 'Sao chép đầu ra của điện thoại',
+    whyThese: 'Vì sao chọn các APK này?',
+    installAnyway: 'Vẫn cài',
+    uninstallFirst: 'Gỡ cài đặt rồi cài…',
+    close: 'Đóng',
+    done: 'Xong',
+    backToInstall: 'Quay lại bước cài đặt',
+    next: (files: string) => `Tiếp theo: ${files}. Sẽ được đọc khi lượt cài này kết thúc.`,
+    reading: (files: string, device: string) => `Đang đọc ${files} và thông tin của ${device}…`,
+    unreadable: 'Không thể chuẩn bị cài đặt',
+    reload: 'Tải lại',
+    tryAgain: 'Thử lại',
+    options: 'Tùy chọn',
+    grant: 'Cấp mọi quyền khi chạy',
+    grantHint:
+      'Ứng dụng sẽ không hỏi quyền máy ảnh, vị trí và các quyền tương tự. Hãy để tắt nếu cần thử các hộp thoại xin quyền đó.',
+    allowDowngrade: 'Cho phép hạ cấp',
+    allowDowngradeHint:
+      'Bản đã cài có thể gỡ lỗi, nên Android cho phiên bản cũ hơn thay thế và vẫn giữ dữ liệu của nó.',
+    install: 'Cài đặt',
+    uninstallingFrom: (pkg: string, device: string) => `Đang gỡ cài đặt ${pkg} khỏi ${device}…`,
+    uninstalling: (pkg: string) => `Đang gỡ cài đặt ${pkg}`,
+    installing: 'Đang cài trên điện thoại…',
+    installingBar: 'Đang cài trên điện thoại',
+    stillInstalling:
+      'Vẫn đang cài. Hãy xem điện thoại: có thể máy đang hỏi bạn xác nhận (Play Protect).',
+    keepsRunning:
+      'Đóng cửa sổ này không làm dừng việc cài: tiến độ và nút Hủy vẫn hiện trên trang.',
+    cancelInstall: 'Hủy cài đặt',
+    cancelled: 'Đã hủy. Chưa cài gì cả.',
+    nothingInstalled: 'Chưa cài gì cả.',
+    installedWithWarningsList: 'Đã cài, có cảnh báo:',
+    openApp: 'Mở ứng dụng',
+    installFailed: (app: string) => `Không cài được ${app}`,
+    pickAgain: 'Chọn lại…',
+    notReadyFirst: (device: string) => `${device} chưa sẵn sàng. Hãy kết nối lại trước.`,
+    replaceTitle: (app: string, device: string) => `Thay thế ${app} trên ${device}?`,
+    replaceSigned:
+      'Bản đã cài được ký bằng khóa khác (ví dụ bản từ Google Play), nên Android không cập nhật được. Device Lab sẽ gỡ cài đặt bản đó (việc này xóa dữ liệu của nó trên điện thoại) rồi cài bản dựng này.',
+    replaceNewer:
+      'Điện thoại đang có phiên bản mới hơn và Android không cho cài bản cũ hơn đè lên. Device Lab sẽ gỡ cài đặt bản đó (việc này xóa dữ liệu của nó trên điện thoại) rồi cài bản dựng này.',
+    uninstallOtherTitle: (pkg: string, device: string) => `Gỡ cài đặt ${pkg} khỏi ${device}?`,
+    uninstallOtherBody: (app: string) =>
+      `Thao tác này xóa ứng dụng đó cùng toàn bộ dữ liệu của nó trên điện thoại: tài khoản, chế độ cài đặt và tệp. Không thể hoàn tác. Sau đó Device Lab sẽ cài ${app}.`,
+    cancel: 'Hủy',
+    uninstallAndInstall: 'Gỡ cài đặt rồi cài',
+    dropToInstall: (device: string) => `Thả để cài lên ${device}`,
+    installApp: 'Cài ứng dụng',
+  },
+})
+
+/**
+ * The same words for what is worded outside a render: the wording functions below, and the
+ * toasts once an install or a read ends, in the language on screen by then.
+ */
+const INSTALL_WORDS = localized(INSTALL_MESSAGES)
 
 /** The picker's filter. Files are recognised by content; this only narrows the list. */
 export const INSTALL_ACCEPT = '.apk,.apks,.xapk,.apkm,.aab,.zip'
@@ -177,7 +390,47 @@ export interface Consent {
 
 export const NO_CONSENT: Consent = { bypass: false, downgrade: false, grant: false }
 
-const BLOCKED = 'Fix what’s marked Blocking above first.'
+/** Why Install is held, before it is worded: code compares these, never the sentences. */
+type GateReason = 'not-ready' | 'busy' | 'blocked' | 'install-anyway' | 'allow-downgrade'
+
+function gateReason(
+  plan: InstallPlan,
+  checks: readonly CheckItem[],
+  issues: readonly IssueRow[],
+  consent: Consent,
+  phone: { readonly ready: boolean; readonly busy: boolean },
+): GateReason | null {
+  if (!phone.ready) return 'not-ready'
+  if (phone.busy) return 'busy'
+  const blocked =
+    checks.some((c) => c.status === 'blocking') || issues.some((i) => i.status === 'blocking')
+  if (blocked || plan.parts.length === 0) return 'blocked'
+  if (issues.some((r) => r.action === 'install-anyway') && !consent.bypass) {
+    return 'install-anyway'
+  }
+  if (issues.some((r) => r.action === 'allow-downgrade') && !consent.downgrade) {
+    return 'allow-downgrade'
+  }
+  return null
+}
+
+function gateSentence(reason: GateReason | null, deviceName: string): string | null {
+  const words = INSTALL_WORDS.gate
+  switch (reason) {
+    case null:
+      return null
+    case 'not-ready':
+      return words.notReady(deviceName)
+    case 'busy':
+      return words.busy(deviceName)
+    case 'blocked':
+      return words.blocked
+    case 'install-anyway':
+      return words.installAnyway
+    case 'allow-downgrade':
+      return words.allowDowngrade
+  }
+}
 
 /**
  * Whether Install may run, and the sentence when it may not. A warning whose way past is a
@@ -191,20 +444,7 @@ export function installGate(
   consent: Consent,
   phone: { readonly deviceName: string; readonly ready: boolean; readonly busy: boolean },
 ): string | null {
-  if (!phone.ready) return `${phone.deviceName} isn’t ready. Reconnect it to install.`
-  if (phone.busy) {
-    return `Another install is running on ${phone.deviceName}. Wait for it to finish.`
-  }
-  const blocked =
-    checks.some((c) => c.status === 'blocking') || issues.some((i) => i.status === 'blocking')
-  if (blocked || plan.parts.length === 0) return BLOCKED
-  if (issues.some((r) => r.action === 'install-anyway') && !consent.bypass) {
-    return 'Turn on “Install anyway” to install an app that targets an old Android.'
-  }
-  if (issues.some((r) => r.action === 'allow-downgrade') && !consent.downgrade) {
-    return 'Turn on “Allow downgrade” under Options to put the older version over the newer one.'
-  }
-  return null
+  return gateSentence(gateReason(plan, checks, issues, consent, phone), phone.deviceName)
 }
 
 /**
@@ -222,10 +462,10 @@ export function uninstallFirstGate(
 ): string | null {
   // The rows uninstalling clears are left out; every other reason Install is shut still holds.
   const others = issues.filter((r) => r.action !== 'uninstall-first')
-  const gate = installGate(plan, checks, others, consent, phone)
-  return gate === BLOCKED
-    ? 'Uninstalling wouldn’t help yet: something else marked Blocking above stops the install. Fix that first.'
-    : gate
+  const reason = gateReason(plan, checks, others, consent, phone)
+  return reason === 'blocked'
+    ? INSTALL_WORDS.gate.uninstallWontHelp
+    : gateSentence(reason, phone.deviceName)
 }
 
 /** The flags for this install; `-t` follows the plan, in the lane. */
@@ -251,39 +491,37 @@ export function appVersion(plan: InstallPlan): string {
 
 /** What the dialog calls the app: its label, its package name, or the file. */
 export function appName(plan: InstallPlan): string {
-  return plan.app?.label ?? plan.app?.packageName ?? plan.inputs[0]?.name ?? 'the app'
+  return plan.app?.label ?? plan.app?.packageName ?? plan.inputs[0]?.name ?? INSTALL_WORDS.theApp
 }
 
 /** "3 of 9 APKs for this phone · arm64-v8a · xxhdpi · en, vi"; null for a single APK. */
 export function selectionLine(plan: InstallPlan): string | null {
   const s = plan.selection
-  if (!s) return plan.parts.length > 1 ? `${String(plan.parts.length)} APKs` : null
+  if (!s) return plan.parts.length > 1 ? INSTALL_WORDS.apks(plan.parts.length) : null
   const facets = [s.abi, s.density, s.languages.join(', ')].filter(Boolean)
-  return [
-    `${String(plan.parts.length)} of ${String(s.offered)} APKs for this phone`,
-    ...facets,
-  ].join(' · ')
+  return [INSTALL_WORDS.apksForPhone(plan.parts.length, s.offered), ...facets].join(' · ')
 }
 
 /** Why a part was picked, for "Why these?". */
 export function partReason(part: Pick<InstallPart, 'role'>): string {
   const { module, kind, value } = part.role
-  const of = module === 'base' ? '' : ` of ${module}`
+  const words = INSTALL_WORDS.part
+  const of = module === 'base' ? '' : words.of(module)
   switch (kind) {
     case 'base':
-      return 'The app itself'
+      return words.base
     case 'feature':
-      return `Module ${module}, installed with the app`
+      return words.feature(module)
     case 'asset-pack':
-      return `Asset pack ${module}, installed with the app`
+      return words.assetPack(module)
     case 'abi':
-      return `Native code for ${value}${of}`
+      return words.abi(value, of)
     case 'density':
-      return `Graphics for ${value} dpi screens${of}`
+      return words.density(value, of)
     case 'language':
-      return `Language ${value}${of}`
+      return words.language(value, of)
     case 'other':
-      return value ? `For ${value}${of}` : `Part${of}`
+      return value ? words.other(value, of) : words.unnamed(of)
   }
 }
 
@@ -299,7 +537,7 @@ export function sendingText(
   total: number,
   rate: number | null,
 ): string {
-  const parts = [`Sending to ${deviceName}`]
+  const parts = [INSTALL_WORDS.sendingTo(deviceName)]
   if (total > 0) parts.push(fmtTransfer(sent, total), `${String(percentOf(sent, total))}%`)
   if (rate !== null && rate > 0) parts.push(fmtRate(rate))
   return parts.join(' · ')
@@ -307,8 +545,7 @@ export function sendingText(
 
 /** What a successful install says: "Installed Probe 1.4.0 (812) on Pixel 9." */
 export function successTitle(plan: InstallPlan, deviceName: string): string {
-  const version = appVersion(plan)
-  return `Installed ${appName(plan)}${version ? ` ${version}` : ''} on ${deviceName}.`
+  return INSTALL_WORDS.installedOn(appName(plan), appVersion(plan), deviceName)
 }
 
 /** What the wording knows besides the failure itself. */
@@ -349,7 +586,7 @@ export function failureWording(failure: InstallFailure, ctx: FailureContext): In
     return {
       text: failure.message,
       advice: null,
-      action: { kind: 'retry', label: 'Retry' },
+      action: { kind: 'retry', label: INSTALL_WORDS.retry },
       fixes: [],
     }
   }
@@ -359,14 +596,17 @@ export function failureWording(failure: InstallFailure, ctx: FailureContext): In
   )
 }
 
-const NO_ANSWER = 'The install ended without an answer from the phone. Check the Apps tab.'
-
-/** A failure that came from the browser side rather than from pm. */
-const localFailure = (message: string): InstallFailure => ({
+/**
+ * A failure that came from the browser side rather than from pm. Its sentence is worded at each
+ * read, so an outcome left on screen follows a language switch.
+ */
+const localFailure = (word: () => string): InstallFailure => ({
   ok: false,
   code: 'UNKNOWN',
   androidCode: null,
-  message,
+  get message() {
+    return word()
+  },
   params: {},
   output: '',
 })
@@ -454,11 +694,6 @@ function AppIcon({ icon, name }: { icon: BadgeIcon | null; name: string }) {
  * Pieces
  * ---------------------------------------------------------------- */
 
-const ISSUE_TITLES: Readonly<Record<IssueRow['status'], string>> = {
-  blocking: 'Can’t install this yet',
-  warning: 'Before you install',
-}
-
 /**
  * What the file and the phone say about this install, in the inline card's look: tinted by
  * the worst row, whose status the heading carries. A row of another status (a warning under
@@ -474,6 +709,7 @@ function IssuesCard({
   issues: readonly IssueRow[]
   extra: (row: IssueRow) => ReactNode
 }) {
+  const t = useMessages(INSTALL_MESSAGES)
   if (issues.length === 0) return null
   const status = issues.some((i) => i.status === 'blocking') ? 'blocking' : 'warning'
   const headingId = `${id}-title`
@@ -486,7 +722,7 @@ function IssuesCard({
     >
       <div className="flex items-center justify-between gap-3">
         <h3 id={headingId} className="font-semibold">
-          {ISSUE_TITLES[status]}
+          {t.issueTitle[status]}
         </h3>
         <StatusWord status={status} />
       </div>
@@ -519,18 +755,19 @@ function Notes({ notes }: { notes: readonly PlanIssue[] }) {
 
 /** Everything the phone printed, copyable for a ticket. */
 function Details({ text }: { text: string }) {
+  const t = useMessages(INSTALL_MESSAGES)
   if (!text.trim()) return null
   return (
     <details className="group text-sm">
       <summary className="text-primary flex cursor-pointer list-none items-center gap-1 font-medium">
-        Details
+        {t.details}
         <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
       </summary>
       <div className="bg-muted/60 mt-2 flex items-start gap-2 rounded-lg border p-2">
         <pre className="max-h-48 min-w-0 flex-1 overflow-auto font-mono text-xs whitespace-pre-wrap">
           {text}
         </pre>
-        <CopyButton text={text} label="Copy the phone’s output" />
+        <CopyButton text={text} label={t.copyOutput} />
       </div>
     </details>
   )
@@ -538,6 +775,7 @@ function Details({ text }: { text: string }) {
 
 /** Step 1: what the file is, read locally. */
 function AppSummary({ plan }: { plan: InstallPlan }) {
+  const t = useMessages(INSTALL_MESSAGES)
   const name = appName(plan)
   const line = selectionLine(plan)
   const size = plan.totalBytes || plan.inputs.reduce((n, i) => n + i.size, 0)
@@ -558,7 +796,7 @@ function AppSummary({ plan }: { plan: InstallPlan }) {
       {plan.parts.length > 1 && (
         <details className="group text-sm">
           <summary className="text-primary flex cursor-pointer list-none items-center gap-1 font-medium">
-            Why these?
+            {t.whyThese}
             <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
           </summary>
           <ul className="mt-2 divide-y rounded-lg border">
@@ -647,15 +885,16 @@ interface Prepared {
   readonly inflate: boolean
 }
 
+/** A failed step keeps its error, not a sentence: it is worded when shown, in the language then. */
 type Stage =
   | { readonly step: 'reading' }
-  | { readonly step: 'unreadable'; readonly message: string; readonly stale: boolean }
+  | { readonly step: 'unreadable'; readonly error: unknown; readonly stale: boolean }
   | { readonly step: 'review' }
   | { readonly step: 'removing'; readonly pkg: string }
   /** The store's job runs it; the `job` prop says how far it got. */
   | { readonly step: 'running'; readonly slow: boolean }
   | { readonly step: 'done'; readonly outcome: InstallOutcome }
-  | { readonly step: 'remove-failed'; readonly pkg: string; readonly message: string }
+  | { readonly step: 'remove-failed'; readonly pkg: string; readonly error: unknown }
   | { readonly step: 'cancelled' }
 
 interface Session {
@@ -701,7 +940,9 @@ const RUNNING: ReadonlySet<Stage['step']> = new Set(['removing', 'running'])
 
 /** "probe.apk", or "3 files". */
 const filesText = (list: readonly File[] | null) =>
-  list?.length === 1 ? (list[0]?.name ?? 'the file') : `${String(list?.length ?? 0)} files`
+  list?.length === 1
+    ? (list[0]?.name ?? INSTALL_WORDS.theFile)
+    : INSTALL_WORDS.files(list?.length ?? 0)
 
 /** Android may sit on a Play Protect prompt; after this long the dialog says to look. */
 export const SLOW_COMMIT_MS = 10_000
@@ -746,6 +987,8 @@ export function InstallDialog({
   actions,
   wiring,
 }: InstallDialogProps) {
+  const t = useMessages(INSTALL_MESSAGES)
+  const locale = useLocale()
   const [session, setSession] = useState<Session>(() => freshSession(files))
   const [seen, setSeen] = useState(files)
   const [confirm, setConfirm] = useState<Confirm | null>(null)
@@ -803,8 +1046,7 @@ export function InstallDialog({
       (error: unknown) => {
         if (!live) return
         const stale = isStaleBuildError(error)
-        const message = stale ? COPY.app.updated : deviceErrorMessage(error)
-        setSession((s) => ({ ...s, stage: { step: 'unreadable', stale, message } }))
+        setSession((s) => ({ ...s, stage: { step: 'unreadable', stale, error } }))
       },
     )
     return () => {
@@ -844,7 +1086,7 @@ export function InstallDialog({
   const { prepared, stage, consent } = session
   const busy = !ours && isRunningJob(job)
   const plan = prepared?.plan ?? null
-  const name = plan ? appName(plan) : 'the app'
+  const name = plan ? appName(plan) : t.theApp
   const pkg = plan?.app?.packageName ?? null
 
   const checks = useMemo(() => {
@@ -860,15 +1102,21 @@ export function InstallDialog({
       probe: null,
       doctor: null,
     })
-  }, [prepared, phone, session.userRestricted])
+    // The rows are worded in the language on screen: a switch words them again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prepared, phone, session.userRestricted, locale])
   const issues = useMemo(
     () => (prepared ? issueRows(prepared.plan, prepared.check) : []),
-    [prepared],
+    // The plan words its issues at each read, in the language on screen: a switch reads them again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [prepared, locale],
   )
   const notes = prepared ? [...prepared.plan.notes, ...(prepared.check?.notes ?? [])] : []
   const phoneState = { deviceName: device.name, ready, busy }
   const gate = plan ? installGate(plan, checks, issues, consent, phoneState) : null
-  const replaceGate = plan ? uninstallFirstGate(plan, checks, issues, consent, phoneState) : BLOCKED
+  const replaceGate = plan
+    ? uninstallFirstGate(plan, checks, issues, consent, phoneState)
+    : t.gate.blocked
   const downgradeOffered = issues.some((r) => r.action === 'allow-downgrade')
   const describedBy = [
     checks.some((c) => c.status !== 'ok') ? checksId : '',
@@ -880,7 +1128,7 @@ export function InstallDialog({
 
   const openApp = (packageName: string) => {
     actions.openApp(packageName).catch((error: unknown) => {
-      toast.error(`Android couldn’t open ${packageName}`, {
+      toast.error(INSTALL_WORDS.openFailed(packageName), {
         description: deviceErrorMessage(error),
       })
     })
@@ -906,11 +1154,13 @@ export function InstallDialog({
       const packageName = current.plan.app?.packageName
       if (unseen()) {
         toast.success(title, {
-          ...(outcome.warnings.length > 0 ? { description: 'Installed, with warnings.' } : {}),
+          ...(outcome.warnings.length > 0
+            ? { description: INSTALL_WORDS.installedWithWarnings }
+            : {}),
           ...(packageName
             ? {
                 action: {
-                  label: 'Open',
+                  label: INSTALL_WORDS.open,
                   onClick: () => {
                     openApp(packageName)
                   },
@@ -926,13 +1176,13 @@ export function InstallDialog({
     if (unseen()) {
       // Show reopens the dialog on this outcome, unless it has moved on to the waiting files.
       const movedOn = waitingRef.current
-      toast.error(`Couldn’t install ${appLabel} on ${device.name}`, {
+      toast.error(INSTALL_WORDS.installFailedOn(appLabel, device.name), {
         description: text,
         ...(movedOn
           ? {}
           : {
               action: {
-                label: 'Show',
+                label: INSTALL_WORDS.show,
                 onClick: () => {
                   onOpenChange(true)
                 },
@@ -956,7 +1206,7 @@ export function InstallDialog({
       // must not happen when the install would fail anyway.
       const why = uninstallFirstGate(current.plan, checks, issues, agreed, phoneState)
       if (why !== null) {
-        toast.error(`Didn’t uninstall ${remove}`, { description: why })
+        toast.error(INSTALL_WORDS.notUninstalled(remove), { description: why })
         return
       }
     }
@@ -967,11 +1217,10 @@ export function InstallDialog({
       try {
         await actions.uninstall(remove)
       } catch (error) {
-        const message = deviceErrorMessage(error)
-        setStage({ step: 'remove-failed', pkg: remove, message })
+        setStage({ step: 'remove-failed', pkg: remove, error })
         if (unseen()) {
-          toast.error(`Couldn’t uninstall ${remove}`, {
-            description: `${message} Nothing was installed.`,
+          toast.error(INSTALL_WORDS.uninstallFailed(remove), {
+            description: INSTALL_WORDS.nothingInstalledAfter(deviceErrorMessage(error)),
           })
         }
         return
@@ -982,16 +1231,22 @@ export function InstallDialog({
     try {
       const result = await actions.install(current.plan, installOptions(agreed))
       if (result.phase === 'cancelled') setStage({ step: 'cancelled' })
-      else finish(result.outcome ?? localFailure(NO_ANSWER), current)
+      else finish(result.outcome ?? localFailure(() => INSTALL_WORDS.noAnswer), current)
     } catch (error) {
-      finish(localFailure(deviceErrorMessage(error)), current)
+      finish(
+        localFailure(() => deviceErrorMessage(error)),
+        current,
+      )
     }
   }
 
   const copyDetails = (text: string) => {
     navigator.clipboard.writeText(text).then(
-      () => toast.success('Copied the details'),
-      () => toast.error('Copy failed', { description: 'Select the text and copy it by hand.' }),
+      () => toast.success(INSTALL_WORDS.copiedDetails),
+      () =>
+        toast.error(INSTALL_WORDS.copyFailed, {
+          description: INSTALL_WORDS.copyByHand,
+        }),
     )
   }
 
@@ -1029,7 +1284,7 @@ export function InstallDialog({
         <div className="pl-[6.25rem]">
           <Toggle
             id={`${ids}-bypass`}
-            label="Install anyway"
+            label={t.installAnyway}
             checked={consent.bypass}
             onChange={(bypass) => {
               setSession((s) => ({ ...s, consent: { ...s.consent, bypass } }))
@@ -1054,7 +1309,7 @@ export function InstallDialog({
               if (replaceGate === null) setConfirm({ kind: 'replace', reason: 'downgrade' })
             }}
           >
-            Uninstall and install…
+            {t.uninstallFirst}
           </Button>
           {own && (
             <p id={replaceId} className="text-muted-foreground text-xs">
@@ -1071,7 +1326,7 @@ export function InstallDialog({
 
   let body: ReactNode = null
   let footer: ReactNode = null
-  const closeButton = (label = 'Close') => (
+  const closeButton = (label = t.close) => (
     <Button
       variant="outline"
       onClick={() => {
@@ -1087,14 +1342,14 @@ export function InstallDialog({
         setStage({ step: 'review' })
       }}
     >
-      Back to install
+      {t.backToInstall}
     </Button>
   )
 
   /** Said under a running install when files arrived meanwhile, so they don't seem lost. */
   const waitingLine = waiting && (
     <p role="status" className="text-muted-foreground text-xs">
-      Next: {filesText(waiting)}. It’s read once this install ends.
+      {t.next(filesText(waiting))}
     </p>
   )
 
@@ -1103,14 +1358,16 @@ export function InstallDialog({
     body = (
       <p role="status" className="text-muted-foreground flex items-center gap-2 text-sm">
         <Loader2 aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />
-        Reading {what} and {device.name}’s details…
+        {t.reading(what, device.name)}
       </p>
     )
     footer = closeButton()
   } else if (stage.step === 'unreadable') {
     body = (
-      <Outcome tone="bad" title="Couldn’t get ready to install" alert>
-        <p className="text-muted-foreground">{stage.message}</p>
+      <Outcome tone="bad" title={t.unreadable} alert>
+        <p className="text-muted-foreground">
+          {stage.stale ? COPY.app.updated : deviceErrorMessage(stage.error)}
+        </p>
       </Outcome>
     )
     footer = (
@@ -1122,7 +1379,7 @@ export function InstallDialog({
               window.location.reload()
             }}
           >
-            Reload
+            {t.reload}
           </Button>
         ) : (
           <Button
@@ -1130,7 +1387,7 @@ export function InstallDialog({
               setSession((s) => ({ ...s, attempt: s.attempt + 1, stage: { step: 'reading' } }))
             }}
           >
-            <RotateCcw /> Try again
+            <RotateCcw /> {t.tryAgain}
           </Button>
         )}
       </>
@@ -1148,14 +1405,14 @@ export function InstallDialog({
             {plan.parts.length > 0 && (
               <details className="group text-sm" open={downgradeOffered || undefined}>
                 <summary className="text-primary flex cursor-pointer list-none items-center gap-1 font-medium">
-                  Options
+                  {t.options}
                   <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
                 </summary>
                 <div className="mt-3 space-y-3">
                   <Toggle
                     id={`${ids}-grant`}
-                    label="Grant all runtime permissions"
-                    hint="The app won’t ask for the camera, location and the like. Leave it off to test those prompts."
+                    label={t.grant}
+                    hint={t.grantHint}
                     checked={consent.grant}
                     onChange={(grant) => {
                       setSession((s) => ({ ...s, consent: { ...s.consent, grant } }))
@@ -1164,8 +1421,8 @@ export function InstallDialog({
                   {downgradeOffered && (
                     <Toggle
                       id={`${ids}-downgrade`}
-                      label="Allow downgrade"
-                      hint="The installed copy is debuggable, so Android lets an older version replace it and keeps its data."
+                      label={t.allowDowngrade}
+                      hint={t.allowDowngradeHint}
                       checked={consent.downgrade}
                       onChange={(downgrade) => {
                         setSession((s) => ({ ...s, consent: { ...s.consent, downgrade } }))
@@ -1194,7 +1451,7 @@ export function InstallDialog({
                 if (gate === null) void run()
               }}
             >
-              <PackagePlus /> Install
+              <PackagePlus /> {t.install}
             </Button>
           </>
         )
@@ -1205,10 +1462,8 @@ export function InstallDialog({
           <>
             {summary}
             <div role="status" className="space-y-2">
-              <p className="text-sm">
-                Uninstalling {stage.pkg} from {device.name}…
-              </p>
-              <ProgressBar label={`Uninstalling ${stage.pkg}`} />
+              <p className="text-sm">{t.uninstallingFrom(stage.pkg, device.name)}</p>
+              <ProgressBar label={t.uninstalling(stage.pkg)} />
             </div>
             {waitingLine}
           </>
@@ -1222,12 +1477,11 @@ export function InstallDialog({
             <>
               {summary}
               <div className="space-y-2">
-                <p className="text-sm">Installing on the phone…</p>
-                <ProgressBar label="Installing on the phone" />
+                <p className="text-sm">{t.installing}</p>
+                <ProgressBar label={t.installingBar} />
                 {stage.slow && (
                   <p role="status" className="text-sm text-amber-700 dark:text-amber-300">
-                    Still installing. Check the phone: it may be asking you to confirm (Play
-                    Protect).
+                    {t.stillInstalling}
                   </p>
                 )}
               </div>
@@ -1247,11 +1501,8 @@ export function InstallDialog({
             {summary}
             <div className="space-y-2">
               <p className="text-sm tabular-nums">{text}</p>
-              <ProgressBar label={`Sending to ${device.name}`} value={sent} max={total} />
-              <p className="text-muted-foreground text-xs">
-                Closing this window doesn’t stop the install: its progress and Cancel stay on the
-                page.
-              </p>
+              <ProgressBar label={t.sendingTo(device.name)} value={sent} max={total} />
+              <p className="text-muted-foreground text-xs">{t.keepsRunning}</p>
             </div>
             {waitingLine}
           </>
@@ -1261,7 +1512,7 @@ export function InstallDialog({
             {closeButton()}
             {cancel && (
               <Button variant="outline" onClick={cancel}>
-                <X /> Cancel install
+                <X /> {t.cancelInstall}
               </Button>
             )}
           </>
@@ -1273,7 +1524,7 @@ export function InstallDialog({
         body = (
           <>
             {summary}
-            <p className="text-sm">Cancelled. Nothing was installed.</p>
+            <p className="text-sm">{t.cancelled}</p>
           </>
         )
         footer = (
@@ -1288,9 +1539,9 @@ export function InstallDialog({
         body = (
           <>
             {summary}
-            <Outcome tone="bad" title={`Couldn’t uninstall ${stage.pkg}`} alert>
-              <p className="text-muted-foreground">{stage.message}</p>
-              <p className="text-muted-foreground">Nothing was installed.</p>
+            <Outcome tone="bad" title={t.uninstallFailed(stage.pkg)} alert>
+              <p className="text-muted-foreground">{deviceErrorMessage(stage.error)}</p>
+              <p className="text-muted-foreground">{t.nothingInstalled}</p>
             </Outcome>
           </>
         )
@@ -1319,7 +1570,7 @@ export function InstallDialog({
               >
                 {outcome.warnings.length > 0 && (
                   <>
-                    <p>Installed, with warnings:</p>
+                    <p>{t.installedWithWarningsList}</p>
                     <ul className="text-muted-foreground list-disc space-y-0.5 pl-5">
                       {outcome.warnings.map((w, i) => (
                         <li key={`${String(i)}-${w}`}>{w}</li>
@@ -1333,14 +1584,14 @@ export function InstallDialog({
           )
           footer = (
             <>
-              {closeButton('Done')}
+              {closeButton(t.done)}
               {pkg && (
                 <Button
                   onClick={() => {
                     openApp(pkg)
                   }}
                 >
-                  Open app
+                  {t.openApp}
                 </Button>
               )}
             </>
@@ -1354,7 +1605,7 @@ export function InstallDialog({
         body = (
           <>
             {summary}
-            <Outcome tone="bad" title={`Couldn’t install ${name}`} alert>
+            <Outcome tone="bad" title={t.installFailed(name)} alert>
               <p className="text-muted-foreground leading-relaxed">{wording.text}</p>
               {wording.advice && <p className="leading-relaxed">{wording.advice}</p>}
               {commands.map((fix) => (
@@ -1382,7 +1633,7 @@ export function InstallDialog({
             {closeButton()}
             {isFileChangedFailure(outcome) && (
               <InstallButton
-                label="Pick again…"
+                label={t.pickAgain}
                 onFiles={(picked) => {
                   setSession(freshSession(picked))
                 }}
@@ -1391,7 +1642,7 @@ export function InstallDialog({
             {action && (
               <Button
                 aria-disabled={held || undefined}
-                title={held ? `${device.name} isn’t ready. Reconnect it first.` : undefined}
+                title={held ? t.notReadyFirst(device.name) : undefined}
                 className="aria-disabled:opacity-50"
                 onClick={() => {
                   if (!held) remedy(outcome, action.kind, details)
@@ -1412,16 +1663,13 @@ export function InstallDialog({
       ? null
       : c.kind === 'replace'
         ? {
-            title: `Replace ${name} on ${device.name}?`,
-            body:
-              c.reason === 'signature'
-                ? 'The installed copy is signed with a different key (for example from Google Play), so Android can’t update it. Device Lab will uninstall it, which deletes its data on the phone, and then install this build.'
-                : 'A newer version is installed, and Android won’t put an older one over it. Device Lab will uninstall it, which deletes its data on the phone, and then install this build.',
+            title: t.replaceTitle(name, device.name),
+            body: c.reason === 'signature' ? t.replaceSigned : t.replaceNewer,
             remove: pkg,
           }
         : {
-            title: `Uninstall ${c.pkg} from ${device.name}?`,
-            body: `This removes the app and all of its data on the phone: accounts, settings and files. It can’t be undone. Device Lab then installs ${name}.`,
+            title: t.uninstallOtherTitle(c.pkg, device.name),
+            body: t.uninstallOtherBody(name),
             remove: c.pkg,
           }
   const confirmCopy = copyOf(confirm)
@@ -1432,10 +1680,8 @@ export function InstallDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Install on {device.name}</DialogTitle>
-            <DialogDescription>
-              The file is read on this computer. Nothing is sent until you press Install.
-            </DialogDescription>
+            <DialogTitle>{t.title(device.name)}</DialogTitle>
+            <DialogDescription>{t.description}</DialogDescription>
           </DialogHeader>
           <div className="min-w-0 space-y-4">{body}</div>
           {footer && <DialogFooter>{footer}</DialogFooter>}
@@ -1454,7 +1700,7 @@ export function InstallDialog({
             <AlertDialogDescription>{shownCopy?.body}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t.cancel}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={() => {
@@ -1462,7 +1708,7 @@ export function InstallDialog({
                 if (remove) void run({}, remove)
               }}
             >
-              Uninstall and install
+              {t.uninstallAndInstall}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1554,6 +1800,7 @@ export function InstallDropZone({
   className?: string
   children: ReactNode
 }) {
+  const t = useMessages(INSTALL_MESSAGES)
   const [over, setOver] = useState(false)
   const depth = useRef(0)
   return (
@@ -1589,8 +1836,8 @@ export function InstallDropZone({
             if (files.length > 0) onFiles(files)
           },
           () => {
-            toast.error('Couldn’t read what was dropped', {
-              description: 'Pick the files with Install app instead.',
+            toast.error(INSTALL_WORDS.dropUnreadable, {
+              description: INSTALL_WORDS.dropUnreadableHint,
             })
           },
         )
@@ -1605,7 +1852,7 @@ export function InstallDropZone({
           {/* Sticky, so on a zone taller than the window the words stay in view. */}
           <div className="sticky top-1/2 flex -translate-y-1/2 flex-col items-center py-16">
             <PackagePlus className="mb-2 size-7 opacity-60" />
-            Drop to install on {deviceName}
+            {t.dropToInstall(deviceName)}
           </div>
         </div>
       )}
@@ -1617,14 +1864,16 @@ export function InstallDropZone({
 export function InstallButton({
   disabled = false,
   title,
-  label = 'Install app',
+  label,
   onFiles,
 }: {
   disabled?: boolean
   title?: string
+  /** "Install app" when left out. */
   label?: string
   onFiles: (files: File[]) => void
 }) {
+  const t = useMessages(INSTALL_MESSAGES)
   const input = useRef<HTMLInputElement>(null)
   return (
     <>
@@ -1636,7 +1885,7 @@ export function InstallButton({
           input.current?.click()
         }}
       >
-        <PackagePlus /> {label}
+        <PackagePlus /> {label ?? t.installApp}
       </Button>
       <input
         ref={input}

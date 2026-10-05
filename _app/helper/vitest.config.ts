@@ -16,6 +16,9 @@ export default defineConfig({
   root: fileURLToPath(new URL('.', import.meta.url)),
   // Next to the page's cache, not in a helper/node_modules of its own.
   cacheDir: fileURLToPath(new URL('../node_modules/.vite-helper', import.meta.url)),
+  // The contract tests import the page's own modules (backends/android.ts), which import the
+  // site's shared code through `@/`, as in vite.config.ts.
+  resolve: { alias: { '@': fileURLToPath(new URL('../src', import.meta.url)) } },
   test: {
     include: ['test/**/*.test.ts'],
     environment: 'node',

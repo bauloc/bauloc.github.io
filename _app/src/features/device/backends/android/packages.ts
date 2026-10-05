@@ -1,3 +1,5 @@
+import { localized } from '@/lib/i18n'
+
 import {
   androidError,
   assertPackageName,
@@ -278,8 +280,7 @@ export function appMatches(row: AppRow, filter: string, label?: string): boolean
     .includes(needle)
 }
 
-/** Stores and installers a tester will recognise; anything else shows its package name. */
-const INSTALLERS: Readonly<Record<string, string>> = {
+const INSTALLERS_EN: Readonly<Record<string, string>> = {
   'com.android.vending': 'Google Play',
   'com.google.android.packageinstaller': 'Package installer',
   'com.android.packageinstaller': 'Package installer',
@@ -292,8 +293,23 @@ const INSTALLERS: Readonly<Record<string, string>> = {
   'org.fdroid.fdroid': 'F-Droid',
 }
 
+/**
+ * Stores and installers a tester will recognise; anything else shows its package name. The
+ * stores keep their names; Android's own installer goes by the name the phone gives it.
+ */
+const INSTALLERS = localized<Readonly<Record<string, string>>>({
+  en: INSTALLERS_EN,
+  vi: {
+    ...INSTALLERS_EN,
+    'com.google.android.packageinstaller': 'Trình cài đặt gói',
+    'com.android.packageinstaller': 'Trình cài đặt gói',
+  },
+})
+
+const UNKNOWN_INSTALLER = localized({ en: { text: 'Unknown' }, vi: { text: 'Không rõ' } })
+
 export function installerName(installer: string | null): string {
-  if (!installer) return 'Unknown'
+  if (!installer) return UNKNOWN_INSTALLER.text
   return INSTALLERS[installer] ?? installer
 }
 
