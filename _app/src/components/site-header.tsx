@@ -52,7 +52,7 @@ export function SiteHeader({
   base = '/',
   className,
 }: {
-  /** The page's section; null on a page that is none of them (the 404). */
+  /** The page's section; null on a page that is none of them. */
   current: SiteSection | null
   /** Before the sections: XConsole's sidebar trigger. */
   leading?: ReactNode

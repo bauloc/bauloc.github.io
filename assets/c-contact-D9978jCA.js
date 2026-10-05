@@ -1,0 +1,1 @@
+import{t as e}from"./c-contact-page-DvCgubxj.js";var t=e;export{t as component};

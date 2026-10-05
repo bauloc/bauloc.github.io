@@ -90,7 +90,7 @@ Form liên hệ gửi tin nhắn qua bot Telegram. `VITE_TELEGRAM_BOT_TOKEN` và
 │   └── scripts/        # publish, check-live, cv, ...
 ├── assets/             # JS, CSS, ảnh đã build
 ├── index.html          # Trang chủ (bản build)
-├── 404.html            # Bản sao của index.html để mở được deep link
+├── 404.html            # Bản sao của index.html: mở deep link, đưa trang không tồn tại về /profile
 ├── profile/            # Trang HTML của từng mục (bản build)
 ├── xconsole/
 ├── device/
