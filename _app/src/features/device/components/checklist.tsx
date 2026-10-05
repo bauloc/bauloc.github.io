@@ -4,6 +4,7 @@ import { useId } from 'react'
 import { Button } from '@/components/ui/button'
 import { CopyButton } from '@/components/copy-button'
 import { cn } from '@/lib/cn'
+import { defineMessages, localized, useMessages } from '@/lib/i18n'
 
 import { bySeverity, worst } from '../preflight/checks'
 import { GROUP_TITLES, STATUS_META } from '../preflight/copy'
@@ -18,6 +19,20 @@ import { StateDot, TONE_SURFACE } from './status'
   Every status is a word beside its dot, never colour alone. A command to copy is shown as
   the command itself, because a sentence like "…drop it here:" points at it.
 */
+
+/** The few words the pieces below say themselves; a row brings its own (preflight/copy.ts). */
+const CHECKLIST_MESSAGES = defineMessages({
+  en: {
+    copyCommand: 'Copy command',
+    newTab: ' (opens in a new tab)',
+    reconnecting: 'Reconnecting…',
+  },
+  vi: {
+    copyCommand: 'Sao chép lệnh',
+    newTab: ' (mở trong thẻ mới)',
+    reconnecting: 'Đang kết nối lại…',
+  },
+})
 
 /* ---------------------------------------------------------------- *
  * Wiring
@@ -41,10 +56,16 @@ export interface FixWiring {
  * Pure helpers
  * ---------------------------------------------------------------- */
 
+/** How a line joins the labels of the rows it merges, in the language at each call. */
+const JOIN = localized({
+  en: { and: (head: string, last: string) => `${head} and ${last}` },
+  vi: { and: (head: string, last: string) => `${head} và ${last}` },
+})
+
 /** "A", "A and B", "A, B and C". */
 export function joinLabels(labels: readonly string[]): string {
   if (labels.length <= 1) return labels[0] ?? ''
-  return `${labels.slice(0, -1).join(', ')} and ${labels.at(-1) ?? ''}`
+  return JOIN.and(labels.slice(0, -1).join(', '), labels.at(-1) ?? '')
 }
 
 /** One line on screen: a row, or several rows that say exactly the same thing. */
@@ -95,11 +116,18 @@ export function splitFixes(fixes: readonly Fix[] = []) {
 }
 
 /** The compact card's title, by the worst status it holds. */
-export const INLINE_TITLES: Readonly<Record<Exclude<CheckStatus, 'ok'>, string>> = {
-  blocking: 'Fix this first',
-  warning: 'Check this first',
-  unchecked: 'Not checked yet',
-}
+export const INLINE_TITLES = localized<Readonly<Record<Exclude<CheckStatus, 'ok'>, string>>>({
+  en: {
+    blocking: 'Fix this first',
+    warning: 'Check this first',
+    unchecked: 'Not checked yet',
+  },
+  vi: {
+    blocking: 'Cần xử lý trước',
+    warning: 'Cần kiểm tra trước',
+    unchecked: 'Chưa kiểm tra',
+  },
+})
 
 /**
  * The props for a feature's main button under its compact card: described by the card while
@@ -140,13 +168,14 @@ export function StatusWord({ status, className }: { status: CheckStatus; classNa
  * A command to run, on one line as it will be typed, with its copy button. Too long for the
  * width, it scrolls rather than breaking a path or URL in the middle.
  */
-export function Command({ text, label = 'Copy command' }: { text: string; label?: string }) {
+export function Command({ text, label }: { text: string; label?: string }) {
+  const t = useMessages(CHECKLIST_MESSAGES)
   return (
     <div className="bg-muted/60 flex items-center gap-2 rounded-lg border py-1 pr-1 pl-3">
       <code className="min-w-0 flex-1 overflow-x-auto py-1 font-mono text-xs whitespace-pre">
         {text}
       </code>
-      <CopyButton text={text} label={label} />
+      <CopyButton text={text} label={label ?? t.copyCommand} />
     </div>
   )
 }
@@ -169,6 +198,7 @@ export function FixButton({
   fix: Extract<Fix, { href: string } | { action: FixAction }>
   wiring?: FixWiring
 }) {
+  const t = useMessages(CHECKLIST_MESSAGES)
   const variant = fix.primary ? 'default' : 'outline'
   if ('href' in fix) {
     return (
@@ -176,7 +206,7 @@ export function FixButton({
         <a href={fix.href} target="_blank" rel="noopener noreferrer">
           {fix.label}
           <ExternalLink aria-hidden="true" />
-          <span className="sr-only"> (opens in a new tab)</span>
+          <span className="sr-only">{t.newTab}</span>
         </a>
       </Button>
     )
@@ -198,7 +228,7 @@ export function FixButton({
       }}
     >
       {pending && <Loader2 className="animate-spin" />}
-      {pending && fix.action === 'retry' ? 'Reconnecting…' : fix.label}
+      {pending && fix.action === 'retry' ? t.reconnecting : fix.label}
     </Button>
   )
 }

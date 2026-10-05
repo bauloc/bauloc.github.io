@@ -5,9 +5,21 @@
   returned) and says why, from a small sample drawn in the browser: every pixel near black.
 */
 
-/** What the page says about one: why, and what to do. */
-export const BLACK_SHOT_TEXT =
-  'The screen was off or locked: wake and unlock the device, then take it again.'
+import { defineMessages, localized } from '@/lib/i18n'
+
+const BLACK_SHOT_MESSAGES = defineMessages({
+  en: { text: 'The screen was off or locked: wake and unlock the device, then take it again.' },
+  vi: { text: 'Màn hình đang tắt hoặc khóa: hãy đánh thức và mở khóa thiết bị, rồi chụp lại.' },
+})
+
+/** What the page says about one: why, and what to do, in the language on screen. */
+export const BLACK_SHOT = localized(BLACK_SHOT_MESSAGES)
+
+/**
+ * BLACK_SHOT.text, in English only: a string read once can't follow a language switch, so
+ * anything on screen reads BLACK_SHOT.text instead.
+ */
+export const BLACK_SHOT_TEXT = BLACK_SHOT_MESSAGES.en.text
 
 /** The sample's longer side, in pixels: enough to catch a status bar or a line of text. */
 const SAMPLE = 96

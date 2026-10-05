@@ -21,6 +21,8 @@
   toast says how to install one.
 */
 
+import { localized } from '@/lib/i18n'
+
 export const APK_MIME = 'application/vnd.android.package-archive'
 /** What APKPure serves .xapk files as; a type the browser has no extension of its own for. */
 export const XAPK_MIME = 'application/xapk-package-archive'
@@ -71,7 +73,18 @@ async function blobCrc(
 
 /** The 32-bit fields of a zip without ZIP64 stop just short of 4 GB. */
 const ZIP_LIMIT = 0xffffffff
-const TOO_BIG = 'These APKs add up to more than 4 GB, which a plain .zip can’t hold.'
+/** Why packing failed, in the language on screen. */
+const REFUSED = localized({
+  en: {
+    tooBig: 'These APKs add up to more than 4 GB, which a plain .zip can’t hold.',
+    noApks: 'Android listed no APK files for this app.',
+  },
+  vi: {
+    tooBig:
+      'Tổng dung lượng các APK này hơn 4 GB, vượt quá giới hạn của một tệp .zip thông thường.',
+    noApks: 'Android không liệt kê tệp APK nào của ứng dụng này.',
+  },
+})
 
 /** MS-DOS date and time, the only kind a plain zip header holds (local time, 2-second steps). */
 function dosDateTime(d: Date): { time: number; date: number } {
@@ -122,7 +135,7 @@ export async function storedZip(
   let offset = 0
   for (const { name, blob } of entries) {
     const nameBytes = encoder.encode(name)
-    if (offset + 30 + nameBytes.length + blob.size > ZIP_LIMIT) throw new Error(TOO_BIG)
+    if (offset + 30 + nameBytes.length + blob.size > ZIP_LIMIT) throw new Error(REFUSED.tooBig)
     const crc = await blobCrc(blob, signal, counted)
     const local = new Uint8Array(30 + nameBytes.length)
     const lv = new DataView(local.buffer)
@@ -159,7 +172,8 @@ export async function storedZip(
     offset += local.length + blob.size
   }
   const centralSize = central.reduce((n, e) => n + e.length, 0)
-  if (offset + centralSize + 22 > ZIP_LIMIT || entries.length > 0xffff) throw new Error(TOO_BIG)
+  if (offset + centralSize + 22 > ZIP_LIMIT || entries.length > 0xffff)
+    throw new Error(REFUSED.tooBig)
   const end = new Uint8Array(22)
   const ev = new DataView(end.buffer)
   ev.setUint32(0, 0x06054b50, true)
@@ -300,7 +314,7 @@ export async function packApp(
   }: Pick<ZipOptions, 'at' | 'signal' | 'onProgress'> & { icon?: Blob | null } = {},
 ): Promise<PackedApp> {
   const [first] = apks
-  if (!first) throw new Error('Android listed no APK files for this app.')
+  if (!first) throw new Error(REFUSED.noApks)
   const version = app.versionName ?? (app.versionCode === null ? '' : String(app.versionCode))
   const fileName = exportName(app.packageName, version, apks.length)
   if (apks.length === 1) {

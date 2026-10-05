@@ -1,9 +1,11 @@
 import { useSyncExternalStore } from 'react'
 
+import { localized } from '@/lib/i18n'
+
 import type { InstallErrorCode, InstallFailure, InstallOutcome } from './backends/android/pm-output'
 import type { InstallPlan } from './backends/archive/plan'
 import type { AppAction, Backend, InstallOptions, InstallProgress } from './backends/backend'
-import { BLACK_SHOT_TEXT, looksBlack } from './black-shot'
+import { BLACK_SHOT, looksBlack } from './black-shot'
 import {
   deviceErrorMessage,
   fileChangedFailure,
@@ -199,24 +201,71 @@ export interface DeviceLab {
   setUsbFinding(finding: UsbFinding): void
 }
 
+/** What the store announces, in the language on screen when it happens. */
+const SAY = localized({
+  en: {
+    theApp: 'the app',
+    opened: (pkg: string, device: string) => `Opened ${pkg} on ${device}.`,
+    stopped: (pkg: string) => `Stopped ${pkg}.`,
+    cleared: (pkg: string, device: string) => `Cleared the data of ${pkg} on ${device}.`,
+    uninstalled: (pkg: string, device: string) => `Uninstalled ${pkg} from ${device}.`,
+    openedInfo: (pkg: string, device: string) => `Opened App info for ${pkg} on ${device}.`,
+    connected: (name: string) => `${name} connected.`,
+    selectedGone: 'The selected device disconnected.',
+    sending: (label: string, device: string) => `Sending ${label} to ${device}.`,
+    installing: (label: string, device: string) => `Installing ${label} on ${device}…`,
+    cancelled: 'Cancelled. Nothing was installed.',
+    installedWithWarnings: (label: string, device: string) =>
+      `Installed ${label} on ${device}, with warnings.`,
+    installed: (label: string, device: string) => `Installed ${label} on ${device}.`,
+    installFailed: (device: string, text: string) => `Install on ${device} failed: ${text}`,
+    ready: 'Device Lab ready.',
+    shotBlack: (device: string, why: string) =>
+      `Screenshot captured from ${device}, all black. ${why}`,
+    shot: (device: string) => `Screenshot captured from ${device}.`,
+  },
+  vi: {
+    theApp: 'ứng dụng',
+    opened: (pkg: string, device: string) => `Đã mở ${pkg} trên ${device}.`,
+    stopped: (pkg: string) => `Đã dừng ${pkg}.`,
+    cleared: (pkg: string, device: string) => `Đã xóa dữ liệu của ${pkg} trên ${device}.`,
+    uninstalled: (pkg: string, device: string) => `Đã gỡ cài đặt ${pkg} khỏi ${device}.`,
+    openedInfo: (pkg: string, device: string) =>
+      `Đã mở Thông tin ứng dụng của ${pkg} trên ${device}.`,
+    connected: (name: string) => `${name} đã kết nối.`,
+    selectedGone: 'Thiết bị đang chọn đã ngắt kết nối.',
+    sending: (label: string, device: string) => `Đang gửi ${label} tới ${device}.`,
+    installing: (label: string, device: string) => `Đang cài ${label} lên ${device}…`,
+    cancelled: 'Đã hủy. Chưa cài gì cả.',
+    installedWithWarnings: (label: string, device: string) =>
+      `Đã cài ${label} lên ${device}, có cảnh báo.`,
+    installed: (label: string, device: string) => `Đã cài ${label} lên ${device}.`,
+    installFailed: (device: string, text: string) => `Không cài được lên ${device}: ${text}`,
+    ready: 'Device Lab đã sẵn sàng.',
+    shotBlack: (device: string, why: string) =>
+      `Đã chụp màn hình ${device}, ảnh toàn màu đen. ${why}`,
+    shot: (device: string) => `Đã chụp màn hình ${device}.`,
+  },
+})
+
 /** What an install is called in messages. */
 export function installLabel(plan: InstallPlan): string {
-  return plan.app?.label || plan.app?.packageName || plan.inputs[0]?.name || 'the app'
+  return plan.app?.label || plan.app?.packageName || plan.inputs[0]?.name || SAY.theApp
 }
 
 /** What a successful app action says, for the live region. */
 function actionDone(action: AppAction, pkg: string, device: string): string {
   switch (action) {
     case 'launch':
-      return `Opened ${pkg} on ${device}.`
+      return SAY.opened(pkg, device)
     case 'stop':
-      return `Stopped ${pkg}.`
+      return SAY.stopped(pkg)
     case 'clear':
-      return `Cleared the data of ${pkg} on ${device}.`
+      return SAY.cleared(pkg, device)
     case 'uninstall':
-      return `Uninstalled ${pkg} from ${device}.`
+      return SAY.uninstalled(pkg, device)
     case 'info':
-      return `Opened App info for ${pkg} on ${device}.`
+      return SAY.openedInfo(pkg, device)
   }
 }
 
@@ -233,6 +282,26 @@ const failure = (
   message: string,
   params: Readonly<Record<string, string>> = {},
 ): InstallFailure => ({ ok: false, code, androidCode: null, message, params, output: '' })
+
+/**
+ * A failure the browser raised, worded from its error each time it is read: the job keeps it
+ * on screen until dismissed, so it follows a switch of language.
+ */
+const browserFailure = (code: InstallErrorCode, error: unknown): InstallFailure => ({
+  ...failure(code, ''),
+  get message() {
+    return deviceErrorMessage(error)
+  },
+})
+
+/** A detail read that failed, its reason worded each time it is read, like browserFailure. */
+const failedDetail = (deviceId: string, error: unknown): DetailState => ({
+  status: 'failed',
+  deviceId,
+  get message() {
+    return deviceErrorMessage(error)
+  },
+})
 
 /** Why a job's signal was aborted: the tester, or the device going away. */
 type AbortCause = 'cancel' | 'lost' | 'stop'
@@ -286,11 +355,7 @@ export function createDeviceLab(
           set({ detail: { status: 'ready', deviceId: device.id, detail } })
       },
       (error: unknown) => {
-        if (ticket === detailTicket && !quiet) {
-          set({
-            detail: { status: 'failed', deviceId: device.id, message: deviceErrorMessage(error) },
-          })
-        }
+        if (ticket === detailTicket && !quiet) set({ detail: failedDetail(device.id, error) })
       },
     )
   }
@@ -373,14 +438,14 @@ export function createDeviceLab(
     const before = new Map(previous.map((d) => [d.id, d]))
     for (const d of devices) {
       const was = before.get(d.id)
-      if (d.state === 'ready' && was?.state !== 'ready') message = `${d.name} connected.`
+      if (d.state === 'ready' && was?.state !== 'ready') message = SAY.connected(d.name)
     }
     if (
       snap.selectedId !== null &&
       before.has(snap.selectedId) &&
       !devices.some((d) => d.id === snap.selectedId)
     ) {
-      message = 'The selected device disconnected.'
+      message = SAY.selectedGone
     }
     // A gone selection is kept so the pane can say it went. Once nothing is attached the gate
     // replaces the pane, though, and holding on would stop the next phone on the cable from
@@ -429,7 +494,7 @@ export function createDeviceLab(
     }
     set({
       jobs: [...snap.jobs, job],
-      announcement: say(`Sending ${label} to ${device.name}.`),
+      announcement: say(SAY.sending(label, device.name)),
     })
 
     const onProgress = (p: InstallProgress) => {
@@ -442,7 +507,7 @@ export function createDeviceLab(
         patchJob(
           id,
           { phase: p.phase, sent: p.sent, total: p.total, phaseSince: t, cancel: undefined },
-          `Installing ${label} on ${device.name}…`,
+          SAY.installing(label, device.name),
         )
         return
       }
@@ -462,7 +527,7 @@ export function createDeviceLab(
         outcome = null // Cancel, or stop()
       // A file changed since the pick fails the same way on Retry: it has to be picked again.
       else if (isFileChangedError(error)) outcome = fileChangedFailure()
-      else outcome = failure(damagedFile(error) ? 'NOT_APK' : 'UNKNOWN', deviceErrorMessage(error))
+      else outcome = browserFailure(damagedFile(error) ? 'NOT_APK' : 'UNKNOWN', error)
     } finally {
       running.delete(id)
     }
@@ -472,20 +537,20 @@ export function createDeviceLab(
     let message: string
     if (outcome === null) {
       end = { phase: 'cancelled' }
-      message = 'Cancelled. Nothing was installed.'
+      message = SAY.cancelled
     } else if (outcome.ok) {
       end = { phase: 'done', outcome }
       message =
         outcome.warnings.length > 0
-          ? `Installed ${label} on ${device.name}, with warnings.`
-          : `Installed ${label} on ${device.name}.`
+          ? SAY.installedWithWarnings(label, device.name)
+          : SAY.installed(label, device.name)
     } else {
       end = { phase: 'failed', outcome }
       // The browser's own sentence as it is: Android never saw this install.
       const text = isLocalFailure(outcome)
         ? outcome.message
         : installErrorWording(outcome, { abis: device.android?.abis ?? [] }).text
-      message = `Install on ${device.name} failed: ${text}`
+      message = SAY.installFailed(device.name, text)
     }
     const final: Job = {
       ...(snap.jobs.find((j) => j.id === id) ?? job),
@@ -532,7 +597,7 @@ export function createDeviceLab(
       }
       if (gen !== generation) return
       onDevicesChanged()
-      set({ announcement: say('Device Lab ready.') })
+      set({ announcement: say(SAY.ready) })
     },
 
     stop() {
@@ -623,9 +688,7 @@ export function createDeviceLab(
           shots,
           capturing: false,
           announcement: say(
-            black
-              ? `Screenshot captured from ${device.name}, all black. ${BLACK_SHOT_TEXT}`
-              : `Screenshot captured from ${device.name}.`,
+            black ? SAY.shotBlack(device.name, BLACK_SHOT.text) : SAY.shot(device.name),
           ),
         })
         return null

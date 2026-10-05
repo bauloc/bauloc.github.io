@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
+import { defineMessages, localized, useMessages } from '@/lib/i18n'
 
 import { deviceErrorMessage } from '../backends/backend'
 import type { HelperStatus } from '../helper/connection'
@@ -26,15 +27,52 @@ import { TONE_SURFACE } from './status'
   downloaded before discovery shipped gets the update notice here, with its command.
 */
 
-/** The badge: how the device offers debugging. */
-export const KIND_LABEL: Readonly<Record<NearbyKind, string>> = {
-  adb: 'Network debugging',
-  wireless: 'Wireless debugging',
-  pairing: 'Wireless debugging',
-}
+/** The badge: how the device offers debugging, by the device's own name for it. */
+export const KIND_LABEL = localized<Readonly<Record<NearbyKind, string>>>({
+  en: {
+    adb: 'Network debugging',
+    wireless: 'Wireless debugging',
+    pairing: 'Wireless debugging',
+  },
+  vi: {
+    adb: 'Gỡ lỗi mạng',
+    wireless: 'Gỡ lỗi qua Wi‑Fi',
+    pairing: 'Gỡ lỗi qua Wi‑Fi',
+  },
+})
+
+const NEARBY_MESSAGES = defineMessages({
+  en: {
+    title: 'On this network',
+    lookAgain: 'Look again',
+    lookAgainName: 'Look again for devices on this network',
+    pairingOpen: 'Pairing screen open',
+    setUpHelper: 'Set up the helper',
+    connect: 'Connect',
+    connecting: 'Connecting…',
+    connectName: (name: string, address: string) => `Connect ${name} (${address})`,
+    pair: 'Pair…',
+    pairName: (name: string, address: string) => `Pair ${name} (${address})…`,
+    looking: 'Looking…',
+  },
+  vi: {
+    title: 'Trên mạng này',
+    lookAgain: 'Tìm lại',
+    lookAgainName: 'Tìm lại thiết bị trên mạng này',
+    pairingOpen: 'Màn hình ghép nối đang mở',
+    setUpHelper: 'Thiết lập helper',
+    connect: 'Kết nối',
+    connecting: 'Đang kết nối…',
+    connectName: (name: string, address: string) => `Kết nối ${name} (${address})`,
+    pair: 'Ghép nối…',
+    pairName: (name: string, address: string) => `Ghép nối ${name} (${address})…`,
+    looking: 'Đang tìm…',
+  },
+})
 
 /** One found device's name, address and kind, as the list and the Wi‑Fi dialog both show it. */
 export function NearbySummary({ row }: { row: NearbyRow }) {
+  const t = useMessages(NEARBY_MESSAGES)
   const Icon = row.tv ? Tv : Smartphone
   return (
     <span className="flex min-w-0 flex-1 items-start gap-2.5">
@@ -50,7 +88,7 @@ export function NearbySummary({ row }: { row: NearbyRow }) {
             {KIND_LABEL[row.kind]}
           </Badge>
           {row.pairingOpen && row.action.kind === 'pair' && (
-            <span className="text-muted-foreground text-xs">Pairing screen open</span>
+            <span className="text-muted-foreground text-xs">{t.pairingOpen}</span>
           )}
         </span>
       </span>
@@ -60,18 +98,19 @@ export function NearbySummary({ row }: { row: NearbyRow }) {
 
 /** The section's own heading row: title, and Refresh once it can look. */
 function Heading({ id, busy, onRefresh }: { id: string; busy?: boolean; onRefresh?: () => void }) {
+  const t = useMessages(NEARBY_MESSAGES)
   return (
     <div className="flex items-center gap-2">
       <h2 id={id} className="text-muted-foreground flex-1 text-xs font-medium tracking-wide">
-        On this network
+        {t.title}
       </h2>
       {onRefresh && (
         <Button
           variant="ghost"
           size="icon"
           className="size-7 aria-disabled:opacity-50"
-          aria-label="Look again for devices on this network"
-          title="Look again"
+          aria-label={t.lookAgainName}
+          title={t.lookAgain}
           // aria-disabled, not disabled: disabling the focused button drops focus to <body>.
           aria-disabled={busy || undefined}
           onClick={() => {
@@ -110,6 +149,7 @@ export function NearbySection({
   /** Where the helper is set up: started, then paired. */
   onHelper: () => void
 }) {
+  const t = useMessages(NEARBY_MESSAGES)
   const headingId = useId()
   const availability = nearbyAvailability(status)
   const ready = availability === 'ready'
@@ -130,7 +170,7 @@ export function NearbySection({
             onClick={onHelper}
             className="text-primary font-medium underline-offset-4 hover:underline focus-visible:underline"
           >
-            Set up the helper
+            {t.setUpHelper}
           </button>
         </p>
       </section>
@@ -216,7 +256,7 @@ export function NearbySection({
                   <Button
                     size="sm"
                     variant="outline"
-                    aria-label={`Connect ${row.name} (${row.address})`}
+                    aria-label={t.connectName(row.name, row.address)}
                     aria-disabled={connecting !== null || undefined}
                     className="shrink-0 aria-disabled:opacity-50"
                     onClick={() => {
@@ -224,19 +264,19 @@ export function NearbySection({
                     }}
                   >
                     {running ? <Loader2 className="animate-spin" /> : <Wifi />}
-                    {running ? 'Connecting…' : 'Connect'}
+                    {running ? t.connecting : t.connect}
                   </Button>
                 ) : (
                   <Button
                     size="sm"
                     variant="outline"
-                    aria-label={`Pair ${row.name} (${row.address})…`}
+                    aria-label={t.pairName(row.name, row.address)}
                     className="shrink-0"
                     onClick={() => {
                       onPair(row)
                     }}
                   >
-                    Pair…
+                    {t.pair}
                   </Button>
                 )}
               </li>
@@ -246,7 +286,7 @@ export function NearbySection({
       ) : looking ? (
         <p className="text-muted-foreground flex items-center gap-2 text-xs">
           <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
-          Looking…
+          {t.looking}
         </p>
       ) : snapshot.state === 'ok' && snapshot.devices.length > 0 ? (
         // Only after a look that ran: blocked or failed, the devices here are adb's own list,

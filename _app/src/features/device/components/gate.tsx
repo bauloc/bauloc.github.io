@@ -4,6 +4,7 @@ import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { cn } from '@/lib/cn'
+import { defineMessages, useMessages } from '@/lib/i18n'
 
 import type { Platform } from '../model'
 import type { HelperPhase, HelperStatus } from '../helper/connection'
@@ -27,6 +28,103 @@ import { OlderHelper } from './older-helper'
 import { PlatformIcon } from './platform-icon'
 import { STEP_TEXT, StepBody, StepItem, StepList } from './setup-steps'
 import { TONE_SURFACE } from './status'
+
+/*
+  The Gate's own words. Its steps' rows are the checklist's (preflight/checks.ts and copy.ts),
+  and the iPhone side's are the helper's (helper-card.tsx); these are the rest.
+*/
+const GATE_MESSAGES = defineMessages({
+  en: {
+    title: 'Connect a device',
+    lead: 'Identifiers, screenshots and logs for the phones plugged into this computer. Everything runs locally — nothing about your devices is uploaded anywhere.',
+    platform: 'Platform',
+    choices: {
+      android: { name: 'Android', how: 'USB, in this browser' },
+      ios: { name: 'iPhone & iPad', how: 'Via a helper on a Mac' },
+    },
+    headlines: {
+      android: {
+        title: 'Set up Android over USB',
+        promise: 'Plug a phone into this computer and this browser talks to it directly.',
+      },
+      ios: {
+        title: 'Set up iPhone through the helper',
+        promise: 'A small helper on this Mac connects your iPhone.',
+      },
+    },
+    throughHelper: 'Through the local helper',
+    steps: 'Connect your phone',
+    thisBrowser: 'This browser',
+    browserReady: 'This browser can talk to Android phones over USB. Nothing to install.',
+    findPhone: 'Find my phone…',
+    help: {
+      summary: 'Didn’t see your phone?',
+      findPhone:
+        'Not in the browser’s list at all? Find my phone… lists every USB device and says what it sees, for example a phone with USB debugging off.',
+      claim:
+        'In the list, but “unable to claim interface”? One program at a time can own a USB device, and Google’s adb server usually got there first. Quit it, then try again:',
+      ide: 'If adb comes straight back, an IDE is restarting it — Android Studio, IntelliJ, Flutter, VS Code, Unity or scrcpy. Quit that too, or use the local helper instead, which shares the adb server rather than fighting it.',
+      winUsb:
+        'No adb running? Then a phone maker’s USB driver probably owns the phone’s ADB interface. Switch it to WinUSB:',
+    },
+    wifi: {
+      title: 'Phone or TV on Wi‑Fi?',
+      tag: 'Through the helper',
+      /** The tag line on a phone, run into the paragraph rather than breaking the heading. */
+      tagInline: 'Through the helper: ',
+      body: 'An Android TV, or a phone across the room, with no cable.',
+      button: 'Network device (Wi‑Fi)…',
+    },
+    allChecks: 'All checks',
+    allChecksCount: (count: number) => `All checks (${String(count)})`,
+    recheck: 'Re-check',
+  },
+  vi: {
+    title: 'Kết nối thiết bị',
+    lead: 'Thông tin định danh, ảnh chụp màn hình và log của những chiếc điện thoại đang cắm vào máy tính này. Mọi thứ chạy ngay trên máy — không có dữ liệu nào về thiết bị của bạn bị tải lên bất cứ đâu.',
+    platform: 'Nền tảng',
+    choices: {
+      android: { name: 'Android', how: 'USB, trong trình duyệt này' },
+      ios: { name: 'iPhone & iPad', how: 'Qua helper trên máy Mac' },
+    },
+    headlines: {
+      android: {
+        title: 'Thiết lập Android qua USB',
+        promise: 'Cắm điện thoại vào máy tính này, trình duyệt sẽ giao tiếp trực tiếp với nó.',
+      },
+      ios: {
+        title: 'Thiết lập iPhone qua helper',
+        promise: 'Một helper nhỏ trên máy Mac này sẽ kết nối iPhone của bạn.',
+      },
+    },
+    throughHelper: 'Qua helper cục bộ',
+    steps: 'Kết nối điện thoại của bạn',
+    thisBrowser: 'Trình duyệt này',
+    browserReady:
+      'Trình duyệt này giao tiếp được với điện thoại Android qua USB. Không cần cài thêm gì.',
+    findPhone: 'Tìm điện thoại của tôi…',
+    help: {
+      summary: 'Không thấy điện thoại của bạn?',
+      findPhone:
+        'Điện thoại không hề có trong danh sách của trình duyệt? “Tìm điện thoại của tôi…” liệt kê mọi thiết bị USB và cho biết nó thấy gì, chẳng hạn một điện thoại đang tắt Gỡ lỗi qua USB.',
+      claim:
+        'Có trong danh sách nhưng báo “unable to claim interface”? Mỗi lúc chỉ một chương trình được giữ một thiết bị USB, và adb server của Google thường đã giữ trước. Hãy tắt adb server rồi thử lại:',
+      ide: 'Nếu adb tự chạy lại ngay, tức là một IDE đang khởi động lại nó — Android Studio, IntelliJ, Flutter, VS Code, Unity hoặc scrcpy. Hãy tắt luôn ứng dụng đó, hoặc dùng helper cục bộ: helper dùng chung adb server thay vì tranh giành với nó.',
+      winUsb:
+        'Không có adb nào đang chạy? Vậy nhiều khả năng trình điều khiển USB của hãng điện thoại đang giữ giao diện ADB của máy. Hãy chuyển giao diện đó sang WinUSB:',
+    },
+    wifi: {
+      title: 'Điện thoại hoặc TV dùng Wi‑Fi?',
+      tag: 'Qua helper',
+      tagInline: 'Qua helper: ',
+      body: 'Một chiếc Android TV, hay điện thoại ở đầu kia căn phòng, không cần cáp.',
+      button: 'Thiết bị qua mạng (Wi‑Fi)…',
+    },
+    allChecks: 'Tất cả mục kiểm tra',
+    allChecksCount: (count: number) => `Tất cả mục kiểm tra (${String(count)})`,
+    recheck: 'Kiểm tra lại',
+  },
+})
 
 /* ---------------------------------------------------------------- *
  * The platform choice: which one, remembered, preset
@@ -97,11 +195,6 @@ export function presetPlatform({
   return mac ? 'ios' : 'android'
 }
 
-const CHOICES: Readonly<Record<GatePlatform, { name: string; how: string }>> = {
-  android: { name: 'Android', how: 'USB, in this browser' },
-  ios: { name: 'iPhone & iPad', how: 'Via a helper on a Mac' },
-}
-
 /**
  * The first choice, as two large tiles with the platform marks: a radio group, so Tab enters
  * on the chosen one and the arrow keys (Home, End too) move and choose at once. Side by side
@@ -114,6 +207,7 @@ function PlatformPicker({
   value: GatePlatform
   onChange: (platform: GatePlatform) => void
 }) {
+  const t = useMessages(GATE_MESSAGES)
   const refs = useRef<Partial<Record<GatePlatform, HTMLButtonElement | null>>>({})
   const move = (e: KeyboardEvent, from: GatePlatform) => {
     const i = PLATFORMS.indexOf(from)
@@ -134,10 +228,10 @@ function PlatformPicker({
     refs.current[to]?.focus()
   }
   return (
-    <div role="radiogroup" aria-label="Platform" className="grid grid-cols-2 gap-3">
+    <div role="radiogroup" aria-label={t.platform} className="grid grid-cols-2 gap-3">
       {PLATFORMS.map((platform) => {
         const checked = platform === value
-        const { name, how } = CHOICES[platform]
+        const { name, how } = t.choices[platform]
         return (
           <button
             key={platform}
@@ -222,20 +316,18 @@ export function stepStatus(item: CheckItem): CheckStatus | undefined {
   return next ? undefined : item.status
 }
 
-/** The checks' Re-check: the helper's tools again, and the page's own rows. */
-const RECHECK = { label: 'Re-check', action: 'recheck' } as const satisfies Fix
-
 /** Android through the helper, for a browser without WebUSB (spec §6.8), above the steps. */
 function HelperAndroid({ helper, wiring }: { helper: HelperStatus; wiring: FixWiring }) {
+  const t = useMessages(GATE_MESSAGES)
   const view = helperAndroid(helper)
   if (!view) return null
   const ready = !view.command && !view.startAdb && helper.lanes?.android.status === 'ok'
   return (
     <section
-      aria-label="Through the local helper"
+      aria-label={t.throughHelper}
       className={cn('space-y-2 rounded-xl border p-4', TONE_SURFACE[ready ? 'ok' : 'warn'])}
     >
-      <h3 className="text-sm leading-6 font-medium">Through the local helper</h3>
+      <h3 className="text-sm leading-6 font-medium">{t.throughHelper}</h3>
       <p className="text-muted-foreground text-sm leading-relaxed">{view.sentence}</p>
       {view.command && <Command text={view.command} />}
       {view.startAdb && (
@@ -278,12 +370,9 @@ function BrowserStepBody({
   problems: readonly CheckItem[]
   wiring: FixWiring
 }) {
+  const t = useMessages(GATE_MESSAGES)
   if (problems.length === 0) {
-    return (
-      <p className={STEP_TEXT}>
-        This browser can talk to Android phones over USB. Nothing to install.
-      </p>
-    )
+    return <p className={STEP_TEXT}>{t.browserReady}</p>
   }
   return problems.map((item) => (
     <div key={item.id} className="space-y-1.5">
@@ -305,25 +394,26 @@ const SECTION = 'border-t pt-5'
  * the helper found on the network (NearbySection) right under it once it can look.
  */
 function WifiSection({ onWifi, nearby }: { onWifi: () => void; nearby?: ReactNode }) {
+  const t = useMessages(GATE_MESSAGES)
   return (
     <section aria-labelledby="gate-wifi-title" className={cn(SECTION, 'space-y-3')}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 space-y-0.5">
           <h3 id="gate-wifi-title" className="text-sm leading-6 font-medium">
-            Phone or TV on Wi‑Fi?
+            {t.wifi.title}
             <span className="text-muted-foreground hidden font-normal sm:inline">
               {' '}
-              Through the helper
+              {t.wifi.tag}
             </span>
           </h3>
           <p className="text-muted-foreground max-w-[52ch] text-sm leading-relaxed">
             {/* On a phone the tag line moves down here, rather than breaking the heading. */}
-            <span className="sm:hidden">Through the helper: </span>
-            An Android TV, or a phone across the room, with no cable.
+            <span className="sm:hidden">{t.wifi.tagInline}</span>
+            {t.wifi.body}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={onWifi} className="self-start sm:self-center">
-          <Wifi /> Network device (Wi‑Fi)…
+          <Wifi /> {t.wifi.button}
         </Button>
       </div>
       {nearby}
@@ -354,6 +444,7 @@ function AndroidSetup({
   /** What the helper found on the network, shown in the Wi‑Fi section. */
   nearby?: ReactNode
 }) {
+  const t = useMessages(GATE_MESSAGES)
   const webusb = browser.some((item) => item.id === 'browser.webusb' && item.status === 'ok')
   const browserBlocked = worst(browser) === 'blocking'
   const browserProblems = bySeverity(browser.filter((item) => item.status !== 'ok'))
@@ -368,7 +459,7 @@ function AndroidSetup({
   const stepWiring: FixWiring = browserBlocked
     ? { ...wiring, blocked: [...(wiring.blocked ?? []), ...USB_ACTIONS], blockedBy: browserId }
     : wiring
-  const findPhone = { label: 'Find my phone…', action: 'find-phone' } as const
+  const findPhone = { label: t.findPhone, action: 'find-phone' } as const
   const steps = gateSteps(phone)
   const browserOk = browserProblems.length === 0
   // The step to do now: the first that isn't OK, this browser included.
@@ -382,10 +473,10 @@ function AndroidSetup({
         <Problem key={item.id} item={item} wiring={stepWiring} />
       ))}
 
-      <StepList label="Connect your phone">
+      <StepList label={t.steps}>
         <StepItem
           n={1}
-          label="This browser"
+          label={t.thisBrowser}
           state={browserOk ? 'done' : 'current'}
           status={browserOk ? undefined : worst(browserProblems)}
           bodyId={browserId}
@@ -408,35 +499,22 @@ function AndroidSetup({
       {webusb && (
         <details className={cn(SECTION, 'group text-sm')}>
           <summary className="text-primary flex w-fit cursor-pointer list-none items-center gap-1 font-medium">
-            Didn’t see your phone?
+            {t.help.summary}
             <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
           </summary>
           <div className="text-muted-foreground mt-3 max-w-[65ch] space-y-3 leading-relaxed">
             {stepWiring.on?.['find-phone'] && (
               <>
-                <p>
-                  Not in the browser’s list at all? Find my phone… lists every USB device and says
-                  what it sees, for example a phone with USB debugging off.
-                </p>
+                <p>{t.help.findPhone}</p>
                 <FixButton fix={findPhone} wiring={stepWiring} />
               </>
             )}
-            <p>
-              In the list, but “unable to claim interface”? One program at a time can own a USB
-              device, and Google’s adb server usually got there first. Quit it, then try again:
-            </p>
+            <p>{t.help.claim}</p>
             <Command text="adb kill-server" />
-            <p>
-              If adb comes straight back, an IDE is restarting it — Android Studio, IntelliJ,
-              Flutter, VS Code, Unity or scrcpy. Quit that too, or use the local helper instead,
-              which shares the adb server rather than fighting it.
-            </p>
+            <p>{t.help.ide}</p>
             {os === 'windows' && (
               <>
-                <p>
-                  No adb running? Then a phone maker’s USB driver probably owns the phone’s ADB
-                  interface. Switch it to WinUSB:
-                </p>
+                <p>{t.help.winUsb}</p>
                 <p className="text-foreground">{FIX.winUsbSwitch.path}</p>
               </>
             )}
@@ -496,23 +574,26 @@ function ChecklistLine({ entry, wiring }: { entry: ChecklistEntry; wiring: FixWi
  * the foot of the platform card behind one line. It opens by itself when a row needs attention.
  */
 function AllChecks({ items, wiring }: { items: readonly CheckItem[]; wiring: FixWiring }) {
+  const t = useMessages(GATE_MESSAGES)
+  // The checks' Re-check: the helper's tools again, and the page's own rows.
+  const recheck = { label: t.recheck, action: 'recheck' } as const satisfies Fix
   const attention = items.some((item) => item.status === 'warning' || item.status === 'blocking')
   return (
     <details className={cn(SECTION, 'group text-sm')} open={attention || undefined}>
       <summary className="flex w-fit cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-0.5">
         <span className="text-primary inline-flex items-center gap-1 font-medium">
-          All checks ({items.length})
+          {t.allChecksCount(items.length)}
           <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
         </span>
         <span className="text-muted-foreground">{gateSummary(items)}</span>
       </summary>
       <div className="mt-3 space-y-3">
-        <ul aria-label="All checks" className="divide-y rounded-lg border">
+        <ul aria-label={t.allChecks} className="divide-y rounded-lg border">
           {collapseRepeats(items).map((entry) => (
             <ChecklistLine key={entry.key} entry={entry} wiring={wiring} />
           ))}
         </ul>
-        {wiring.on?.recheck && <FixButton fix={RECHECK} wiring={wiring} />}
+        {wiring.on?.recheck && <FixButton fix={recheck} wiring={wiring} />}
       </div>
     </details>
   )
@@ -521,17 +602,6 @@ function AllChecks({ items, wiring }: { items: readonly CheckItem[]; wiring: Fix
 /* ---------------------------------------------------------------- *
  * The Gate
  * ---------------------------------------------------------------- */
-
-const HEADLINES: Readonly<Record<GatePlatform, { title: string; promise: string }>> = {
-  android: {
-    title: 'Set up Android over USB',
-    promise: 'Plug a phone into this computer and this browser talks to it directly.',
-  },
-  ios: {
-    title: 'Set up iPhone through the helper',
-    promise: 'A small helper on this Mac connects your iPhone.',
-  },
-}
 
 /**
  * The zero state — the PRIMARY screen, not an error page: most visitors arrive with nothing
@@ -588,6 +658,7 @@ export function Gate({
    */
   nearby?: ReactNode
 }) {
+  const t = useMessages(GATE_MESSAGES)
   const [own, setOwn] = useState<GatePlatform | null>(null)
   const chosen = choice === undefined ? own : choice
   const webusb = browser.some((item) => item.id === 'browser.webusb' && item.status === 'ok')
@@ -599,16 +670,13 @@ export function Gate({
     setOwn(next)
     onChoose?.(next)
   }
-  const { title, promise } = HEADLINES[platform]
+  const { title, promise } = t.headlines[platform]
   const items = platformChecklist(checklist, platform)
 
   return (
     <div className="mx-auto w-full max-w-3xl py-6 md:py-8">
-      <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Connect a device</h1>
-      <p className="text-muted-foreground mt-3 max-w-[65ch] text-base leading-relaxed">
-        Identifiers, screenshots and logs for the phones plugged into this computer. Everything runs
-        locally — nothing about your devices is uploaded anywhere.
-      </p>
+      <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">{t.title}</h1>
+      <p className="text-muted-foreground mt-3 max-w-[65ch] text-base leading-relaxed">{t.lead}</p>
 
       <div className="mt-8">
         <PlatformPicker value={platform} onChange={choose} />

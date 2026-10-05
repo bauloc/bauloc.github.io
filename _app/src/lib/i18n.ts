@@ -1,4 +1,4 @@
-import { useLocale, type Locale } from './locale'
+import { currentLocale, useLocale, type Locale } from './locale'
 
 /*
   The site's words in both its languages, without a library: each page keeps its messages
@@ -31,4 +31,28 @@ export function defineMessages<T>(messages: {
 /** The messages in the current language; the component re-renders when it changes. */
 export function useMessages<T>(messages: Localized<T>): T {
   return messages[useLocale()]
+}
+
+/**
+ * A module's catalog for code outside React: the tables a checker or an error map looks its
+ * words up in (`COPY.title`, `DEVICE_ERRORS.offline`). It reads as the language on screen at
+ * every property access, so nothing has to pass a language down to those callers; whatever
+ * shows the result re-renders on a switch (Device Lab's page subscribes at its root) and
+ * reads the new language then.
+ *
+ * Only its top-level keys are live, so it takes an object of messages, never an array. Keep a
+ * value read from it only as long as the render that read it.
+ */
+export function localized<T extends object>(messages: {
+  readonly en: T
+  readonly vi: NoInfer<T>
+}): T {
+  const view = {}
+  for (const key of Object.keys(messages.en)) {
+    Object.defineProperty(view, key, {
+      enumerable: true,
+      get: () => (messages[currentLocale()] as Record<string, unknown>)[key],
+    })
+  }
+  return view as T
 }

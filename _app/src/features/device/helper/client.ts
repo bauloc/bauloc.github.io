@@ -1,3 +1,5 @@
+import { localized } from '@/lib/i18n'
+
 import { DEVICE_ERRORS } from '../backends/backend'
 import {
   parseDetail,
@@ -54,17 +56,31 @@ export type HelperErrorKind =
   | 'protocol'
 
 /** Words for the codes this module raises itself, until DEVICE_ERRORS has its own. */
-const OWN_WORDS: Readonly<Record<string, string>> = {
-  HELPER_UNREACHABLE:
-    'The local helper stopped answering. Start it again; this page reconnects by itself.',
-  HELPER_UNAUTHORIZED:
-    'The helper restarted. Open the new link it printed to pair this page again.',
-  HELPER_STREAM_STALLED: 'The helper stopped sending the log. Start it again.',
-  HELPER_BAD_REPLY:
-    'The helper answered something this page can’t read. Reload the page, or update the helper.',
-  HELPER_FOREIGN: 'Something else answers on the helper’s port.',
-  TOOL_TIMEOUT: 'The device took too long to answer. Try again.',
-}
+const OWN_WORDS = localized<Readonly<Record<string, string>>>({
+  en: {
+    HELPER_UNREACHABLE:
+      'The local helper stopped answering. Start it again; this page reconnects by itself.',
+    HELPER_UNAUTHORIZED:
+      'The helper restarted. Open the new link it printed to pair this page again.',
+    HELPER_STREAM_STALLED: 'The helper stopped sending the log. Start it again.',
+    HELPER_BAD_REPLY:
+      'The helper answered something this page can’t read. Reload the page, or update the helper.',
+    HELPER_FOREIGN: 'Something else answers on the helper’s port.',
+    TOOL_TIMEOUT: 'The device took too long to answer. Try again.',
+  },
+  vi: {
+    HELPER_UNREACHABLE:
+      'Helper cục bộ không còn phản hồi. Hãy chạy lại helper; trang này sẽ tự kết nối lại.',
+    HELPER_UNAUTHORIZED:
+      'Helper đã khởi động lại. Hãy mở liên kết mới mà helper đã in ra để ghép nối lại trang này.',
+    // "Start it again" is the log's Start ("Bắt đầu"), as DEVICE_ERRORS words it.
+    HELPER_STREAM_STALLED: 'Helper đã ngừng gửi log. Hãy bắt đầu lại log.',
+    HELPER_BAD_REPLY:
+      'Helper trả về nội dung mà trang này không đọc được. Hãy tải lại trang, hoặc cập nhật helper.',
+    HELPER_FOREIGN: 'Một chương trình khác đang phản hồi trên cổng của helper.',
+    TOOL_TIMEOUT: 'Thiết bị phản hồi quá lâu. Hãy thử lại.',
+  },
+})
 
 /**
  * A failed helper request. `message` is the code when DEVICE_ERRORS words it (so

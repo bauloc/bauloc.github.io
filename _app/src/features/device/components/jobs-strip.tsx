@@ -2,6 +2,7 @@ import { PackagePlus, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
+import { defineMessages, localized, useMessages } from '@/lib/i18n'
 
 import { isLocalFailure } from '../backends/backend'
 import { installErrorWording, type Tone } from '../model'
@@ -14,6 +15,50 @@ import { StateDot } from './status'
   still be stopped, a Cancel. A job that ended stays until dismissed, so an install whose
   dialog was closed still says how it went. Every phase is words, never colour alone.
 */
+
+const JOBS_MESSAGES = defineMessages({
+  en: {
+    /** "300 of 900 B". */
+    transferBytes: (sent: string, total: string) => `${sent} of ${total} B`,
+    /** "21.5 of 34.7 MB". */
+    transfer: (sent: string, total: string, unit: string) => `${sent} of ${total} ${unit}`,
+    sending: (transfer: string, percent: number) => `Sending · ${transfer} · ${String(percent)}%`,
+    sendingStarted: 'Sending…',
+    installing: 'Installing on the phone…',
+    installedWithWarnings: 'Installed, with warnings',
+    installed: 'Installed',
+    notInstalledBecause: (reason: string) => `Didn’t install: ${reason}`,
+    notInstalled: 'Didn’t install',
+    cancelled: 'Cancelled. Nothing was installed.',
+    jobs: 'Jobs',
+    cancelJob: (label: string) => `Cancel installing ${label}`,
+    cancel: 'Cancel',
+    show: 'Show',
+    dismissJob: (label: string) => `Dismiss ${label}`,
+    dismiss: 'Dismiss',
+  },
+  vi: {
+    transferBytes: (sent: string, total: string) => `${sent}/${total} B`,
+    transfer: (sent: string, total: string, unit: string) => `${sent}/${total} ${unit}`,
+    sending: (transfer: string, percent: number) => `Đang gửi · ${transfer} · ${String(percent)}%`,
+    sendingStarted: 'Đang gửi…',
+    installing: 'Đang cài trên điện thoại…',
+    installedWithWarnings: 'Đã cài, có cảnh báo',
+    installed: 'Đã cài',
+    notInstalledBecause: (reason: string) => `Không cài được: ${reason}`,
+    notInstalled: 'Không cài được',
+    cancelled: 'Đã hủy. Chưa cài gì cả.',
+    jobs: 'Tác vụ',
+    cancelJob: (label: string) => `Hủy cài ${label}`,
+    cancel: 'Hủy',
+    show: 'Xem',
+    dismissJob: (label: string) => `Đóng ${label}`,
+    dismiss: 'Đóng',
+  },
+})
+
+/** The same words for the functions below, which the page also calls outside a render. */
+const JOBS_WORDS = localized(JOBS_MESSAGES)
 
 /** What the strip reads of a store job. `cancel` is there only while the work can be stopped. */
 export type StripJob = Pick<
@@ -43,12 +88,12 @@ export function fmtTransfer(sent: number, total: number): string {
     scale *= 1024
     unit++
   }
-  if (unit === 0) return `${String(sent)} of ${String(total)} B`
+  if (unit === 0) return JOBS_WORDS.transferBytes(String(sent), String(total))
   const num = (bytes: number) => {
     const n = bytes / scale
     return n.toFixed(n < 100 ? 1 : 0)
   }
-  return `${num(sent)} of ${num(total)} ${UNITS[unit] ?? ''}`
+  return JOBS_WORDS.transfer(num(sent), num(total), UNITS[unit] ?? '')
 }
 
 /** Whole percent, never 100 before the last byte. */
@@ -75,23 +120,26 @@ const PHASE_TONE: Readonly<Record<StripJob['phase'], Tone>> = {
  */
 export function jobPhaseText(job: Pick<StripJob, 'phase' | 'sent' | 'total' | 'outcome'>): string {
   const { sent = 0, total = 0, outcome } = job
+  const w = JOBS_WORDS
   switch (job.phase) {
     case 'sending':
       return total > 0
-        ? `Sending · ${fmtTransfer(sent, total)} · ${String(percentOf(sent, total))}%`
-        : 'Sending…'
+        ? w.sending(fmtTransfer(sent, total), percentOf(sent, total))
+        : w.sendingStarted
     case 'installing':
-      return 'Installing on the phone…'
+      return w.installing
     case 'done':
-      return outcome?.ok && outcome.warnings.length > 0 ? 'Installed, with warnings' : 'Installed'
+      return outcome?.ok && outcome.warnings.length > 0 ? w.installedWithWarnings : w.installed
     case 'failed':
       // A failure in this tab (a file that changed since it was picked) has its own sentence;
       // Android's wording would say the phone refused it.
       return outcome && !outcome.ok
-        ? `Didn’t install: ${isLocalFailure(outcome) ? outcome.message : installErrorWording(outcome).text}`
-        : 'Didn’t install'
+        ? w.notInstalledBecause(
+            isLocalFailure(outcome) ? outcome.message : installErrorWording(outcome).text,
+          )
+        : w.notInstalled
     case 'cancelled':
-      return 'Cancelled. Nothing was installed.'
+      return w.cancelled
   }
 }
 
@@ -150,11 +198,12 @@ export function JobsStrip({
   onShow?: (job: StripJob) => void
   className?: string
 }) {
+  const t = useMessages(JOBS_MESSAGES)
   if (jobs.length === 0) return null
   const many = new Set(jobs.map((j) => j.deviceId)).size > 1
 
   return (
-    <section aria-label="Jobs" className={cn('rounded-xl border', className)}>
+    <section aria-label={t.jobs} className={cn('rounded-xl border', className)}>
       <ul className="divide-y">
         {jobs.map((job) => {
           const running = isRunning(job)
@@ -190,10 +239,10 @@ export function JobsStrip({
                 <Button
                   variant="ghost"
                   size="sm"
-                  aria-label={`Cancel installing ${job.label}`}
+                  aria-label={t.cancelJob(job.label)}
                   onClick={job.cancel}
                 >
-                  <X /> Cancel
+                  <X /> {t.cancel}
                 </Button>
               )}
               {!running && onShow && (
@@ -204,7 +253,7 @@ export function JobsStrip({
                     onShow(job)
                   }}
                 >
-                  Show
+                  {t.show}
                 </Button>
               )}
               {!running && onDismiss && (
@@ -212,8 +261,8 @@ export function JobsStrip({
                   variant="ghost"
                   size="icon"
                   className="size-7"
-                  aria-label={`Dismiss ${job.label}`}
-                  title="Dismiss"
+                  aria-label={t.dismissJob(job.label)}
+                  title={t.dismiss}
                   onClick={() => {
                     onDismiss(job.id)
                   }}

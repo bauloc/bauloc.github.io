@@ -1,3 +1,5 @@
+import { localized } from '@/lib/i18n'
+
 import { fmtBytes } from '../../model'
 import { imageMime, readApkBadge, splitNameOf, type BadgeIcon, type BadgeSplit } from './apk-badge'
 import {
@@ -158,7 +160,7 @@ export type PlanIssueCode =
 
 export interface PlanIssue {
   readonly code: PlanIssueCode
-  /** Plain, actionable English for the dialog. */
+  /** Plain, actionable words for the dialog, in the language on screen when it is read. */
   readonly message: string
   /** The dropped file it concerns, when it concerns one. */
   readonly file?: string
@@ -197,6 +199,184 @@ export interface InstallPlan {
  * Wording
  * ---------------------------------------------------------------- */
 
+/** Every sentence a plan says, in the language on screen when it is read (see issue()). */
+const SAY = localized({
+  en: {
+    /** "a, b and c": the last item joined to the others. */
+    list: (head: string, last: string) => `${head} and ${last}`,
+    theApp: 'the app',
+    theBase: 'the base',
+    thisFile: 'This file',
+    appFiles: 'Device Lab installs .apk, .apks, .xapk, .apkm and .aab files.',
+    olderSdk: (needs: string, runs: string) =>
+      `This app needs ${needs} or newer. This phone runs ${runs}.`,
+    noTextures: (formats: string) =>
+      `This app has no graphics this phone’s GPU can use (it ships ${formats}).`,
+    builtForAnother:
+      'This .apks was built for a different phone (its Android version, CPU or screen). Use the full .apks or the .aab.',
+    phoneRuns: (abis: string) => `This phone runs ${abis}.`,
+    only64Bit: 'This phone runs 64-bit apps only.',
+    nativeOnly: (abis: string, tail: string) => `The app has native code only for ${abis}. ${tail}`,
+    missingSplit:
+      'Parts of the app for this phone’s CPU, screen or language are missing. Use the full .apks or .aab.',
+    texturesUnchecked:
+      'This app picks graphics by GPU texture format, and this phone’s formats could not be read, so its graphics may be missing. If it looks wrong, install a universal .apks instead.',
+    deviceTier: (tier: string) =>
+      `This app has parts per device tier; the app’s default tier (${tier}) was used.`,
+    countrySet: 'This app has parts per country; the parts for no particular country were used.',
+    deviceGroup: 'This app has parts per device group; this phone was taken to be in no group.',
+    conditionUnchecked: (module: string, included: boolean) =>
+      `Not every condition of the module “${module}” could be checked on this phone; it was ${included ? 'included' : 'left out'}, as bundletool would.`,
+    localTesting:
+      'This set was built with --local-testing: its on-demand parts are meant to be copied separately and will not be available.',
+    encryptedZip: (file: string) =>
+      `${file} is password-protected. Unpack it with its password, then drop the APKs.`,
+    unsupportedZip: (file: string) =>
+      `${file} is packed in a way a browser cannot unpack. Re-create it as a normal zip.`,
+    damaged: (file: string) => `${file} is damaged or incomplete. Download or copy it again.`,
+    notApk: (file: string) =>
+      `${file} isn’t a valid APK. It may be an .aab, or a download that was cut short.`,
+    readFailed: (file: string) =>
+      `Couldn’t read ${file}. It may have changed or moved since it was picked: pick it again.`,
+    unzipUnsupported:
+      'This browser can’t unpack .xapk or .apkm files. Update Chrome or Edge (version 103 or newer).',
+    notAnAppFile: (file: string) =>
+      `${file} isn’t an app file inside: it may be a download that went wrong. Download it again.`,
+    differentApps: (packages: string) =>
+      `These APKs are from different apps (${packages}). Install one app at a time.`,
+    loneSplit: 'This is one part of a split app. Pick it together with its base APK.',
+    noBase:
+      'These are parts of a split app without its base APK. Add the base APK (usually base.apk).',
+    abiPicked: (pick: string, left: string) =>
+      `Picked ${pick} for this phone’s CPU; left out ${left}.`,
+    differentVersions: (app: string, versions: string) =>
+      `These APKs are from different versions of ${app} (${versions}). Use the files of one build.`,
+    twoBases: (bases: string) =>
+      `There is more than one complete APK here (${bases}). Pick one of them.`,
+    duplicateSplit: (split: string) =>
+      `Two of these APKs are the same part (${split}). Keep one of each.`,
+    splitsSkipped: (others: string, many: boolean) =>
+      `Left out ${others}: Device Lab can’t tell which phones ${many ? 'they are' : 'it is'} for. If the install then fails, use the .apks or .aab.`,
+    unverifiedParts:
+      'Some parts could not be checked against the base APK before sending; the phone will refuse them if they don’t belong together.',
+    apksMode: (mode: 'system' | 'apex' | 'archived') =>
+      `This .apks was built for ${mode === 'system' ? 'a system image' : mode === 'apex' ? 'an APEX module' : 'archived apps'}, which can’t be installed over USB. Build it again without --mode.`,
+    apksMissing: (path: string) => `This .apks is missing ${path}. Build or download it again.`,
+    tier: (tier: string) => `tier ${tier}`,
+    xapkObb: (count: number, size: string) =>
+      `This .xapk carries ${String(count)} game data file${count > 1 ? 's' : ''} (OBB, ${size}) that Device Lab doesn’t copy yet. The app may download ${count > 1 ? 'them' : 'it'} again, or not start.`,
+    aabNeedsHelper: (file: string) =>
+      `${file} is an app bundle: it has to be built into APKs before a phone can install it, which needs the Device Lab helper. Until then, build an .apks with bundletool and drop that here.`,
+    lowTarget: (target: string, android: string) =>
+      `This app targets an old Android (API ${target}). ${android} blocks it unless you allow it.`,
+    testOnly: 'A test-only build: Device Lab adds -t to install it.',
+    apkmEncrypted: (file: string) =>
+      `${file} is encrypted (an old APKMirror format). Download it again from APKMirror.`,
+    mixedInputs:
+      'Install one app at a time: drop one .apks, .xapk, .apkm or .aab file, or the APK files of one app.',
+    filesSkipped: (strays: string, appFiles: string) => `Skipped ${strays}: ${appFiles}`,
+    sizes: (need: string, free: string) => `needs about ${need}, ${free} free`,
+    insufficientSpace: (sizes: string) => `Not enough space on the phone: ${sizes}.`,
+    lowSpace: (sizes: string) =>
+      `Space is tight: ${sizes}. Android needs room to unpack the app too; free some up if the install fails.`,
+    downgradeAllowed: (theirs: string, ours: string) =>
+      `A newer version is installed (${theirs}). Allow downgrade to put ${ours} over it.`,
+    downgradeBlocked: (theirs: string) =>
+      `A newer version is installed (${theirs}). Android won’t put an older one over it; uninstalling it first deletes its data.`,
+    update: (theirs: string, ours: string) =>
+      `Updates the installed ${theirs} to ${ours}, keeping its data.`,
+    reinstall: (ours: string) => `Reinstalls ${ours} over the same version, keeping its data.`,
+  },
+  vi: {
+    list: (head: string, last: string) => `${head} và ${last}`,
+    theApp: 'ứng dụng',
+    theBase: 'phần gốc',
+    thisFile: 'Tệp này',
+    appFiles: 'Device Lab cài được các tệp .apk, .apks, .xapk, .apkm và .aab.',
+    olderSdk: (needs: string, runs: string) =>
+      `Ứng dụng này cần ${needs} trở lên. Điện thoại này chạy ${runs}.`,
+    noTextures: (formats: string) =>
+      `Ứng dụng này không có đồ họa nào mà GPU của điện thoại này dùng được (ứng dụng chỉ có ${formats}).`,
+    builtForAnother:
+      'Tệp .apks này được tạo cho một điện thoại khác (khác phiên bản Android, CPU hoặc màn hình). Hãy dùng tệp .apks đầy đủ hoặc tệp .aab.',
+    phoneRuns: (abis: string) => `Điện thoại này chạy ${abis}.`,
+    only64Bit: 'Điện thoại này chỉ chạy ứng dụng 64-bit.',
+    nativeOnly: (abis: string, tail: string) => `Ứng dụng chỉ có mã native cho ${abis}. ${tail}`,
+    missingSplit:
+      'Thiếu các phần của ứng dụng dành cho CPU, màn hình hoặc ngôn ngữ của điện thoại này. Hãy dùng tệp .apks hoặc .aab đầy đủ.',
+    texturesUnchecked:
+      'Ứng dụng này chọn đồ họa theo định dạng texture của GPU, nhưng không đọc được các định dạng của điện thoại này, nên có thể thiếu đồ họa. Nếu hiển thị sai, hãy cài một tệp .apks universal thay thế.',
+    deviceTier: (tier: string) =>
+      `Ứng dụng này có các phần theo cấp thiết bị; đã dùng cấp mặc định của ứng dụng (${tier}).`,
+    countrySet:
+      'Ứng dụng này có các phần theo quốc gia; đã dùng các phần không dành riêng cho quốc gia nào.',
+    deviceGroup:
+      'Ứng dụng này có các phần theo nhóm thiết bị; điện thoại này được coi là không thuộc nhóm nào.',
+    conditionUnchecked: (module: string, included: boolean) =>
+      `Không kiểm tra được hết các điều kiện của mô-đun “${module}” trên điện thoại này; đã ${included ? 'đưa mô-đun này vào' : 'bỏ mô-đun này ra'}, giống cách bundletool làm.`,
+    localTesting:
+      'Bộ APK này được tạo với --local-testing: các phần on-demand cần được sao chép riêng nên sẽ không có sẵn.',
+    encryptedZip: (file: string) =>
+      `${file} có mật khẩu. Hãy giải nén bằng mật khẩu của tệp, rồi thả các APK vào.`,
+    unsupportedZip: (file: string) =>
+      `${file} được nén theo cách mà trình duyệt không giải nén được. Hãy nén lại thành một tệp zip thông thường.`,
+    damaged: (file: string) =>
+      `${file} bị hỏng hoặc không đầy đủ. Hãy tải xuống hoặc sao chép lại.`,
+    notApk: (file: string) =>
+      `${file} không phải APK hợp lệ. Có thể đó là tệp .aab, hoặc một bản tải xuống bị dở dang.`,
+    readFailed: (file: string) =>
+      `Không đọc được ${file}. Có thể tệp đã thay đổi hoặc bị di chuyển sau khi được chọn: hãy chọn lại.`,
+    unzipUnsupported:
+      'Trình duyệt này không giải nén được tệp .xapk hoặc .apkm. Hãy cập nhật Chrome hoặc Edge (phiên bản 103 trở lên).',
+    notAnAppFile: (file: string) =>
+      `Bên trong ${file} không phải tệp ứng dụng: có thể đó là một bản tải xuống bị lỗi. Hãy tải xuống lại.`,
+    differentApps: (packages: string) =>
+      `Các APK này thuộc nhiều ứng dụng khác nhau (${packages}). Hãy cài từng ứng dụng một.`,
+    loneSplit: 'Đây là một phần của ứng dụng dạng split. Hãy chọn tệp này cùng APK gốc của nó.',
+    noBase:
+      'Đây là các phần của một ứng dụng dạng split nhưng thiếu APK gốc. Hãy thêm APK gốc (thường là base.apk).',
+    abiPicked: (pick: string, left: string) =>
+      `Đã chọn ${pick} cho CPU của điện thoại này; bỏ qua ${left}.`,
+    differentVersions: (app: string, versions: string) =>
+      `Các APK này thuộc các phiên bản khác nhau của ${app} (${versions}). Hãy dùng các tệp của cùng một bản dựng.`,
+    twoBases: (bases: string) =>
+      `Có nhiều hơn một APK hoàn chỉnh ở đây (${bases}). Hãy chọn một trong số đó.`,
+    duplicateSplit: (split: string) =>
+      `Hai trong số các APK này là cùng một phần (${split}). Mỗi phần chỉ giữ lại một APK.`,
+    splitsSkipped: (others: string, many: boolean) =>
+      `Đã bỏ qua ${others}: Device Lab không xác định được ${many ? 'các tệp này' : 'tệp này'} dành cho điện thoại nào. Nếu sau đó cài đặt thất bại, hãy dùng tệp .apks hoặc .aab.`,
+    unverifiedParts:
+      'Không đối chiếu được một số phần với APK gốc trước khi gửi; điện thoại sẽ từ chối nếu chúng không cùng một bộ.',
+    apksMode: (mode: 'system' | 'apex' | 'archived') =>
+      `Tệp .apks này được tạo cho ${mode === 'system' ? 'ảnh hệ thống' : mode === 'apex' ? 'mô-đun APEX' : 'ứng dụng đã lưu trữ'} nên không cài qua USB được. Hãy tạo lại mà không dùng --mode.`,
+    apksMissing: (path: string) => `Tệp .apks này thiếu ${path}. Hãy tạo hoặc tải xuống lại.`,
+    tier: (tier: string) => `cấp ${tier}`,
+    xapkObb: (count: number, size: string) =>
+      `Tệp .xapk này kèm ${String(count)} tệp dữ liệu game (OBB, ${size}) mà Device Lab chưa sao chép được. Ứng dụng có thể tải xuống lại ${count > 1 ? 'các tệp này' : 'tệp này'}, hoặc không khởi động được.`,
+    aabNeedsHelper: (file: string) =>
+      `${file} là app bundle: phải dựng thành các APK thì điện thoại mới cài được, và việc này cần helper của Device Lab. Trước mắt, hãy tạo tệp .apks bằng bundletool rồi thả vào đây.`,
+    lowTarget: (target: string, android: string) =>
+      `Ứng dụng này nhắm tới Android cũ (API ${target}). ${android} sẽ chặn trừ khi bạn cho phép.`,
+    testOnly: 'Bản dựng chỉ để thử nghiệm: Device Lab thêm -t khi cài.',
+    apkmEncrypted: (file: string) =>
+      `${file} bị mã hóa (định dạng cũ của APKMirror). Hãy tải xuống lại từ APKMirror.`,
+    mixedInputs:
+      'Hãy cài từng ứng dụng một: thả một tệp .apks, .xapk, .apkm hoặc .aab, hoặc các tệp APK của một ứng dụng.',
+    filesSkipped: (strays: string, appFiles: string) => `Đã bỏ qua ${strays}: ${appFiles}`,
+    sizes: (need: string, free: string) => `cần khoảng ${need}, còn trống ${free}`,
+    insufficientSpace: (sizes: string) => `Điện thoại không đủ dung lượng: ${sizes}.`,
+    lowSpace: (sizes: string) =>
+      `Dung lượng còn ít: ${sizes}. Android cũng cần chỗ trống để giải nén ứng dụng; nếu cài đặt thất bại, hãy giải phóng bớt.`,
+    downgradeAllowed: (theirs: string, ours: string) =>
+      `Điện thoại đang có phiên bản mới hơn (${theirs}). Hãy cho phép hạ cấp để cài ${ours} đè lên.`,
+    downgradeBlocked: (theirs: string) =>
+      `Điện thoại đang có phiên bản mới hơn (${theirs}). Android không cho cài bản cũ hơn đè lên; gỡ cài đặt bản đó trước sẽ xóa dữ liệu của nó.`,
+    update: (theirs: string, ours: string) =>
+      `Cập nhật bản đã cài ${theirs} lên ${ours}, giữ nguyên dữ liệu.`,
+    reinstall: (ours: string) => `Cài lại ${ours} đè lên cùng phiên bản, giữ nguyên dữ liệu.`,
+  },
+})
+
 const ANDROID_RELEASE: Readonly<Record<number, string>> = {
   21: '5.0',
   22: '5.1',
@@ -226,90 +406,69 @@ export function androidName(api: number): string {
 const listOf = (items: readonly string[]) =>
   items.length <= 1
     ? (items[0] ?? '')
-    : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1] ?? ''}`
+    : SAY.list(items.slice(0, -1).join(', '), items[items.length - 1] ?? '')
 const version = (name: string, code: number) => (name ? `${name} (${String(code)})` : String(code))
 /** A 32-bit ABI in a phone's list means it can still run 32-bit apps. */
 const runs32Bit = (abis: readonly string[]) =>
   abis.some((a) => a === 'armeabi-v7a' || a === 'armeabi' || a === 'x86' || a === 'mips')
 
+/**
+ * An issue whose sentence is worded again at every read of `message`: the dialog keeps the plan
+ * while it is open, and still says it in the language on screen after a switch.
+ */
 const issue = (
   code: PlanIssueCode,
-  message: string,
+  say: () => string,
   extra: Partial<Pick<PlanIssue, 'file' | 'action'>> = {},
-): PlanIssue => ({ code, message, ...extra })
-
-const APP_FILES = 'Device Lab installs .apk, .apks, .xapk, .apkm and .aab files.'
+): PlanIssue => {
+  const out = { code, message: '', ...extra }
+  Object.defineProperty(out, 'message', { get: say })
+  return out
+}
 
 /** The sentence for a refused selection. */
 function incompatibleIssue(why: Incompatible, spec: DeviceSpec): PlanIssue {
   switch (why.code) {
     case 'SDK':
-      return issue(
-        'OLDER_SDK',
-        `This app needs ${androidName(why.minSdk)} or newer. This phone runs ${androidName(spec.sdkVersion)}.`,
+      return issue('OLDER_SDK', () =>
+        SAY.olderSdk(androidName(why.minSdk), androidName(spec.sdkVersion)),
       )
     case 'ABI':
       return abiIssue(why.appAbis, spec.supportedAbis)
     case 'TEXTURE':
-      return issue(
-        'NO_MATCHING_TEXTURES',
-        `This app has no graphics this phone’s GPU can use (it ships ${listOf(why.appFormats.map((f) => f.toUpperCase()))}).`,
+      return issue('NO_MATCHING_TEXTURES', () =>
+        SAY.noTextures(listOf(why.appFormats.map((f) => f.toUpperCase()))),
       )
     case 'MISSING':
       return missingSplit()
     case 'NO_MATCH':
-      return issue(
-        'MISSING_SPLIT',
-        'This .apks was built for a different phone (its Android version, CPU or screen). Use the full .apks or the .aab.',
-      )
+      return issue('MISSING_SPLIT', () => SAY.builtForAnother)
   }
 }
 
 function abiIssue(appAbis: readonly string[], phoneAbis: readonly string[]): PlanIssue {
-  const tail = runs32Bit(phoneAbis)
-    ? `This phone runs ${listOf(phoneAbis)}.`
-    : 'This phone runs 64-bit apps only.'
-  return issue('NO_MATCHING_ABIS', `The app has native code only for ${listOf(appAbis)}. ${tail}`)
+  return issue('NO_MATCHING_ABIS', () => {
+    const tail = runs32Bit(phoneAbis) ? SAY.phoneRuns(listOf(phoneAbis)) : SAY.only64Bit
+    return SAY.nativeOnly(listOf(appAbis), tail)
+  })
 }
 
-const missingSplit = () =>
-  issue(
-    'MISSING_SPLIT',
-    'Parts of the app for this phone’s CPU, screen or language are missing. Use the full .apks or .aab.',
-  )
+const missingSplit = () => issue('MISSING_SPLIT', () => SAY.missingSplit)
 
 function noteIssue(note: SelectionNote): PlanIssue {
   switch (note.code) {
     case 'TEXTURES_UNCHECKED':
-      return issue(
-        'TEXTURES_UNCHECKED',
-        'This app picks graphics by GPU texture format, and this phone’s formats could not be read, so its graphics may be missing. If it looks wrong, install a universal .apks instead.',
-      )
+      return issue('TEXTURES_UNCHECKED', () => SAY.texturesUnchecked)
     case 'DEVICE_TIER':
-      return issue(
-        'DEVICE_TIER',
-        `This app has parts per device tier; the app’s default tier (${String(note.tier)}) was used.`,
-      )
+      return issue('DEVICE_TIER', () => SAY.deviceTier(String(note.tier)))
     case 'COUNTRY_SET':
-      return issue(
-        'TARGETING_ASSUMED',
-        'This app has parts per country; the parts for no particular country were used.',
-      )
+      return issue('TARGETING_ASSUMED', () => SAY.countrySet)
     case 'DEVICE_GROUP':
-      return issue(
-        'TARGETING_ASSUMED',
-        'This app has parts per device group; this phone was taken to be in no group.',
-      )
+      return issue('TARGETING_ASSUMED', () => SAY.deviceGroup)
     case 'CONDITIONAL_MODULE':
-      return issue(
-        'CONDITION_UNCHECKED',
-        `Not every condition of the module “${note.module}” could be checked on this phone; it was ${note.included ? 'included' : 'left out'}, as bundletool would.`,
-      )
+      return issue('CONDITION_UNCHECKED', () => SAY.conditionUnchecked(note.module, note.included))
     case 'LOCAL_TESTING':
-      return issue(
-        'LOCAL_TESTING',
-        'This set was built with --local-testing: its on-demand parts are meant to be copied separately and will not be available.',
-      )
+      return issue('LOCAL_TESTING', () => SAY.localTesting)
   }
 }
 
@@ -357,49 +516,30 @@ type Inspected =
   | { readonly file: File; readonly kind: 'apkm-encrypted' | 'other' }
   | { readonly file: File; readonly kind: 'damaged'; readonly problem: PlanIssue }
 
-/** Why a file could not be read, as the sentence the dialog shows. */
-function readProblem(file: string, error: unknown): PlanIssue {
+/**
+ * Why a file could not be read, as the sentence the dialog shows. `file` null: no one dropped
+ * file is to blame, and the sentence says "This file".
+ */
+function readProblem(file: string | null, error: unknown): PlanIssue {
+  const name = () => file ?? SAY.thisFile
+  const at = { file: name() }
   const code = error instanceof ZipError ? error.code : ''
   const message = error instanceof Error ? error.message : ''
   if (code === 'ZIP_ENCRYPTED') {
-    return issue(
-      'ENCRYPTED_ZIP',
-      `${file} is password-protected. Unpack it with its password, then drop the APKs.`,
-      { file },
-    )
+    return issue('ENCRYPTED_ZIP', () => SAY.encryptedZip(name()), at)
   }
   if (code === 'ZIP_METHOD' || code === 'ZIP_MULTIDISK') {
-    return issue(
-      'UNSUPPORTED_ZIP',
-      `${file} is packed in a way a browser cannot unpack. Re-create it as a normal zip.`,
-      { file },
-    )
+    return issue('UNSUPPORTED_ZIP', () => SAY.unsupportedZip(name()), at)
   }
   if (code === 'ZIP_NO_INFLATE') return unzipUnsupported()
-  if (code) {
-    return issue('DAMAGED', `${file} is damaged or incomplete. Download or copy it again.`, {
-      file,
-    })
-  }
+  if (code) return issue('DAMAGED', () => SAY.damaged(name()), at)
   if (/^AXML_|^PROTOBUF_/.test(message)) {
-    return issue(
-      'NOT_APK',
-      `${file} isn’t a valid APK. It may be an .aab, or a download that was cut short.`,
-      { file },
-    )
+    return issue('NOT_APK', () => SAY.notApk(name()), at)
   }
-  return issue(
-    'READ_FAILED',
-    `Couldn’t read ${file}. It may have changed or moved since it was picked: pick it again.`,
-    { file },
-  )
+  return issue('READ_FAILED', () => SAY.readFailed(name()), at)
 }
 
-const unzipUnsupported = () =>
-  issue(
-    'UNZIP_UNSUPPORTED',
-    'This browser can’t unpack .xapk or .apkm files. Update Chrome or Edge (version 103 or newer).',
-  )
+const unzipUnsupported = () => issue('UNZIP_UNSUPPORTED', () => SAY.unzipUnsupported)
 
 /** `lib/<abi>/` directories of an APK. */
 const abisOf = (zip: ZipArchive) => [
@@ -425,11 +565,7 @@ async function inspect(file: File): Promise<Inspected> {
       if (/\.apkm$/i.test(file.name)) return { file, kind: 'apkm-encrypted' }
       // Named like an app but not a zip: often an error page saved under the app's name.
       if (/\.(apk|apks|xapk|aab)$/i.test(file.name)) {
-        const problem = issue(
-          'NOT_APK',
-          `${file.name} isn’t an app file inside: it may be a download that went wrong. Download it again.`,
-          { file: file.name },
-        )
+        const problem = issue('NOT_APK', () => SAY.notAnAppFile(file.name), { file: file.name })
         return { file, kind: 'damaged', problem }
       }
       return { file, kind: 'other' }
@@ -636,12 +772,7 @@ function assembleSet(
   const known = candidates.filter((c) => c.manifest)
   const packages = [...new Set(known.map((c) => c.manifest?.packageName ?? ''))]
   if (packages.length > 1) {
-    draft.problems.push(
-      issue(
-        'DIFFERENT_APPS',
-        `These APKs are from different apps (${listOf(packages)}). Install one app at a time.`,
-      ),
-    )
+    draft.problems.push(issue('DIFFERENT_APPS', () => SAY.differentApps(listOf(packages))))
     return null
   }
 
@@ -650,15 +781,8 @@ function assembleSet(
   if (bases.length === 0) {
     draft.problems.push(
       candidates.length === 1
-        ? issue(
-            'LONE_SPLIT',
-            'This is one part of a split app. Pick it together with its base APK.',
-            { file: candidates[0]?.source },
-          )
-        : issue(
-            'NO_BASE',
-            'These are parts of a split app without its base APK. Add the base APK (usually base.apk).',
-          ),
+        ? issue('LONE_SPLIT', () => SAY.loneSplit, { file: candidates[0]?.source })
+        : issue('NO_BASE', () => SAY.noBase),
     )
     return null
   }
@@ -674,12 +798,8 @@ function assembleSet(
       return null
     }
     const left = bases.filter((b) => b !== pick)
-    draft.notes.push(
-      issue(
-        'ABI_PICKED',
-        `Picked ${pick.source} for this phone’s CPU; left out ${listOf(left.map((b) => b.source))}.`,
-      ),
-    )
+    const leftOut = left.map((b) => b.source)
+    draft.notes.push(issue('ABI_PICKED', () => SAY.abiPicked(pick.source, listOf(leftOut))))
     pool = pool.filter((c) => !left.includes(c))
     bases = [pick]
   }
@@ -687,9 +807,8 @@ function assembleSet(
   const versions = [...new Set(pool.flatMap((c) => (c.manifest ? [c.manifest.versionCode] : [])))]
   if (versions.length > 1) {
     draft.problems.push(
-      issue(
-        'DIFFERENT_VERSIONS',
-        `These APKs are from different versions of ${packages[0] ?? 'the app'} (${listOf(versions.map(String))}). Use the files of one build.`,
+      issue('DIFFERENT_VERSIONS', () =>
+        SAY.differentVersions(packages[0] ?? SAY.theApp, listOf(versions.map(String))),
       ),
     )
     return null
@@ -697,23 +816,15 @@ function assembleSet(
   if (bases.length > 1) {
     // Two whole builds of one version (a debug and a release APK, say): which one is meant
     // cannot be told from the files, so the tester picks.
-    draft.problems.push(
-      issue(
-        'TWO_BASES',
-        `There is more than one complete APK here (${listOf(bases.map((b) => b.source))}). Pick one of them.`,
-      ),
-    )
+    const sources = bases.map((b) => b.source)
+    draft.problems.push(issue('TWO_BASES', () => SAY.twoBases(listOf(sources))))
     return null
   }
   const seen = new Set<string>()
   for (const c of pool) {
     if (seen.has(c.split)) {
-      draft.problems.push(
-        issue(
-          'DUPLICATE_SPLIT',
-          `Two of these APKs are the same part (${c.split || 'the base'}). Keep one of each.`,
-        ),
-      )
+      const split = c.split
+      draft.problems.push(issue('DUPLICATE_SPLIT', () => SAY.duplicateSplit(split || SAY.theBase)))
       return null
     }
     seen.add(c.split)
@@ -730,10 +841,7 @@ function assembleSet(
   const others = picked.skipped.filter((s) => s.reason === 'other').map((s) => s.item.source)
   if (others.length > 0) {
     draft.warnings.push(
-      issue(
-        'SPLITS_SKIPPED',
-        `Left out ${listOf(others)}: Device Lab can’t tell which phones ${others.length > 1 ? 'they are' : 'it is'} for. If the install then fails, use the .apks or .aab.`,
-      ),
+      issue('SPLITS_SKIPPED', () => SAY.splitsSkipped(listOf(others), others.length > 1)),
     )
   }
 
@@ -748,12 +856,7 @@ function assembleSet(
     draft,
   )
   if (chosen.some((c) => !c.candidate.manifest)) {
-    draft.warnings.push(
-      issue(
-        'UNVERIFIED_PARTS',
-        'Some parts could not be checked against the base APK before sending; the phone will refuse them if they don’t belong together.',
-      ),
-    )
+    draft.warnings.push(issue('UNVERIFIED_PARTS', () => SAY.unverifiedParts))
   }
   draft.parts = toParts(chosen)
   for (const { candidate } of chosen) if (candidate.file) draft.used.add(candidate.file)
@@ -793,12 +896,7 @@ async function planApks(zip: ZipArchive, spec: DeviceSpec, draft: Draft) {
   )
   const mode = (['system', 'apex', 'archived'] as const).find((k) => kinds.has(k))
   if (mode) {
-    draft.problems.push(
-      issue(
-        'APKS_MODE_UNSUPPORTED',
-        `This .apks was built for ${mode === 'system' ? 'a system image' : mode === 'apex' ? 'an APEX module' : 'archived apps'}, which can’t be installed over USB. Build it again without --mode.`,
-      ),
-    )
+    draft.problems.push(issue('APKS_MODE_UNSUPPORTED', () => SAY.apksMode(mode)))
     return
   }
   const result = selectFromToc(toc, spec)
@@ -814,9 +912,8 @@ async function planApks(zip: ZipArchive, spec: DeviceSpec, draft: Draft) {
 
   const missing = result.apks.find((apk) => !zip.get(apk.path))
   if (missing) {
-    draft.problems.push(
-      issue('DAMAGED', `This .apks is missing ${missing.path}. Build or download it again.`),
-    )
+    const path = missing.path
+    draft.problems.push(issue('DAMAGED', () => SAY.apksMissing(path)))
     return
   }
   const chosen = await Promise.all(
@@ -875,7 +972,11 @@ function tocRole(apk: SelectedApk): PartRole {
   if (t.language.value[0]) return { module, kind: 'language', value: t.language.value[0] }
   if (t.textureFormat.value[0]) return { module, kind: 'other', value: t.textureFormat.value[0] }
   const tier = t.deviceTier.value[0]
-  if (tier !== undefined) return { module, kind: 'other', value: `tier ${String(tier)}` }
+  if (tier !== undefined) {
+    // "tier 2" is words, read again at each access like the issues' sentences.
+    const role: PartRole = { module, kind: 'other', value: '' }
+    return Object.defineProperty(role, 'value', { get: () => SAY.tier(String(tier)) })
+  }
   if (apk.kind === 'standalone' || (module === 'base' && apk.isMasterSplit)) {
     return { module, kind: 'base', value: '' }
   }
@@ -973,12 +1074,7 @@ async function planNamed(
     if (expansions.length > 0) {
       draft.expansions = expansions
       const size = expansions.reduce((n, x) => n + x.size, 0)
-      draft.warnings.push(
-        issue(
-          'XAPK_OBB',
-          `This .xapk carries ${String(expansions.length)} game data file${expansions.length > 1 ? 's' : ''} (OBB, ${fmtBytes(size)}) that Device Lab doesn’t copy yet. The app may download ${expansions.length > 1 ? 'them' : 'it'} again, or not start.`,
-        ),
-      )
+      draft.warnings.push(issue('XAPK_OBB', () => SAY.xapkObb(expansions.length, fmtBytes(size))))
     }
   } else if (kind === 'apkm') {
     const i = await readJson(zip, 'info.json')
@@ -1039,11 +1135,7 @@ async function planAab(zip: ZipArchive, file: File, draft: Draft) {
     // An unreadable bundle manifest only costs the summary line.
   }
   draft.problems.push(
-    issue(
-      'AAB_NEEDS_HELPER',
-      `${file.name} is an app bundle: it has to be built into APKs before a phone can install it, which needs the Device Lab helper. Until then, build an .apks with bundletool and drop that here.`,
-      { file: file.name },
-    ),
+    issue('AAB_NEEDS_HELPER', () => SAY.aabNeedsHelper(file.name), { file: file.name }),
   )
 }
 
@@ -1064,10 +1156,7 @@ function checkApp(draft: Draft, spec: DeviceSpec) {
   const has = (code: PlanIssueCode) => draft.problems.some((p) => p.code === code)
   if (app.minSdk > spec.sdkVersion && !has('OLDER_SDK')) {
     draft.problems.push(
-      issue(
-        'OLDER_SDK',
-        `This app needs ${androidName(app.minSdk)} or newer. This phone runs ${androidName(spec.sdkVersion)}.`,
-      ),
+      issue('OLDER_SDK', () => SAY.olderSdk(androidName(app.minSdk), androidName(spec.sdkVersion))),
     )
   }
   // A single APK carries its native code itself: it must have some for this phone's CPU.
@@ -1084,13 +1173,13 @@ function checkApp(draft: Draft, spec: DeviceSpec) {
     draft.warnings.push(
       issue(
         'DEPRECATED_SDK_VERSION',
-        `This app targets an old Android (API ${String(app.targetSdk)}). ${androidName(spec.sdkVersion)} blocks it unless you allow it.`,
+        () => SAY.lowTarget(String(app.targetSdk), androidName(spec.sdkVersion)),
         { action: 'install-anyway' },
       ),
     )
   }
   if (app.testOnly) {
-    draft.notes.push(issue('TEST_ONLY', 'A test-only build: Device Lab adds -t to install it.'))
+    draft.notes.push(issue('TEST_ONLY', () => SAY.testOnly))
   }
 }
 
@@ -1112,23 +1201,14 @@ export async function planInstall(files: readonly File[], spec: DeviceSpec): Pro
     if (i.kind === 'damaged') draft.problems.push(i.problem)
     if (i.kind === 'apkm-encrypted') {
       draft.problems.push(
-        issue(
-          'APKM_ENCRYPTED',
-          `${i.file.name} is encrypted (an old APKMirror format). Download it again from APKMirror.`,
-          { file: i.file.name },
-        ),
+        issue('APKM_ENCRYPTED', () => SAY.apkmEncrypted(i.file.name), { file: i.file.name }),
       )
     }
   }
   const strays = inspected.filter((i) => i.kind === 'other').map((i) => i.file.name)
 
   if (containers.length > 1 || (containers.length === 1 && loose.length > 0)) {
-    draft.problems.push(
-      issue(
-        'MIXED_INPUTS',
-        'Install one app at a time: drop one .apks, .xapk, .apkm or .aab file, or the APK files of one app.',
-      ),
-    )
+    draft.problems.push(issue('MIXED_INPUTS', () => SAY.mixedInputs))
   } else if (draft.problems.length === 0) {
     const container = containers[0]
     try {
@@ -1148,15 +1228,17 @@ export async function planInstall(files: readonly File[], spec: DeviceSpec): Pro
         await addBadge(draft, picked, spec)
       }
     } catch (error) {
-      draft.problems.push(readProblem(container?.file.name ?? 'This file', error))
+      draft.problems.push(readProblem(container?.file.name ?? null, error))
     }
     checkApp(draft, spec)
   }
 
   if (draft.problems.length === 0 && draft.kind === 'none') {
-    draft.problems.push(issue('NOTHING_TO_INSTALL', APP_FILES))
+    draft.problems.push(issue('NOTHING_TO_INSTALL', () => SAY.appFiles))
   } else if (strays.length > 0 && containers.length + loose.length > 0) {
-    draft.warnings.push(issue('FILES_SKIPPED', `Skipped ${listOf(strays)}: ${APP_FILES}`))
+    draft.warnings.push(
+      issue('FILES_SKIPPED', () => SAY.filesSkipped(listOf(strays), SAY.appFiles)),
+    )
   }
   if (draft.problems.length > 0) {
     draft.parts = []
@@ -1216,16 +1298,12 @@ export function checkPhone(plan: InstallPlan, phone: PhoneFacts): PhoneCheck {
   const notes: PlanIssue[] = []
   const need = plan.totalBytes
   if (phone.freeBytes !== undefined && need > 0) {
-    const sizes = `needs about ${fmtBytes(need)}, ${fmtBytes(phone.freeBytes)} free`
-    if (phone.freeBytes < need) {
-      problems.push(issue('INSUFFICIENT_SPACE', `Not enough space on the phone: ${sizes}.`))
-    } else if (phone.freeBytes < need * 2) {
-      warnings.push(
-        issue(
-          'LOW_SPACE',
-          `Space is tight: ${sizes}. Android needs room to unpack the app too; free some up if the install fails.`,
-        ),
-      )
+    const free = phone.freeBytes
+    const sizes = () => SAY.sizes(fmtBytes(need), fmtBytes(free))
+    if (free < need) {
+      problems.push(issue('INSUFFICIENT_SPACE', () => SAY.insufficientSpace(sizes())))
+    } else if (free < need * 2) {
+      warnings.push(issue('LOW_SPACE', () => SAY.lowSpace(sizes())))
     }
   }
   const app = plan.app
@@ -1236,25 +1314,21 @@ export function checkPhone(plan: InstallPlan, phone: PhoneFacts): PhoneCheck {
     if (installed.versionCode > app.versionCode) {
       if (installed.debuggable) {
         warnings.push(
-          issue(
-            'VERSION_DOWNGRADE',
-            `A newer version is installed (${theirs}). Allow downgrade to put ${ours} over it.`,
-            { action: 'allow-downgrade' },
-          ),
+          issue('VERSION_DOWNGRADE', () => SAY.downgradeAllowed(theirs, ours), {
+            action: 'allow-downgrade',
+          }),
         )
       } else {
         problems.push(
-          issue(
-            'VERSION_DOWNGRADE',
-            `A newer version is installed (${theirs}). Android won’t put an older one over it; uninstalling it first deletes its data.`,
-            { action: 'uninstall-first' },
-          ),
+          issue('VERSION_DOWNGRADE', () => SAY.downgradeBlocked(theirs), {
+            action: 'uninstall-first',
+          }),
         )
       }
     } else if (installed.versionCode < app.versionCode) {
-      notes.push(issue('UPDATE', `Updates the installed ${theirs} to ${ours}, keeping its data.`))
+      notes.push(issue('UPDATE', () => SAY.update(theirs, ours)))
     } else {
-      notes.push(issue('REINSTALL', `Reinstalls ${ours} over the same version, keeping its data.`))
+      notes.push(issue('REINSTALL', () => SAY.reinstall(ours)))
     }
   }
   return { problems, warnings, notes }

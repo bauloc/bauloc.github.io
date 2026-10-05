@@ -44,6 +44,7 @@ import {
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/cn'
+import { defineMessages, localized, useMessages } from '@/lib/i18n'
 import { useHeldWhileClosing } from '@/lib/use-held-while-closing'
 
 import { installerName } from '../backends/android/packages'
@@ -72,6 +73,185 @@ import { fmtBytes, fmtDateTime, type Device } from '../model'
 
 /** What the Apps tab and this sheet use of a lane (PLAN §2); every operation is optional. */
 export type AppsLane = Pick<Backend, 'apps' | 'app' | 'appAction' | 'pull' | 'appBadge'>
+
+const APP_SHEET_MESSAGES = defineMessages({
+  en: {
+    done: {
+      launch: (name: string, device: string) => `Opened ${name} on ${device}.`,
+      stop: (name: string) => `Stopped ${name}.`,
+      info: (name: string, device: string) => `App info for ${name} is open on ${device}’s screen.`,
+      clear: (name: string, device: string) => `Cleared ${name}’s data on ${device}.`,
+      uninstall: (name: string, device: string) => `Uninstalled ${name} from ${device}.`,
+    },
+    failed: {
+      launch: (name: string) => `Couldn’t open ${name}`,
+      stop: (name: string) => `Couldn’t stop ${name}`,
+      info: (name: string) => `Couldn’t open App info for ${name}`,
+      clear: (name: string) => `Couldn’t clear ${name}’s data`,
+      uninstall: (name: string) => `Couldn’t uninstall ${name}`,
+    },
+    confirm: {
+      uninstallTitle: (name: string, device: string) => `Uninstall ${name} from ${device}?`,
+      uninstallBody: (who: string) =>
+        `This removes ${who} and all of its data on the phone: accounts, settings and files. It can’t be undone.`,
+      uninstall: 'Uninstall',
+      clearTitle: (name: string, device: string) => `Clear all data of ${name} on ${device}?`,
+      clearBody: (who: string) =>
+        `Android deletes the accounts, settings, databases and files of ${who}, as if it were just installed. The app stays installed. This can’t be undone.`,
+      clear: 'Clear data',
+    },
+    exporting: {
+      finding: 'Finding the APK files…',
+      packing: (apks: number) => `Packing ${String(apks)} APKs into an .xapk`,
+      apks: (apks: number) => ` (${String(apks)} APKs)`,
+      received: (received: string, apks: string) => `Exporting ${received}${apks}…`,
+      progress: (received: string, total: string, apks: string, percent: number) =>
+        `Exporting ${received} of ${total}${apks} · ${String(percent)}%`,
+      packingShort: 'Packing the .xapk…',
+      packingShortProgress: (percent: number) => `Packing the .xapk · ${String(percent)}%`,
+      receivedShort: (received: string) => `Exporting · ${received}`,
+      progressShort: (percent: number, total: string) =>
+        `Exporting · ${String(percent)}% of ${total}`,
+    },
+    savesApk: 'Saves one .apk.',
+    savesXapk: (apks: number) => `Saves its ${String(apks)} APKs as one .xapk.`,
+    exportApp: 'Export app',
+    uninstallWaits: 'Cancel the export or let it finish to uninstall',
+    zoneTime: (zone: string) => `${zone} time`,
+    phoneTime: 'phone time',
+
+    cancel: 'Cancel',
+    copyField: (label: string) => `Copy ${label.toLowerCase()}`,
+    version: 'Version',
+    package: 'Package',
+    installedBy: 'Installed by',
+    firstInstalled: 'First installed',
+    lastUpdated: 'Last updated',
+    minAndroid: 'Min Android',
+    targetAndroid: 'Target Android',
+    debuggable: 'Debuggable',
+    yes: 'Yes',
+    no: 'No',
+    testOnly: 'Test-only',
+    cpuAbi: 'CPU ABI',
+    dataFolder: 'Data folder',
+    splits: 'Splits',
+    apkFiles: 'APK files',
+    copyPath: (file: string) => `Copy the path of ${file}`,
+    actions: 'Actions',
+    open: 'Open',
+    forceStop: 'Force stop',
+    appInfo: 'App info on phone',
+    exportAvailable: 'Available once the details are read',
+    details: 'Details',
+    loadingDetails: 'Loading details',
+    readFailed: (name: string) => `Couldn’t read the details of ${name}`,
+    retry: 'Retry',
+    destructive: 'Destructive actions',
+    destructiveNote: (device: string) => `These delete data on ${device}. Each one asks first.`,
+    clearData: 'Clear data…',
+    uninstall: 'Uninstall…',
+    badge: {
+      system: 'System',
+      disabled: 'Disabled',
+      stopped: 'Stopped',
+      debuggable: 'Debuggable',
+      testOnly: 'Test-only',
+    },
+    exportMeter: 'Export',
+  },
+  vi: {
+    done: {
+      launch: (name: string, device: string) => `Đã mở ${name} trên ${device}.`,
+      stop: (name: string) => `Đã dừng ${name}.`,
+      info: (name: string, device: string) =>
+        `Thông tin ứng dụng của ${name} đang mở trên màn hình ${device}.`,
+      clear: (name: string, device: string) => `Đã xóa dữ liệu của ${name} trên ${device}.`,
+      uninstall: (name: string, device: string) => `Đã gỡ cài đặt ${name} khỏi ${device}.`,
+    },
+    failed: {
+      launch: (name: string) => `Không mở được ${name}`,
+      stop: (name: string) => `Không dừng được ${name}`,
+      info: (name: string) => `Không mở được Thông tin ứng dụng của ${name}`,
+      clear: (name: string) => `Không xóa được dữ liệu của ${name}`,
+      uninstall: (name: string) => `Không gỡ cài đặt được ${name}`,
+    },
+    confirm: {
+      uninstallTitle: (name: string, device: string) => `Gỡ cài đặt ${name} khỏi ${device}?`,
+      uninstallBody: (who: string) =>
+        `Thao tác này xóa ${who} cùng toàn bộ dữ liệu của ứng dụng trên điện thoại: tài khoản, chế độ cài đặt và tệp. Không thể hoàn tác.`,
+      uninstall: 'Gỡ cài đặt',
+      clearTitle: (name: string, device: string) =>
+        `Xóa toàn bộ dữ liệu của ${name} trên ${device}?`,
+      clearBody: (who: string) =>
+        `Android sẽ xóa tài khoản, chế độ cài đặt, cơ sở dữ liệu và tệp của ${who}, như thể ứng dụng vừa được cài. Ứng dụng vẫn còn trên điện thoại. Không thể hoàn tác.`,
+      clear: 'Xóa dữ liệu',
+    },
+    exporting: {
+      finding: 'Đang tìm các tệp APK…',
+      packing: (apks: number) => `Đang đóng gói ${String(apks)} APK thành tệp .xapk`,
+      apks: (apks: number) => ` (${String(apks)} APK)`,
+      received: (received: string, apks: string) => `Đang xuất ${received}${apks}…`,
+      progress: (received: string, total: string, apks: string, percent: number) =>
+        `Đang xuất ${received}/${total}${apks} · ${String(percent)}%`,
+      packingShort: 'Đang đóng gói .xapk…',
+      packingShortProgress: (percent: number) => `Đang đóng gói .xapk · ${String(percent)}%`,
+      receivedShort: (received: string) => `Đang xuất · ${received}`,
+      progressShort: (percent: number, total: string) =>
+        `Đang xuất · ${String(percent)}% của ${total}`,
+    },
+    savesApk: 'Lưu thành một tệp .apk.',
+    savesXapk: (apks: number) => `Lưu ${String(apks)} APK của ứng dụng thành một tệp .xapk.`,
+    exportApp: 'Xuất ứng dụng',
+    uninstallWaits: 'Hủy lượt xuất hoặc đợi xuất xong để gỡ cài đặt',
+    zoneTime: (zone: string) => `giờ ${zone}`,
+    phoneTime: 'giờ trên điện thoại',
+
+    cancel: 'Hủy',
+    copyField: (label: string) => `Sao chép ${label.toLowerCase()}`,
+    version: 'Phiên bản',
+    package: 'Tên gói',
+    installedBy: 'Cài bằng',
+    firstInstalled: 'Cài lần đầu',
+    lastUpdated: 'Cập nhật gần nhất',
+    minAndroid: 'Android tối thiểu',
+    targetAndroid: 'Android mục tiêu',
+    debuggable: 'Có thể gỡ lỗi',
+    yes: 'Có',
+    no: 'Không',
+    testOnly: 'Chỉ để thử nghiệm',
+    cpuAbi: 'CPU ABI',
+    dataFolder: 'Thư mục dữ liệu',
+    splits: 'APK split',
+    apkFiles: 'Tệp APK',
+    copyPath: (file: string) => `Sao chép đường dẫn của ${file}`,
+    actions: 'Thao tác',
+    open: 'Mở',
+    forceStop: 'Buộc dừng',
+    appInfo: 'Thông tin ứng dụng',
+    exportAvailable: 'Dùng được sau khi đọc xong chi tiết',
+    details: 'Chi tiết',
+    loadingDetails: 'Đang tải chi tiết',
+    readFailed: (name: string) => `Không đọc được chi tiết của ${name}`,
+    retry: 'Thử lại',
+    destructive: 'Thao tác xóa dữ liệu',
+    destructiveNote: (device: string) =>
+      `Các thao tác này xóa dữ liệu trên ${device}. Mỗi thao tác đều hỏi xác nhận trước.`,
+    clearData: 'Xóa dữ liệu…',
+    uninstall: 'Gỡ cài đặt…',
+    badge: {
+      system: 'Hệ thống',
+      disabled: 'Đã tắt',
+      stopped: 'Đã dừng',
+      debuggable: 'Có thể gỡ lỗi',
+      testOnly: 'Chỉ để thử nghiệm',
+    },
+    exportMeter: 'Xuất',
+  },
+})
+
+/** The same words for the wording functions below, which the Apps tab calls outside a render. */
+const APP_SHEET_WORDS = localized(APP_SHEET_MESSAGES)
 
 /* ---------------------------------------------------------------- *
  * The avatar
@@ -247,23 +427,18 @@ export function actionMessages(
   name: string,
   device: string,
 ): { readonly done: string; readonly failed: string } {
+  const { done, failed } = APP_SHEET_WORDS
   switch (action) {
     case 'launch':
-      return { done: `Opened ${name} on ${device}.`, failed: `Couldn’t open ${name}` }
+      return { done: done.launch(name, device), failed: failed.launch(name) }
     case 'stop':
-      return { done: `Stopped ${name}.`, failed: `Couldn’t stop ${name}` }
+      return { done: done.stop(name), failed: failed.stop(name) }
     case 'info':
-      return {
-        done: `App info for ${name} is open on ${device}’s screen.`,
-        failed: `Couldn’t open App info for ${name}`,
-      }
+      return { done: done.info(name, device), failed: failed.info(name) }
     case 'clear':
-      return {
-        done: `Cleared ${name}’s data on ${device}.`,
-        failed: `Couldn’t clear ${name}’s data`,
-      }
+      return { done: done.clear(name, device), failed: failed.clear(name) }
     case 'uninstall':
-      return { done: `Uninstalled ${name} from ${device}.`, failed: `Couldn’t uninstall ${name}` }
+      return { done: done.uninstall(name, device), failed: failed.uninstall(name) }
   }
 }
 
@@ -277,17 +452,18 @@ export function confirmCopy(
   device: string,
 ): { readonly title: string; readonly body: string; readonly confirm: string } {
   const who = name === packageName ? name : `${name} (${packageName})`
+  const w = APP_SHEET_WORDS.confirm
   if (action === 'uninstall') {
     return {
-      title: `Uninstall ${name} from ${device}?`,
-      body: `This removes ${who} and all of its data on the phone: accounts, settings and files. It can’t be undone.`,
-      confirm: 'Uninstall',
+      title: w.uninstallTitle(name, device),
+      body: w.uninstallBody(who),
+      confirm: w.uninstall,
     }
   }
   return {
-    title: `Clear all data of ${name} on ${device}?`,
-    body: `Android deletes the accounts, settings, databases and files of ${who}, as if it were just installed. The app stays installed. This can’t be undone.`,
-    confirm: 'Clear data',
+    title: w.clearTitle(name, device),
+    body: w.clearBody(who),
+    confirm: w.clear,
   }
 }
 
@@ -319,33 +495,36 @@ export function exportPercent(p: ExportProgress): number | null {
 
 /** "Exporting 12.3 of 45.6 MB (3 APKs) · 27%", or what is happening before and after. */
 export function exportText(p: ExportProgress): string {
-  if (p.phase === 'reading') return 'Finding the APK files…'
+  const w = APP_SHEET_WORDS.exporting
+  if (p.phase === 'reading') return w.finding
   const pct = exportPercent(p)
   if (p.phase === 'packing') {
-    const packing = `Packing ${String(p.files)} APKs into an .xapk`
+    const packing = w.packing(p.files)
     return pct === null ? `${packing}…` : `${packing} · ${String(pct)}%`
   }
-  const files = p.files > 1 ? ` (${String(p.files)} APKs)` : ''
-  if (p.total === null || pct === null) return `Exporting ${fmtBytes(p.received)}${files}…`
-  return `Exporting ${fmtBytes(p.received)} of ${fmtBytes(p.total)}${files} · ${String(pct)}%`
+  const files = p.files > 1 ? w.apks(p.files) : ''
+  if (p.total === null || pct === null) return w.received(fmtBytes(p.received), files)
+  return w.progress(fmtBytes(p.received), fmtBytes(p.total), files, pct)
 }
 
 /** The same, short enough for a row's second line at 390 px: the percentage leads. */
 export function exportShortText(p: ExportProgress): string {
-  if (p.phase === 'reading') return 'Finding the APK files…'
+  const w = APP_SHEET_WORDS.exporting
+  if (p.phase === 'reading') return w.finding
   const pct = exportPercent(p)
   if (p.phase === 'packing') {
-    return pct === null ? 'Packing the .xapk…' : `Packing the .xapk · ${String(pct)}%`
+    return pct === null ? w.packingShort : w.packingShortProgress(pct)
   }
-  if (p.total === null || pct === null) return `Exporting · ${fmtBytes(p.received)}`
-  return `Exporting · ${String(pct)}% of ${fmtBytes(p.total)}`
+  if (p.total === null || pct === null) return w.receivedShort(fmtBytes(p.received))
+  return w.progressShort(pct, fmtBytes(p.total))
 }
 
 /**
- * The export's name in the row menu and the sheet alike. Neutral on purpose: the row can't know
- * before the export whether the app is one APK (saved as .apk) or a split app (saved as .xapk).
+ * The export's name in the row menu and the sheet alike, in English; both catalogs word it on
+ * screen. Neutral on purpose: the row can't know before the export whether the app is one APK
+ * (saved as .apk) or a split app (saved as .xapk).
  */
-export const EXPORT_LABEL = 'Export app'
+export const EXPORT_LABEL = APP_SHEET_MESSAGES.en.exportApp
 
 /**
  * What the export saves, under the sheet's button once the APKs are listed: one APK as it is, a
@@ -353,7 +532,7 @@ export const EXPORT_LABEL = 'Export app'
  */
 export function exportNote(apks: number | null): string | null {
   if (apks === null || apks < 1) return null
-  return apks === 1 ? 'Saves one .apk.' : `Saves its ${String(apks)} APKs as one .xapk.`
+  return apks === 1 ? APP_SHEET_WORDS.savesApk : APP_SHEET_WORDS.savesXapk(apks)
 }
 
 /*
@@ -372,8 +551,8 @@ export const canStartExport = (
   exporting: ExportProgress | undefined,
 ) => exporting === undefined && busy !== 'uninstall'
 
-/** Said where Uninstall is held back by an export. */
-export const UNINSTALL_WAITS = 'Cancel the export or let it finish to uninstall'
+/** Said where Uninstall is held back by an export, in English; both catalogs word it on screen. */
+export const UNINSTALL_WAITS = APP_SHEET_MESSAGES.en.uninstallWaits
 
 /**
  * For a control that goes away by itself, like an export's Cancel when the export ends: if it
@@ -454,6 +633,7 @@ export function ConfirmAppAction({
   /** Where focus goes once it has closed; by default, back where it was. */
   onCloseAutoFocus?: (event: Event) => void
 }) {
+  const t = useMessages(APP_SHEET_MESSAGES)
   const open = pending !== null
   // The wording fades out with the dialog; the action below still reads the live `pending`.
   const shown = useHeldWhileClosing(open, pending)
@@ -473,7 +653,7 @@ export function ConfirmAppAction({
           <AlertDialogDescription className="wrap-anywhere">{copy?.body}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={running}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={running}>{t.cancel}</AlertDialogCancel>
           {/* aria-disabled while running: disabling the focused button drops focus to <body>. */}
           <AlertDialogAction
             variant="destructive"
@@ -501,12 +681,13 @@ export function ConfirmAppAction({
 type DetailLoad =
   | { readonly status: 'loading' }
   | { readonly status: 'ready'; readonly detail: AppDetail }
-  | { readonly status: 'failed'; readonly message: string }
+  /** The error, worded when shown: the language may change meanwhile. */
+  | { readonly status: 'failed'; readonly error: unknown }
   | { readonly status: 'unavailable' }
 
 /** A dump's device-local time ("2026-10-03 14:05:09"), with the phone's zone named when known. */
 const phoneTime = (text: string, timeZone: string | undefined) =>
-  `${text} (${timeZone ? `${timeZone} time` : 'phone time'})`
+  `${text} (${timeZone ? APP_SHEET_WORDS.zoneTime(timeZone) : APP_SHEET_WORDS.phoneTime})`
 
 function when(ms: number | null, dump: string | null, timeZone: string | undefined): string {
   if (ms !== null) return fmtDateTime(new Date(ms))
@@ -514,6 +695,7 @@ function when(ms: number | null, dump: string | null, timeZone: string | undefin
 }
 
 function Field({ label, value, copy }: { label: string; value: string; copy?: boolean }) {
+  const t = useMessages(APP_SHEET_MESSAGES)
   if (!value) return null
   return (
     <div className="grid grid-cols-[7.5rem_1fr] items-center gap-3 py-1.5">
@@ -521,7 +703,7 @@ function Field({ label, value, copy }: { label: string; value: string; copy?: bo
       <dd className="flex min-w-0 items-center gap-2">
         {/* Phone-supplied: rendered as text, never markup. */}
         <span className="min-w-0 flex-1 font-mono text-sm wrap-anywhere">{value}</span>
-        {copy && <CopyButton text={value} label={`Copy ${label.toLowerCase()}`} />}
+        {copy && <CopyButton text={value} label={t.copyField(label)} />}
       </dd>
     </div>
   )
@@ -537,6 +719,7 @@ function Details({
   detail: AppDetail
   timeZone: string | undefined
 }) {
+  const t = useMessages(APP_SHEET_MESSAGES)
   const splits = detail.splits.filter((s) => s !== 'base')
   const apkTotal = detail.apks.every((a) => a.size !== null)
     ? detail.apks.reduce((n, a) => n + (a.size ?? 0), 0)
@@ -544,32 +727,32 @@ function Details({
   return (
     <>
       <dl className="divide-y">
-        <Field label="Version" value={fmtVersion(detail.versionName, detail.versionCode)} />
-        <Field label="Package" value={detail.packageName} copy />
-        <Field label="Installed by" value={installerName(detail.installer ?? row.installer)} />
+        <Field label={t.version} value={fmtVersion(detail.versionName, detail.versionCode)} />
+        <Field label={t.package} value={detail.packageName} copy />
+        <Field label={t.installedBy} value={installerName(detail.installer ?? row.installer)} />
         <Field
-          label="First installed"
+          label={t.firstInstalled}
           value={when(row.firstInstalled, detail.firstInstalled, timeZone)}
         />
-        <Field label="Last updated" value={when(row.lastUpdated, detail.lastUpdated, timeZone)} />
+        <Field label={t.lastUpdated} value={when(row.lastUpdated, detail.lastUpdated, timeZone)} />
         <Field
-          label="Min Android"
+          label={t.minAndroid}
           value={detail.minSdk === null ? '' : `API ${String(detail.minSdk)}`}
         />
         <Field
-          label="Target Android"
+          label={t.targetAndroid}
           value={detail.targetSdk === null ? '' : `API ${String(detail.targetSdk)}`}
         />
-        <Field label="Debuggable" value={detail.debuggable ? 'Yes' : 'No'} />
-        {detail.testOnly && <Field label="Test-only" value="Yes" />}
-        <Field label="CPU ABI" value={detail.primaryCpuAbi ?? ''} />
-        <Field label="Data folder" value={detail.dataDir ?? ''} copy />
-        <Field label="Splits" value={splits.join(', ')} />
+        <Field label={t.debuggable} value={detail.debuggable ? t.yes : t.no} />
+        {detail.testOnly && <Field label={t.testOnly} value={t.yes} />}
+        <Field label={t.cpuAbi} value={detail.primaryCpuAbi ?? ''} />
+        <Field label={t.dataFolder} value={detail.dataDir ?? ''} copy />
+        <Field label={t.splits} value={splits.join(', ')} />
       </dl>
       {detail.apks.length > 0 && (
-        <section aria-label="APK files" className="flex flex-col gap-2">
+        <section aria-label={t.apkFiles} className="flex flex-col gap-2">
           <h3 className="text-sm font-medium">
-            APK files
+            {t.apkFiles}
             <span className="text-muted-foreground font-normal">
               {' '}
               · {detail.apks.length}
@@ -593,7 +776,7 @@ function Details({
                 <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
                   {fmtBytes(apk.size)}
                 </span>
-                <CopyButton text={apk.path} label={`Copy the path of ${apkFileName(apk.path)}`} />
+                <CopyButton text={apk.path} label={t.copyPath(apkFileName(apk.path))} />
               </li>
             ))}
           </ul>
@@ -701,6 +884,7 @@ function SheetBody({
   onExport: (detail: AppDetail) => void
   onCancelExport: () => void
 }) {
+  const t = useMessages(APP_SHEET_MESSAGES)
   const [load, setLoad] = useState<DetailLoad>(() =>
     lane.app ? { status: 'loading' } : { status: 'unavailable' },
   )
@@ -714,7 +898,7 @@ function SheetBody({
         if (isLive()) setLoad({ status: 'ready', detail })
       },
       (error: unknown) => {
-        if (isLive()) setLoad({ status: 'failed', message: deviceErrorMessage(error) })
+        if (isLive()) setLoad({ status: 'failed', error })
       },
     )
   })
@@ -771,11 +955,11 @@ function SheetBody({
       </SheetHeader>
 
       <div className="flex flex-col gap-5 p-4">
-        <section aria-label="Actions" className="flex flex-col gap-2">
+        <section aria-label={t.actions} className="flex flex-col gap-2">
           <div className="grid grid-cols-2 gap-2">
-            {actionButton('launch', 'Open', Play)}
-            {actionButton('stop', 'Force stop', Square)}
-            {actionButton('info', 'App info on phone', Info)}
+            {actionButton('launch', t.open, Play)}
+            {actionButton('stop', t.forceStop, Square)}
+            {actionButton('info', t.appInfo, Info)}
             {lane.pull && (
               <Button
                 ref={exportButton}
@@ -783,14 +967,14 @@ function SheetBody({
                 size="sm"
                 aria-disabled={!exportable}
                 className="justify-start aria-disabled:opacity-50"
-                title={detail ? undefined : 'Available once the details are read'}
+                title={detail ? undefined : t.exportAvailable}
                 aria-describedby={saves && !exporting ? exportNoteId : undefined}
                 onClick={() => {
                   if (exportable) onExport(detail)
                 }}
               >
                 {exporting ? <Loader2 className="animate-spin" /> : <Download />}
-                {EXPORT_LABEL}
+                {t.exportApp}
               </Button>
             )}
           </div>
@@ -813,9 +997,9 @@ function SheetBody({
           )}
         </section>
 
-        <section aria-label="Details" className="flex flex-col gap-3">
+        <section aria-label={t.details} className="flex flex-col gap-3">
           {load.status === 'loading' ? (
-            <div className="flex flex-col gap-2" aria-label="Loading details">
+            <div className="flex flex-col gap-2" aria-label={t.loadingDetails}>
               {[0, 1, 2, 3, 4, 5].map((i) => (
                 <Skeleton key={i} className="h-6" />
               ))}
@@ -824,8 +1008,10 @@ function SheetBody({
             <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/5 p-3">
               <TriangleAlert className="mt-0.5 size-4 shrink-0 text-red-500" />
               <div className="min-w-0 flex-1 text-sm">
-                <p className="font-medium">Couldn’t read the details of {name}</p>
-                <p className="text-muted-foreground mt-0.5 wrap-anywhere">{load.message}</p>
+                <p className="font-medium">{t.readFailed(name)}</p>
+                <p className="text-muted-foreground mt-0.5 wrap-anywhere">
+                  {deviceErrorMessage(load.error)}
+                </p>
               </div>
               <Button
                 variant="outline"
@@ -835,17 +1021,17 @@ function SheetBody({
                   setAttempt((n) => n + 1)
                 }}
               >
-                <RotateCcw /> Retry
+                <RotateCcw /> {t.retry}
               </Button>
             </div>
           ) : load.status === 'ready' ? (
             <Details row={row} detail={load.detail} timeZone={timeZone} />
           ) : (
             <dl className="divide-y">
-              <Field label="Version" value={fmtVersion(null, row.versionCode)} />
-              <Field label="Package" value={row.packageName} copy />
-              <Field label="Installed by" value={installerName(row.installer)} />
-              <Field label="Last updated" value={when(row.lastUpdated, null, timeZone)} />
+              <Field label={t.version} value={fmtVersion(null, row.versionCode)} />
+              <Field label={t.package} value={row.packageName} copy />
+              <Field label={t.installedBy} value={installerName(row.installer)} />
+              <Field label={t.lastUpdated} value={when(row.lastUpdated, null, timeZone)} />
             </dl>
           )}
         </section>
@@ -853,9 +1039,9 @@ function SheetBody({
         {lane.appAction && (
           <>
             <Separator />
-            <section aria-label="Destructive actions" className="flex flex-col gap-2">
+            <section aria-label={t.destructive} className="flex flex-col gap-2">
               <p className="text-muted-foreground text-xs leading-relaxed">
-                These delete data on {device.name}. Each one asks first.
+                {t.destructiveNote(device.name)}
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -868,7 +1054,7 @@ function SheetBody({
                   }}
                 >
                   {busy === 'clear' ? <Loader2 className="animate-spin" /> : <Eraser />}
-                  Clear data…
+                  {t.clearData}
                 </Button>
                 {/* System apps can't be uninstalled for good, so the entry isn't offered. */}
                 {!row.system && (
@@ -877,13 +1063,13 @@ function SheetBody({
                     size="sm"
                     aria-disabled={!uninstallable}
                     className="text-destructive hover:text-destructive aria-disabled:opacity-50"
-                    title={exporting ? UNINSTALL_WAITS : undefined}
+                    title={exporting ? t.uninstallWaits : undefined}
                     onClick={() => {
                       if (uninstallable) onConfirm('uninstall')
                     }}
                   >
                     {busy === 'uninstall' ? <Loader2 className="animate-spin" /> : <Trash2 />}
-                    Uninstall…
+                    {t.uninstall}
                   </Button>
                 )}
               </div>
@@ -897,19 +1083,20 @@ function SheetBody({
 
 /** System, Disabled, Stopped, Debuggable: words, never colour alone. */
 export function StateBadges({ row, detail }: { row: AppRow; detail?: AppDetail | null }) {
-  const badges: string[] = []
-  if (row.system) badges.push('System')
-  if (row.enabled === false) badges.push('Disabled')
-  if (row.stopped === true) badges.push('Stopped')
-  if (detail?.debuggable) badges.push('Debuggable')
-  if (detail?.testOnly) badges.push('Test-only')
+  const t = useMessages(APP_SHEET_MESSAGES)
+  const badges: (keyof typeof t.badge)[] = []
+  if (row.system) badges.push('system')
+  if (row.enabled === false) badges.push('disabled')
+  if (row.stopped === true) badges.push('stopped')
+  if (detail?.debuggable) badges.push('debuggable')
+  if (detail?.testOnly) badges.push('testOnly')
   if (badges.length === 0) return null
   return (
     <div className="flex flex-wrap gap-1.5">
       {badges.map((b) => (
         <Badge key={b} variant="outline" className="text-muted-foreground font-normal">
-          {b === 'Debuggable' ? <AppWindow /> : null}
-          {b}
+          {b === 'debuggable' ? <AppWindow /> : null}
+          {t.badge[b]}
         </Badge>
       ))}
     </div>
@@ -925,16 +1112,17 @@ function ExportBar({
   onCancel: () => void
   returnFocus: () => void
 }) {
+  const t = useMessages(APP_SHEET_MESSAGES)
   const cancel = useRef<HTMLButtonElement>(null)
   useFocusAfterUnmount(cancel, returnFocus)
   return (
     <div className="flex items-center gap-3 rounded-lg border p-2.5">
       <div className="min-w-0 flex-1">
         <p className="text-muted-foreground text-xs tabular-nums">{exportText(progress)}</p>
-        <ExportMeter progress={progress} label="Export" className="mt-1.5" />
+        <ExportMeter progress={progress} label={t.exportMeter} className="mt-1.5" />
       </div>
       <Button ref={cancel} variant="ghost" size="sm" onClick={onCancel}>
-        <X /> Cancel
+        <X /> {t.cancel}
       </Button>
     </div>
   )

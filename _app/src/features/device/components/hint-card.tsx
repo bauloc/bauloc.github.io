@@ -2,6 +2,7 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/cn'
+import { localized } from '@/lib/i18n'
 
 import { STATE_META, type Device, type Hint } from '../model'
 import { COPY } from '../preflight/copy'
@@ -10,10 +11,30 @@ import { FixButton, PathFix, splitFixes, type FixWiring } from './checklist'
 import { TONE_SURFACE } from './status'
 
 /** Titles for the phone rows that can stand in for a device hint. */
-const CHECK_TITLES: Partial<Readonly<Record<CheckId, string>>> = {
-  'phone.notHeld': 'Something else is using this phone',
-  'phone.osAccess': 'This computer won’t let the browser open the phone',
-}
+const CHECK_TITLES = localized<Partial<Readonly<Record<CheckId, string>>>>({
+  en: {
+    'phone.notHeld': 'Something else is using this phone',
+    'phone.osAccess': 'This computer won’t let the browser open the phone',
+  },
+  vi: {
+    'phone.notHeld': 'Có thứ khác đang dùng điện thoại này',
+    'phone.osAccess': 'Máy tính này không cho trình duyệt mở điện thoại',
+  },
+})
+
+/** What a copy button's toast says, worded when it is raised. */
+const COPY_TOAST = localized({
+  en: {
+    copied: 'Copied',
+    failed: 'Copy failed',
+    byHand: 'Select the text and copy it by hand.',
+  },
+  vi: {
+    copied: 'Đã sao chép',
+    failed: 'Không sao chép được',
+    byHand: 'Hãy bôi đen đoạn chữ và tự sao chép.',
+  },
+})
 
 /**
  * The phone row that says more about this device's blocker than its hint does, or null:
@@ -54,10 +75,10 @@ export function hintContent(
 
 function copyText(text: string) {
   navigator.clipboard.writeText(text).then(
-    () => toast.success('Copied', { description: text }),
+    () => toast.success(COPY_TOAST.copied, { description: text }),
     () =>
-      toast.error('Copy failed', {
-        description: 'Select the text and copy it by hand.',
+      toast.error(COPY_TOAST.failed, {
+        description: COPY_TOAST.byHand,
       }),
   )
 }

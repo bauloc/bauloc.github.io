@@ -2,12 +2,12 @@ import { Download, ExternalLink, Loader2, RotateCcw } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { defineMessages, useMessages } from '@/lib/i18n'
 
 import type { HelperPhase, HelperStatus } from '../helper/connection'
 import {
+  CARD_SENTENCES,
   HELPER_URL,
-  NEEDS_HELPER,
-  NEEDS_MAC,
   NODE_URL,
   helperCard,
   helperChip,
@@ -25,8 +25,66 @@ import { StateDot } from './status'
   Node.js, start the helper, pair, plug in and Trust, Developer Mode, Xcode), with the step the
   helper's phase is at open and the others one line each. Shown while nothing is listed. Also
   the Wi‑Fi dialog's helper setup (HelperCardBody).
-  The words come from helper/status.ts helperCard(); this file only lays them out.
+  The words come from helper/status.ts helperCard(); this file only lays them out, with the
+  steps' own words below.
 */
+
+const HELPER_CARD_MESSAGES = defineMessages({
+  en: {
+    copyCommand: 'Copy the command',
+    newTab: ' (opens in a new tab)',
+    download: 'Download device-bridge.mjs',
+    /**
+     * What the first-run "Already running?" line starts with: the command's result, not a
+     * question. The start of helperCard's firstRunLead (helper/status.ts), in each language.
+     */
+    opensPaired: 'It opens this page paired.',
+    steps: 'Set up the helper',
+    node: 'Node.js 18 or newer',
+    nodeRuns: 'Node.js runs the helper.',
+    getNode: 'Get Node.js (LTS)',
+    start: 'Download and start the helper',
+    intro: 'One file that runs with Node.js, only while its Terminal window is open.',
+    running: (port: string) => `Running on 127.0.0.1:${port}.`,
+    pair: 'Pair this page with the helper',
+    paired: 'This page is paired with the helper.',
+    pairHow: 'The helper prints a link that opens this page paired, or a token to paste.',
+    plug: 'Plug in the iPhone and tap Trust',
+    plugHow: 'Plug in an iPhone or iPad with a cable and unlock it. If it asks, tap Trust.',
+    devMode: 'Developer Mode, for screenshots',
+    devModeHow:
+      'On iOS 16 and newer: Settings → Privacy & Security → Developer Mode → On. The iPhone restarts; then tap Turn On.',
+    xcode: 'Xcode, for iOS 17 and newer',
+    xcodeReady: 'Xcode is ready for screenshots.',
+    xcodeNeeded:
+      'Screenshots of iOS 17 and newer need Xcode on this Mac. Identifiers and logs work without it.',
+  },
+  vi: {
+    copyCommand: 'Sao chép lệnh',
+    newTab: ' (mở trong thẻ mới)',
+    download: 'Tải xuống device-bridge.mjs',
+    opensPaired: 'Helper sẽ tự mở trang này và ghép nối sẵn.',
+    steps: 'Thiết lập helper',
+    node: 'Node.js 18 trở lên',
+    nodeRuns: 'Helper chạy bằng Node.js.',
+    getNode: 'Tải Node.js (LTS)',
+    start: 'Tải xuống và chạy helper',
+    intro: 'Một tệp duy nhất chạy bằng Node.js, chỉ hoạt động khi cửa sổ Terminal của nó còn mở.',
+    running: (port: string) => `Đang chạy tại 127.0.0.1:${port}.`,
+    pair: 'Ghép nối trang này với helper',
+    paired: 'Trang này đã ghép nối với helper.',
+    pairHow: 'Helper in ra một liên kết mở trang này và ghép nối sẵn, hoặc một token để dán.',
+    plug: 'Cắm iPhone và chạm Tin cậy',
+    plugHow: 'Cắm iPhone hoặc iPad bằng cáp và mở khóa máy. Nếu máy hỏi, hãy chạm Tin cậy.',
+    devMode: 'Chế độ nhà phát triển, để chụp màn hình',
+    devModeHow:
+      'Trên iOS 16 trở lên: Cài đặt → Quyền riêng tư & Bảo mật → Chế độ nhà phát triển → Bật. iPhone sẽ khởi động lại; sau đó chạm Bật.',
+    xcode: 'Xcode, cho iOS 17 trở lên',
+    xcodeReady: 'Xcode đã sẵn sàng để chụp màn hình.',
+    xcodeNeeded:
+      'Chụp màn hình iOS 17 trở lên cần Xcode trên máy Mac này. Thông tin định danh và log vẫn dùng được khi không có Xcode.',
+  },
+})
 
 /**
  * The phase's title ("Needs the helper", "Pair this page", "Ready for iPhones"), which every
@@ -90,10 +148,13 @@ export function HelperCardBody({
   /** Leaves out why iPhones need the helper: the Wi‑Fi dialog says why Wi‑Fi does instead. */
   withoutIphoneCase?: boolean
 }) {
+  const t = useMessages(HELPER_CARD_MESSAGES)
   const card = helperCard(status, { os, iphone: !withoutIphoneCase })
   const view = {
     ...card,
-    body: withoutIphoneCase ? card.body.filter((text) => text !== NEEDS_HELPER) : card.body,
+    body: withoutIphoneCase
+      ? card.body.filter((text) => text !== CARD_SENTENCES.needsHelper)
+      : card.body,
   }
   // The download command fetches the file: the same file, as a link, for those who'd rather.
   const downloads = view.command?.text.startsWith(`curl -fsSL ${HELPER_URL} `) ?? false
@@ -119,7 +180,7 @@ export function HelperCardBody({
       {view.command && (
         <div className="space-y-2">
           <p className="text-sm font-medium">{view.command.lead}</p>
-          <Command text={view.command.text} label="Copy the command" />
+          <Command text={view.command.text} label={t.copyCommand} />
         </div>
       )}
 
@@ -140,7 +201,7 @@ export function HelperCardBody({
                 <a href={link.href} target="_blank" rel="noopener noreferrer">
                   {link.label}
                   <ExternalLink aria-hidden="true" />
-                  <span className="sr-only"> (opens in a new tab)</span>
+                  <span className="sr-only">{t.newTab}</span>
                 </a>
               </Button>
             ))}
@@ -148,7 +209,7 @@ export function HelperCardBody({
               <Button asChild variant="link" className="h-auto px-0 has-[>svg]:px-0">
                 <a href={HELPER_URL} download="device-bridge.mjs">
                   <Download aria-hidden="true" />
-                  Download device-bridge.mjs
+                  {t.download}
                 </a>
               </Button>
             )}
@@ -175,9 +236,6 @@ function Looking() {
   )
 }
 
-/** What the first-run "Already running?" line starts with: the command's result, not a question. */
-const OPENS_PAIRED = 'It opens this page paired.'
-
 /**
  * The open step of the Gate's iPhone side, in the helper's words (helperCard), ordered as a
  * step reads: what it is and what the command does, how it went, the command, the links about
@@ -196,12 +254,14 @@ function OpenStepBody({
   /** What the step is about, before the helper's own words. */
   intro?: string
 }) {
+  const t = useMessages(HELPER_CARD_MESSAGES)
   const card = helperCard(status, { os })
-  const body = card.body.filter((text) => text !== NEEDS_HELPER)
+  const body = card.body.filter((text) => text !== CARD_SENTENCES.needsHelper)
+  const opens = t.opensPaired
   const lead = card.actionsLead ?? ''
-  const opensPaired = lead.startsWith(OPENS_PAIRED)
-  const inlineLead = opensPaired ? lead.slice(OPENS_PAIRED.length).trim() : lead
-  const description = [intro, opensPaired ? OPENS_PAIRED : null].filter(Boolean).join(' ')
+  const opensPaired = lead.startsWith(opens)
+  const inlineLead = opensPaired ? lead.slice(opens.length).trim() : lead
+  const description = [intro, opensPaired ? opens : null].filter(Boolean).join(' ')
   // Node.js has a step of its own.
   const links = card.links.filter((link) => link.href !== NODE_URL)
   const downloads = card.command?.text.startsWith(`curl -fsSL ${HELPER_URL} `) ?? false
@@ -223,7 +283,7 @@ function OpenStepBody({
       {card.command && (
         <div className="space-y-2">
           <p className="text-sm font-medium">{card.command.lead}</p>
-          <Command text={card.command.text} label="Copy the command" />
+          <Command text={card.command.text} label={t.copyCommand} />
         </div>
       )}
       {(links.length > 0 || downloads) && (
@@ -239,7 +299,7 @@ function OpenStepBody({
               download="device-bridge.mjs"
               icon={<Download aria-hidden="true" />}
             >
-              Download device-bridge.mjs
+              {t.download}
             </TextLink>
           )}
         </div>
@@ -300,9 +360,6 @@ const START_STATUS: Partial<Record<HelperPhase, CheckStatus>> = {
   lost: 'warning',
 }
 
-const XCODE_SENTENCE =
-  'Screenshots of iOS 17 and newer need Xcode on this Mac. Identifiers and logs work without it.'
-
 /**
  * The iPhone & iPad setup: the phase in one line (its title, which takes focus when the phase
  * takes away the control a keyboard user was on), then the six steps. Steps 3 to 6 wait on the
@@ -325,6 +382,7 @@ export function IosSetup({
   /** For the buttons and links of the rows the steps take from the checklist. */
   wiring?: FixWiring
 }) {
+  const t = useMessages(HELPER_CARD_MESSAGES)
   const view = helperCard(status, { os })
   const tone = helperChip(status, []).tone
   const rootRef = useRef<HTMLDivElement>(null)
@@ -353,7 +411,7 @@ export function IosSetup({
   })
 
   const { phase } = status
-  const mac = view.body[0] !== NEEDS_MAC
+  const mac = view.body[0] !== CARD_SENTENCES.needsMac
   const stage =
     phase === 'connected' ? 'plug' : phase === 'unpaired' || phase === 'stale' ? 'pair' : 'start'
   const paired = stage === 'plug'
@@ -381,32 +439,32 @@ export function IosSetup({
       </div>
 
       {!mac ? (
-        <p className={STEP_TEXT}>{NEEDS_MAC}</p>
+        <p className={STEP_TEXT}>{CARD_SENTENCES.needsMac}</p>
       ) : (
-        <StepList label="Set up the helper">
+        <StepList label={t.steps}>
           {nodeRow ? (
             <StepItem
               n={1}
-              label="Node.js 18 or newer"
+              label={t.node}
               state={nodeRow.status === 'ok' ? 'done' : 'current'}
               status={nodeRow.status}
             >
               <StepBody item={nodeRow} wiring={wiring} />
             </StepItem>
           ) : ran ? (
-            <StepItem n={1} label="Node.js 18 or newer" state="done">
-              <p className={STEP_TEXT}>Node.js runs the helper.</p>
+            <StepItem n={1} label={t.node} state="done">
+              <p className={STEP_TEXT}>{t.nodeRuns}</p>
             </StepItem>
           ) : (
-            <StepItem n={1} label="Node.js 18 or newer" state="current">
+            <StepItem n={1} label={t.node} state="current">
               <p className={STEP_TEXT}>{nodeHint(os)}</p>
-              <TextLink href={NODE_URL}>Get Node.js (LTS)</TextLink>
+              <TextLink href={NODE_URL}>{t.getNode}</TextLink>
             </StepItem>
           )}
 
           <StepItem
             n={2}
-            label="Download and start the helper"
+            label={t.start}
             state={at('start', true)}
             status={stage === 'start' ? START_STATUS[phase] : undefined}
           >
@@ -415,51 +473,38 @@ export function IosSetup({
                 status={status}
                 on={on}
                 os={os}
-                intro={
-                  FIRST_RUN.has(phase)
-                    ? 'One file that runs with Node.js, only while its Terminal window is open.'
-                    : undefined
-                }
+                intro={FIRST_RUN.has(phase) ? t.intro : undefined}
               />
             ) : (
-              <p className={STEP_TEXT}>{`Running on 127.0.0.1:${String(status.env.port)}.`}</p>
+              <p className={STEP_TEXT}>{t.running(String(status.env.port))}</p>
             )}
           </StepItem>
 
           <StepItem
             n={3}
-            label="Pair this page with the helper"
+            label={t.pair}
             state={at('pair', paired)}
             status={phase === 'stale' ? 'warning' : undefined}
           >
             {stage === 'pair' ? (
               <OpenStepBody status={status} on={on} os={os} />
             ) : (
-              <p className={STEP_TEXT}>
-                {paired
-                  ? 'This page is paired with the helper.'
-                  : 'The helper prints a link that opens this page paired, or a token to paste.'}
-              </p>
+              <p className={STEP_TEXT}>{paired ? t.paired : t.pairHow}</p>
             )}
           </StepItem>
 
-          <StepItem n={4} label="Plug in the iPhone and tap Trust" state={at('plug', false)}>
-            <p className={paired ? 'text-sm leading-relaxed' : STEP_TEXT}>
-              Plug in an iPhone or iPad with a cable and unlock it. If it asks, tap Trust.
-            </p>
+          <StepItem n={4} label={t.plug} state={at('plug', false)}>
+            <p className={paired ? 'text-sm leading-relaxed' : STEP_TEXT}>{t.plugHow}</p>
           </StepItem>
 
-          <StepItem n={5} label="Developer Mode, for screenshots" state={anyTime}>
-            <p className={STEP_TEXT}>
-              On iOS 16 and newer: Settings → Privacy &amp; Security → Developer Mode → On. The
-              iPhone restarts; then tap Turn On.
-            </p>
+          <StepItem n={5} label={t.devMode} state={anyTime}>
+            <p className={STEP_TEXT}>{t.devModeHow}</p>
           </StepItem>
 
           {xcodeRow ? (
             <StepItem
               n={6}
-              label="Xcode, for iOS 17 and newer"
+              label={t.xcode}
               state={xcodeRow.status === 'ok' ? 'done' : anyTime}
               status={xcodeRow.status}
             >
@@ -468,13 +513,11 @@ export function IosSetup({
           ) : (
             <StepItem
               n={6}
-              label="Xcode, for iOS 17 and newer"
+              label={t.xcode}
               state={lane?.xcode === 'ready' ? 'done' : anyTime}
               status={lane?.screenshots === 'none' ? 'warning' : undefined}
             >
-              <p className={STEP_TEXT}>
-                {lane?.xcode === 'ready' ? 'Xcode is ready for screenshots.' : XCODE_SENTENCE}
-              </p>
+              <p className={STEP_TEXT}>{lane?.xcode === 'ready' ? t.xcodeReady : t.xcodeNeeded}</p>
             </StepItem>
           )}
         </StepList>

@@ -51,6 +51,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { untilAborted } from '@/lib/abort'
 import { cn } from '@/lib/cn'
+import { defineMessages, localized, useMessages } from '@/lib/i18n'
+import { useLocale } from '@/lib/locale'
 
 import { appMatches, installerName, sortApps, type AppSort } from '../backends/android/packages'
 import { packApp, type PackedApp, type PulledApk } from '../backends/archive/xapk'
@@ -101,6 +103,147 @@ import {
 */
 
 export type { AppsLane } from './app-sheet'
+
+const APPS_TAB_MESSAGES = defineMessages({
+  en: {
+    scope: { user: 'User', system: 'System', all: 'All' },
+    sort: { updated: 'Recently updated', name: 'Name' },
+    count: (total: number) => `${String(total)} ${total === 1 ? 'app' : 'apps'}`,
+    countOf: (shown: number, total: number) =>
+      `${String(shown)} of ${String(total)} ${total === 1 ? 'app' : 'apps'}`,
+    empty: {
+      user: {
+        title: 'No apps installed on top of Android',
+        body: 'Apps from a store or an install show here. Choose System or All to see Android’s own apps.',
+      },
+      system: {
+        title: 'No system apps listed',
+        body: 'Android listed none. Refresh to ask again.',
+      },
+      all: {
+        title: 'No apps listed',
+        body: 'Android returned an empty list. Refresh to ask again.',
+      },
+    },
+    updated: (when: string) => `Updated ${when}`,
+    savedApk: 'To install it again, drop it on Device Lab or use adb install.',
+    savedXapk: (apks: number) =>
+      `The app’s ${String(apks)} APKs in one .xapk. To install it, drop it on Device Lab, or open it with SAI or APKPure on the phone. adb install can’t install an .xapk.`,
+
+    badge: { system: 'System', disabled: 'Disabled', stopped: 'Stopped' },
+    exportOf: (name: string) => `Export of ${name}`,
+    moreActionsFor: (name: string) => `More actions for ${name}`,
+    moreActions: 'More actions',
+    open: 'Open',
+    forceStop: 'Force stop',
+    appInfo: 'App info on phone',
+    exportApp: EXPORT_LABEL,
+    uninstallWaits: UNINSTALL_WAITS,
+    copied: 'Copied',
+    copyFailed: 'Copy failed',
+    copyByHand: 'Select the text and copy it by hand.',
+    copyPackage: 'Copy package name',
+    clearData: 'Clear data…',
+    uninstall: 'Uninstall…',
+    cancelExportOf: (name: string) => `Cancel export of ${name}`,
+    cancelExport: 'Cancel export',
+    loadingApps: 'Loading apps',
+
+    exporting: (name: string) => `Exporting ${name}.`,
+    noApks: 'Android listed no APK files for this app.',
+    saved: (fileName: string) => `Saved ${fileName}`,
+    savedAnnounce: (fileName: string) => `Saved ${fileName}.`,
+    exportCancelled: 'Export cancelled.',
+    exportFailed: (name: string) => `Couldn’t export ${name}`,
+
+    cantList: 'This device can’t list its apps here',
+    cantListBody: 'Apps are listed for Android phones connected over USB in Chrome or Edge.',
+    notReady: 'Not ready yet',
+    notReadyBody: 'Apps appear once the device is ready.',
+    listFailed: (device: string) => `Couldn’t read the app list from ${device}`,
+    retry: 'Retry',
+    noMatch: (filter: string) => `Nothing matches “${filter}”`,
+    noMatchBody: 'Clear the filter, or choose All.',
+    installedApps: 'Installed apps',
+    title: 'Apps',
+    onDevice: (count: string, device: string) => `${count} on ${device}`,
+    refresh: 'Refresh',
+    filterPlaceholder: 'Filter by name, package or installer',
+    filterLabel: 'Filter apps',
+    scopeLabel: 'Which apps',
+  },
+  vi: {
+    scope: { user: 'Người dùng', system: 'Hệ thống', all: 'Tất cả' },
+    sort: { updated: 'Mới cập nhật', name: 'Tên' },
+    count: (total: number) => `${String(total)} ứng dụng`,
+    countOf: (shown: number, total: number) => `${String(shown)}/${String(total)} ứng dụng`,
+    empty: {
+      user: {
+        title: 'Chưa cài thêm ứng dụng nào',
+        body: 'Ứng dụng tải từ cửa hàng hoặc tự cài sẽ hiện ở đây. Hãy chọn Hệ thống hoặc Tất cả để xem các ứng dụng có sẵn của Android.',
+      },
+      system: {
+        title: 'Không thấy ứng dụng hệ thống nào',
+        body: 'Android không liệt kê ứng dụng nào. Hãy làm mới để hỏi lại.',
+      },
+      all: {
+        title: 'Không thấy ứng dụng nào',
+        body: 'Android trả về danh sách trống. Hãy làm mới để hỏi lại.',
+      },
+    },
+    updated: (when: string) => `Cập nhật ${when}`,
+    savedApk: 'Để cài lại, hãy thả tệp vào Device Lab hoặc dùng adb install.',
+    savedXapk: (apks: number) =>
+      `Tệp .xapk gồm ${String(apks)} APK của ứng dụng. Để cài, hãy thả tệp vào Device Lab, hoặc mở bằng SAI hay APKPure trên điện thoại. adb install không cài được tệp .xapk.`,
+
+    badge: { system: 'Hệ thống', disabled: 'Đã tắt', stopped: 'Đã dừng' },
+    exportOf: (name: string) => `Đang xuất ${name}`,
+    moreActionsFor: (name: string) => `Thao tác khác cho ${name}`,
+    moreActions: 'Thao tác khác',
+    open: 'Mở',
+    forceStop: 'Buộc dừng',
+    appInfo: 'Thông tin ứng dụng',
+    // Worded as in the sheet.
+    exportApp: 'Xuất ứng dụng',
+    uninstallWaits: 'Hủy lượt xuất hoặc đợi xuất xong để gỡ cài đặt',
+    copied: 'Đã sao chép',
+    copyFailed: 'Không sao chép được',
+    copyByHand: 'Hãy bôi đen đoạn chữ và tự sao chép.',
+    copyPackage: 'Sao chép tên gói',
+    clearData: 'Xóa dữ liệu…',
+    uninstall: 'Gỡ cài đặt…',
+    cancelExportOf: (name: string) => `Hủy xuất ${name}`,
+    cancelExport: 'Hủy xuất',
+    loadingApps: 'Đang tải danh sách ứng dụng',
+
+    exporting: (name: string) => `Đang xuất ${name}.`,
+    noApks: 'Android không liệt kê tệp APK nào của ứng dụng này.',
+    saved: (fileName: string) => `Đã lưu ${fileName}`,
+    savedAnnounce: (fileName: string) => `Đã lưu ${fileName}.`,
+    exportCancelled: 'Đã hủy xuất.',
+    exportFailed: (name: string) => `Không xuất được ${name}`,
+
+    cantList: 'Không liệt kê được ứng dụng của thiết bị này ở đây',
+    cantListBody:
+      'Device Lab liệt kê ứng dụng của điện thoại Android kết nối qua USB trong Chrome hoặc Edge.',
+    notReady: 'Chưa sẵn sàng',
+    notReadyBody: 'Ứng dụng sẽ hiện khi thiết bị sẵn sàng.',
+    listFailed: (device: string) => `Không đọc được danh sách ứng dụng từ ${device}`,
+    retry: 'Thử lại',
+    noMatch: (filter: string) => `Không có ứng dụng nào khớp với “${filter}”`,
+    noMatchBody: 'Hãy xóa bộ lọc hoặc chọn Tất cả.',
+    installedApps: 'Ứng dụng đã cài',
+    title: 'Ứng dụng',
+    onDevice: (count: string, device: string) => `${count} trên ${device}`,
+    refresh: 'Làm mới',
+    filterPlaceholder: 'Lọc theo tên, gói hoặc trình cài đặt',
+    filterLabel: 'Lọc ứng dụng',
+    scopeLabel: 'Loại ứng dụng',
+  },
+})
+
+/** The same words for the functions below and for an export, which outlives the tab. */
+const APPS_TAB_WORDS = localized(APPS_TAB_MESSAGES)
 
 /* ---------------------------------------------------------------- *
  * Badges: lazily read, cached, drawn from blob URLs
@@ -271,20 +414,15 @@ function watchVisibility(el: Element, onChange: (visible: boolean) => void): () 
  * Wording
  * ---------------------------------------------------------------- */
 
-const SCOPES: readonly { value: AppScope; label: string }[] = [
-  { value: 'user', label: 'User' },
-  { value: 'system', label: 'System' },
-  { value: 'all', label: 'All' },
-]
+/** The filter's choices, in order; the catalog's `scope` words them. */
+const SCOPES: readonly AppScope[] = ['user', 'system', 'all']
 
-const isScope = (value: string): value is AppScope => SCOPES.some((s) => s.value === value)
+const isScope = (value: string): value is AppScope => SCOPES.some((s) => s === value)
 
-const SORTS: readonly { value: AppSort; label: string }[] = [
-  { value: 'updated', label: 'Recently updated' },
-  { value: 'name', label: 'Name' },
-]
+/** The sort's choices; the catalog's `sort` words them. */
+const SORTS: readonly AppSort[] = ['updated', 'name']
 
-const isSort = (value: string): value is AppSort => SORTS.some((s) => s.value === value)
+const isSort = (value: string): value is AppSort => SORTS.some((s) => s === value)
 
 /** The app after `pkg` in the list as shown, or before it when it was the last; null when alone. */
 export function neighbourOf(shown: readonly AppRow[], pkg: string): string | null {
@@ -295,28 +433,12 @@ export function neighbourOf(shown: readonly AppRow[], pkg: string): string | nul
 
 /** "1 app", "12 apps", "3 of 12 apps". */
 export function countText(shown: number, total: number): string {
-  const noun = total === 1 ? 'app' : 'apps'
-  return shown === total
-    ? `${String(total)} ${noun}`
-    : `${String(shown)} of ${String(total)} ${noun}`
+  return shown === total ? APPS_TAB_WORDS.count(total) : APPS_TAB_WORDS.countOf(shown, total)
 }
 
 /** What an empty list means in each scope, and what to do next. */
 export function emptyCopy(scope: AppScope): { readonly title: string; readonly body: string } {
-  switch (scope) {
-    case 'user':
-      return {
-        title: 'No apps installed on top of Android',
-        body: 'Apps from a store or an install show here. Choose System or All to see Android’s own apps.',
-      }
-    case 'system':
-      return { title: 'No system apps listed', body: 'Android listed none. Refresh to ask again.' }
-    case 'all':
-      return {
-        title: 'No apps listed',
-        body: 'Android returned an empty list. Refresh to ask again.',
-      }
-  }
+  return APPS_TAB_WORDS.empty[scope]
 }
 
 /** The second line of a row: package (when a label stands above it), version, installer, update. */
@@ -325,7 +447,7 @@ export function rowMeta(row: AppRow, view: BadgeView | null | undefined): string
     view?.label ? row.packageName : '',
     fmtVersion(null, row.versionCode),
     installerName(row.installer),
-    row.lastUpdated === null ? '' : `Updated ${fmtDateTime(new Date(row.lastUpdated))}`,
+    row.lastUpdated === null ? '' : APPS_TAB_WORDS.updated(fmtDateTime(new Date(row.lastUpdated))),
   ]
     .filter(Boolean)
     .join(' · ')
@@ -346,10 +468,8 @@ function saveBlob(blob: Blob, fileName: string) {
 
 /** The toast under "Saved …": what the file is and how to install it again. */
 export function savedCopy(packed: Pick<PackedApp, 'kind' | 'apks'>): string {
-  if (packed.kind === 'apk') {
-    return 'To install it again, drop it on Device Lab or use adb install.'
-  }
-  return `The app’s ${String(packed.apks)} APKs in one .xapk. To install it, drop it on Device Lab, or open it with SAI or APKPure on the phone. adb install can’t install an .xapk.`
+  if (packed.kind === 'apk') return APPS_TAB_WORDS.savedApk
+  return APPS_TAB_WORDS.savedXapk(packed.apks)
 }
 
 /* ---------------------------------------------------------------- *
@@ -442,6 +562,8 @@ const AppListItem = memo(function AppListItem({
   onCancelExport,
   onVisible,
 }: AppListItemProps) {
+  // Memoized, so a language switch reaches the row only through this.
+  const t = useMessages(APPS_TAB_MESSAGES)
   const ref = useRef<HTMLLIElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const name = view?.label ?? row.packageName
@@ -499,9 +621,9 @@ const AppListItem = memo(function AppListItem({
             <span className={cn('truncate font-medium', !view?.label && 'font-mono text-sm')}>
               {name}
             </span>
-            {row.system && <RowBadge>System</RowBadge>}
-            {row.enabled === false && <RowBadge>Disabled</RowBadge>}
-            {row.stopped === true && <RowBadge>Stopped</RowBadge>}
+            {row.system && <RowBadge>{t.badge.system}</RowBadge>}
+            {row.enabled === false && <RowBadge>{t.badge.disabled}</RowBadge>}
+            {row.stopped === true && <RowBadge>{t.badge.stopped}</RowBadge>}
           </span>
           <span
             className={cn(
@@ -517,7 +639,7 @@ const AppListItem = memo(function AppListItem({
         <>
           <ExportMeter
             progress={exporting}
-            label={`Export of ${name}`}
+            label={t.exportOf(name)}
             className="absolute right-2 bottom-0.5 left-[3.625rem] h-0.5"
           />
           <CancelExport
@@ -537,8 +659,8 @@ const AppListItem = memo(function AppListItem({
               variant="ghost"
               size="icon"
               className="size-8 shrink-0"
-              aria-label={`More actions for ${name}`}
-              title="More actions"
+              aria-label={t.moreActionsFor(name)}
+              title={t.moreActions}
             >
               <MoreHorizontal />
             </Button>
@@ -546,9 +668,9 @@ const AppListItem = memo(function AppListItem({
           <DropdownMenuContent align="end" className="min-w-48">
             {canAct && (
               <>
-                {item('launch', 'Open', Play)}
-                {item('stop', 'Force stop', Square)}
-                {item('info', 'App info on phone', Info)}
+                {item('launch', t.open, Play)}
+                {item('stop', t.forceStop, Square)}
+                {item('info', t.appInfo, Info)}
               </>
             )}
             {canExport && (
@@ -559,21 +681,21 @@ const AppListItem = memo(function AppListItem({
                   onExport(row)
                 }}
               >
-                <Download /> {EXPORT_LABEL}
+                <Download /> {t.exportApp}
               </DropdownMenuItem>
             )}
             <DropdownMenuItem
               onSelect={() => {
                 navigator.clipboard.writeText(row.packageName).then(
-                  () => toast.success('Copied', { description: row.packageName }),
+                  () => toast.success(t.copied, { description: row.packageName }),
                   () =>
-                    toast.error('Copy failed', {
-                      description: 'Select the text and copy it by hand.',
+                    toast.error(t.copyFailed, {
+                      description: t.copyByHand,
                     }),
                 )
               }}
             >
-              <ClipboardCopy /> Copy package name
+              <ClipboardCopy /> {t.copyPackage}
             </DropdownMenuItem>
             {canAct && (
               <>
@@ -585,19 +707,19 @@ const AppListItem = memo(function AppListItem({
                     onConfirm(row, 'clear')
                   }}
                 >
-                  <Eraser /> Clear data…
+                  <Eraser /> {t.clearData}
                 </DropdownMenuItem>
                 {/* System apps can't be uninstalled for good, so the entry isn't offered. */}
                 {!row.system && (
                   <DropdownMenuItem
                     variant="destructive"
                     disabled={!canUninstall(busy, exporting)}
-                    title={exporting ? UNINSTALL_WAITS : undefined}
+                    title={exporting ? t.uninstallWaits : undefined}
                     onSelect={() => {
                       onConfirm(row, 'uninstall')
                     }}
                   >
-                    <Trash2 /> Uninstall…
+                    <Trash2 /> {t.uninstall}
                   </DropdownMenuItem>
                 )}
               </>
@@ -622,6 +744,7 @@ function CancelExport({
   onCancel: () => void
   returnFocus: () => void
 }) {
+  const t = useMessages(APPS_TAB_MESSAGES)
   const ref = useRef<HTMLButtonElement>(null)
   useFocusAfterUnmount(ref, returnFocus)
   return (
@@ -630,8 +753,8 @@ function CancelExport({
       variant="ghost"
       size="icon"
       className="size-8 shrink-0"
-      aria-label={`Cancel export of ${name}`}
-      title="Cancel export"
+      aria-label={t.cancelExportOf(name)}
+      title={t.cancelExport}
       onClick={onCancel}
     >
       <X />
@@ -648,8 +771,9 @@ function RowBadge({ children }: { children: string }) {
 }
 
 function LoadingRows() {
+  const t = useMessages(APPS_TAB_MESSAGES)
   return (
-    <ul aria-label="Loading apps" className="flex flex-col">
+    <ul aria-label={t.loadingApps} className="flex flex-col">
       {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
         <li key={i} className="flex items-center gap-3 p-2.5">
           <Skeleton className="size-9 rounded-lg" />
@@ -680,7 +804,8 @@ function EmptyState({ title, body }: { title: string; body: string }) {
 type ListLoad =
   | { readonly status: 'loading' }
   | { readonly status: 'ready'; readonly rows: readonly AppRow[] }
-  | { readonly status: 'failed'; readonly message: string }
+  /** The error, worded when shown: the language may change meanwhile. */
+  | { readonly status: 'failed'; readonly error: unknown }
 
 export interface AppsTabProps {
   device: Device
@@ -706,6 +831,8 @@ export function AppsTab(props: AppsTabProps) {
 }
 
 function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }: AppsTabProps) {
+  const t = useMessages(APPS_TAB_MESSAGES)
+  const locale = useLocale()
   const [scope, setScope] = useState<AppScope>('user')
   const [sort, setSort] = useState<AppSort>('updated')
   const [filter, setFilter] = useState('')
@@ -761,7 +888,7 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
       },
       (error: unknown) => {
         if (!isLive()) return
-        setList({ status: 'failed', message: deviceErrorMessage(error) })
+        setList({ status: 'failed', error })
         setRefreshing(false)
       },
     )
@@ -810,7 +937,9 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
             orderLabels,
           )
         : [],
-    [rows, filter, labels, sort, orderLabels],
+    // The filter matches installers as they are worded, so a language switch filters again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, filter, labels, sort, orderLabels, locale],
   )
 
   const reload = () => {
@@ -831,7 +960,11 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
   }
 
   /** Resolves to null on success, or the failure's wording. */
-  const perform = async (pkg: string, action: AppAction, done: string): Promise<string | null> => {
+  const perform = async (
+    pkg: string,
+    action: AppAction,
+    done: () => string,
+  ): Promise<string | null> => {
     if (act) return act(pkg, action)
     if (!lane.appAction) return deviceErrorMessage(new Error('DEVICE_NOT_READY'))
     try {
@@ -839,7 +972,7 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
     } catch (error) {
       return deviceErrorMessage(error)
     }
-    onAnnounce?.(done)
+    onAnnounce?.(done())
     return null
   }
 
@@ -848,15 +981,17 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
     if (!lane.appAction || busy.has(pkg)) return
     // The menu and the sheet hold Uninstall back during an export of the app; so does this.
     if (action === 'uninstall' && exportControllers.has(exportKey(device.id, pkg))) return
-    const words = actionMessages(action, nameOf(row), device.name)
+    const name = nameOf(row)
+    // Worded once the phone answers, in the language on screen then.
+    const words = () => actionMessages(action, name, device.name)
     setBusy((current) => new Map(current).set(pkg, action))
     try {
-      const failure = await perform(pkg, action, words.done)
+      const failure = await perform(pkg, action, () => words().done)
       if (failure !== null) {
-        toast.error(words.failed, { description: failure })
+        toast.error(words().failed, { description: failure })
         return
       }
-      toast.success(words.done)
+      toast.success(words().done)
       if (action === 'launch') patchRow(pkg, { stopped: false })
       // Clearing data force-stops the app too.
       if (action === 'stop' || action === 'clear') patchRow(pkg, { stopped: true })
@@ -905,13 +1040,15 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
       shownAt = now
       show(progress)
     }
+    // Worded when each step happens, in the language on screen then.
+    const words = APPS_TAB_WORDS
     show({ phase: 'reading', received: 0, total: null, files: 0 })
-    onAnnounce?.(`Exporting ${name}.`)
+    onAnnounce?.(words.exporting(name))
     try {
       const detail = known ?? (app ? await untilAborted(app(deviceId, pkg), signal) : null)
       signal.throwIfAborted()
       if (!detail || detail.apks.length === 0) {
-        throw new Error('Android listed no APK files for this app.')
+        throw new Error(words.noApks)
       }
       const files = detail.apks.length
       const sizes = detail.apks.map((a) => a.size)
@@ -961,11 +1098,11 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
       )
       signal.throwIfAborted()
       saveBlob(packed.blob, packed.fileName)
-      toast.success(`Saved ${packed.fileName}`, { description: savedCopy(packed) })
-      onAnnounce?.(`Saved ${packed.fileName}.`)
+      toast.success(words.saved(packed.fileName), { description: savedCopy(packed) })
+      onAnnounce?.(words.savedAnnounce(packed.fileName))
     } catch (error) {
-      if (signal.aborted) onAnnounce?.('Export cancelled.')
-      else toast.error(`Couldn’t export ${name}`, { description: deviceErrorMessage(error) })
+      if (signal.aborted) onAnnounce?.(words.exportCancelled)
+      else toast.error(words.exportFailed(name), { description: deviceErrorMessage(error) })
     } finally {
       exportControllers.delete(key)
       setExportProgress(deviceId, pkg, null)
@@ -1017,14 +1154,9 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
 
   let body
   if (!lane.apps) {
-    body = (
-      <EmptyState
-        title="This device can’t list its apps here"
-        body="Apps are listed for Android phones connected over USB in Chrome or Edge."
-      />
-    )
+    body = <EmptyState title={t.cantList} body={t.cantListBody} />
   } else if (!ready) {
-    body = <EmptyState title="Not ready yet" body="Apps appear once the device is ready." />
+    body = <EmptyState title={t.notReady} body={t.notReadyBody} />
   } else if (list.status === 'loading') {
     body = <LoadingRows />
   } else if (list.status === 'failed') {
@@ -1032,8 +1164,10 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
       <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/5 p-4">
         <TriangleAlert className="mt-0.5 size-4 shrink-0 text-red-500" />
         <div className="min-w-0 flex-1 text-sm">
-          <p className="font-medium">Couldn’t read the app list from {device.name}</p>
-          <p className="text-muted-foreground mt-0.5 wrap-anywhere">{list.message}</p>
+          <p className="font-medium">{t.listFailed(device.name)}</p>
+          <p className="text-muted-foreground mt-0.5 wrap-anywhere">
+            {deviceErrorMessage(list.error)}
+          </p>
         </div>
         <Button
           variant="outline"
@@ -1043,24 +1177,19 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
             reload()
           }}
         >
-          <RotateCcw /> Retry
+          <RotateCcw /> {t.retry}
         </Button>
       </div>
     )
   } else if (list.rows.length === 0) {
     body = <EmptyState {...emptyCopy(scope)} />
   } else if (shown.length === 0) {
-    body = (
-      <EmptyState
-        title={`Nothing matches “${filter.trim()}”`}
-        body="Clear the filter, or choose All."
-      />
-    )
+    body = <EmptyState title={t.noMatch(filter.trim())} body={t.noMatchBody} />
   } else {
     body = (
       // Keyed by attempt: after a refresh every row reports itself on screen again, so badges
       // that failed before are asked for once more.
-      <ul ref={listEl} key={attempt} aria-label="Installed apps" className="-mx-2.5 flex flex-col">
+      <ul ref={listEl} key={attempt} aria-label={t.installedApps} className="-mx-2.5 flex flex-col">
         {shown.map((row) => (
           <AppListItem
             key={row.packageName}
@@ -1082,14 +1211,12 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
     )
   }
 
-  const sortLabel = SORTS.find((s) => s.value === sort)?.label ?? ''
-
   return (
     <Card className="gap-4">
       <CardHeader>
-        <CardTitle>Apps</CardTitle>
+        <CardTitle>{t.title}</CardTitle>
         <CardDescription>
-          {rows ? `${countText(shown.length, rows.length)} on ${device.name}` : device.name}
+          {rows ? t.onDevice(countText(shown.length, rows.length), device.name) : device.name}
         </CardDescription>
         <CardAction>
           {/* aria-disabled, not disabled: disabling the focused button drops focus to <body>. */}
@@ -1104,7 +1231,7 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
               reload()
             }}
           >
-            <RefreshCw className={cn(refreshing && 'animate-spin')} /> Refresh
+            <RefreshCw className={cn(refreshing && 'animate-spin')} /> {t.refresh}
           </Button>
         </CardAction>
       </CardHeader>
@@ -1113,8 +1240,8 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
           <Input
             ref={filterEl}
             type="search"
-            placeholder="Filter by name, package or installer"
-            aria-label="Filter apps"
+            placeholder={t.filterPlaceholder}
+            aria-label={t.filterLabel}
             value={filter}
             onChange={(e) => {
               setFilter(e.target.value)
@@ -1131,10 +1258,10 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
               setScope(value)
               setList({ status: 'loading' })
             }}
-            aria-label="Which apps"
+            aria-label={t.scopeLabel}
             className="bg-muted text-foreground/75 h-9 w-full rounded-lg p-[3px] sm:w-auto"
           >
-            {SCOPES.map(({ value, label }) => (
+            {SCOPES.map((value) => (
               <ToggleGroupItem
                 key={value}
                 value={value}
@@ -1145,14 +1272,14 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
                   'dark:data-[state=on]:border-input dark:data-[state=on]:bg-input/30',
                 )}
               >
-                {label}
+                {t.scope[value]}
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="h-9 sm:ml-auto">
-                <ArrowDownUp /> {sortLabel}
+                <ArrowDownUp /> {t.sort[sort]}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -1164,9 +1291,9 @@ function AppsTabBody({ device, lane, reloadKey = 0, timeZone, act, onAnnounce }:
                   setOrderLabels(labels)
                 }}
               >
-                {SORTS.map(({ value, label }) => (
+                {SORTS.map((value) => (
                   <DropdownMenuRadioItem key={value} value={value}>
-                    {label}
+                    {t.sort[value]}
                   </DropdownMenuRadioItem>
                 ))}
               </DropdownMenuRadioGroup>

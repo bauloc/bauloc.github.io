@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/cn'
+import { localized } from '@/lib/i18n'
 
 import type { HelperStatus } from '../helper/connection'
 import type { HelperDevice } from '../helper/protocol'
@@ -21,12 +22,17 @@ const CHIP = 'gap-1.5'
 const CLICKABLE =
   'cursor-pointer hover:bg-accent hover:text-accent-foreground focus-visible:outline-none'
 
+const CHIP_NAME = localized({
+  en: { check: (text: string) => `${text}: open the Environment check` },
+  vi: { check: (text: string) => `${text}: mở Kiểm tra môi trường` },
+})
+
 /**
  * The chip's accessible name: its visible text first (so speech input can say what it sees),
  * then what a click does.
  */
 export const chipName = (text: string, action: HelperActionView) =>
-  action.action === 'check' ? `${text}: open the Environment check` : `${text}: ${action.label}`
+  action.action === 'check' ? CHIP_NAME.check(text) : `${text}: ${action.label}`
 
 /**
  * The chip: a button when a click does something (connect, pair, the Environment check,

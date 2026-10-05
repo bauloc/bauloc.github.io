@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { defineMessages, localized, useMessages } from '@/lib/i18n'
 
 import type { HelperStatus } from '../helper/connection'
 import type { DoctorReport } from '../helper/protocol'
@@ -30,15 +31,95 @@ import {
   type FixWiring,
 } from './checklist'
 
+/** The words of the summary, the About rows and the text copied for a ticket. */
+const REPORT = localized({
+  en: {
+    allOk: 'Everything checked is OK.',
+    count: (n: number, status: string) => `${String(n)} ${status}`,
+    about: 'About',
+    pageMode: 'Page mode',
+    localPage: 'The helper’s own page',
+    hosted: 'Hosted',
+    helperAddress: 'Helper address',
+    uiVersion: 'UI version',
+    mock: 'Mock devices',
+    on: 'On',
+    off: 'Off',
+    devicesSeen: 'Devices seen',
+    throughHelper: (all: string, viaHelper: string) => `${all} (${viaHelper} through the helper)`,
+    helper: 'Helper',
+    helperVersion: (version: string, protocol: string) => `${version} · protocol ${protocol}`,
+    runsOn: 'Helper runs on',
+    started: 'Helper started',
+    options: 'Helper options',
+    noOptions: 'none',
+    fingerprint: 'Fingerprint',
+  },
+  vi: {
+    allOk: 'Mọi mục đã kiểm tra đều OK.',
+    count: (n: number, status: string) => `${String(n)} ${status}`,
+    about: 'Thông tin',
+    pageMode: 'Chế độ trang',
+    localPage: 'Trang riêng của helper',
+    hosted: 'Bản trên web',
+    helperAddress: 'Địa chỉ helper',
+    uiVersion: 'Phiên bản giao diện',
+    // The same name as the page's ?mock=1 badge.
+    mock: 'Thiết bị Mock',
+    on: 'Bật',
+    off: 'Tắt',
+    devicesSeen: 'Số thiết bị',
+    throughHelper: (all: string, viaHelper: string) => `${all} (${viaHelper} qua helper)`,
+    helper: 'Helper',
+    helperVersion: (version: string, protocol: string) => `${version} · giao thức ${protocol}`,
+    runsOn: 'Helper chạy trên',
+    started: 'Helper khởi động lúc',
+    options: 'Tùy chọn helper',
+    noOptions: 'không có',
+    // Android's word for a key fingerprint ("Vân tay khóa RSA").
+    fingerprint: 'Vân tay',
+  },
+})
+
+const DOCTOR_MESSAGES = defineMessages({
+  en: {
+    title: 'Environment check',
+    description: 'What this page can do right now, and what to fix.',
+    remember: 'Remember on this computer',
+    copied: 'Copied the environment check',
+    copyFailed: 'Copy failed',
+    clipboardBlocked: 'Your browser blocked clipboard access.',
+    copyText: 'Copy as text',
+    forget: 'Forget pairing',
+    checking: 'Checking…',
+    recheck: 'Re-check',
+    close: 'Close',
+  },
+  vi: {
+    title: 'Kiểm tra môi trường',
+    description: 'Trang này hiện làm được gì và cần xử lý gì.',
+    remember: 'Ghi nhớ trên máy tính này',
+    copied: 'Đã sao chép kết quả kiểm tra môi trường',
+    copyFailed: 'Không sao chép được',
+    clipboardBlocked: 'Trình duyệt đã chặn quyền truy cập bộ nhớ tạm.',
+    // Short: on a phone the footer is two columns of nowrap buttons.
+    copyText: 'Sao chép văn bản',
+    forget: 'Hủy ghép nối',
+    checking: 'Đang kiểm tra…',
+    recheck: 'Kiểm tra lại',
+    close: 'Đóng',
+  },
+})
+
 const SUMMARY_ORDER: readonly CheckStatus[] = ['blocking', 'warning', 'unchecked']
 
 /** "2 Blocking · 1 Warning · 9 Not checked", or that everything is OK. */
 export function checklistSummary(items: readonly CheckItem[]): string {
   const parts = SUMMARY_ORDER.flatMap((status) => {
     const n = items.filter((item) => item.status === status).length
-    return n > 0 ? [`${String(n)} ${STATUS_META[status].label}`] : []
+    return n > 0 ? [REPORT.count(n, STATUS_META[status].label)] : []
   })
-  return parts.length > 0 ? parts.join(' · ') : 'Everything checked is OK.'
+  return parts.length > 0 ? parts.join(' · ') : REPORT.allOk
 }
 
 /* ---------------------------------------------------------------- *
@@ -70,25 +151,25 @@ export function aboutRows({ status, doctor, version, mock, devices }: AboutInput
   const viaHelper = devices.filter((d) => d.backend === 'agent').length
   const rows: AboutRow[] = [
     {
-      label: 'Page mode',
-      value: status.env.mode === 'local' ? 'The helper’s own page' : 'Hosted',
+      label: REPORT.pageMode,
+      value: status.env.mode === 'local' ? REPORT.localPage : REPORT.hosted,
     },
-    { label: 'Helper address', value: status.env.apiBase },
-    { label: 'UI version', value: version },
-    { label: 'Mock devices', value: mock ? 'On' : 'Off' },
+    { label: REPORT.helperAddress, value: status.env.apiBase },
+    { label: REPORT.uiVersion, value: version },
+    { label: REPORT.mock, value: mock ? REPORT.on : REPORT.off },
     {
-      label: 'Devices seen',
+      label: REPORT.devicesSeen,
       value:
         viaHelper > 0
-          ? `${String(devices.length)} (${String(viaHelper)} through the helper)`
+          ? REPORT.throughHelper(String(devices.length), String(viaHelper))
           : String(devices.length),
     },
   ]
   const { health, pairing } = status
   if (health) {
     rows.push({
-      label: 'Helper',
-      value: `${health.version} · protocol ${String(health.protocol)}`,
+      label: REPORT.helper,
+      value: REPORT.helperVersion(health.version, String(health.protocol)),
     })
   }
   if (doctor) {
@@ -96,12 +177,12 @@ export function aboutRows({ status, doctor, version, mock, devices }: AboutInput
     const host = [`Node ${helper.node}`, `${helper.platform}-${helper.arch}`]
     if (helper.macos) host.push(`macOS ${helper.macos}`)
     rows.push(
-      { label: 'Helper runs on', value: host.join(' · ') },
-      { label: 'Helper started', value: clockTime(helper.startedAt) },
-      { label: 'Helper options', value: helper.flags.join(' ') || 'none' },
+      { label: REPORT.runsOn, value: host.join(' · ') },
+      { label: REPORT.started, value: clockTime(helper.startedAt) },
+      { label: REPORT.options, value: helper.flags.join(' ') || REPORT.noOptions },
     )
   }
-  if (pairing) rows.push({ label: 'Fingerprint', value: pairing.tokenId })
+  if (pairing) rows.push({ label: REPORT.fingerprint, value: pairing.tokenId })
   return rows
 }
 
@@ -114,7 +195,7 @@ export function environmentText(
   items: readonly CheckItem[],
   phoneName?: string,
 ): string {
-  const head = about.length > 0 ? ['About', ...about.map((r) => `${r.label}: ${r.value}`)] : []
+  const head = about.length > 0 ? [REPORT.about, ...about.map((r) => `${r.label}: ${r.value}`)] : []
   const body = checklistText(items, phoneName)
   return redactSecrets([head.join('\n'), body].filter(Boolean).join('\n\n'))
 }
@@ -197,11 +278,12 @@ function About({
   rows: readonly AboutRow[]
   remember?: RememberControl | null
 }) {
+  const t = useMessages(DOCTOR_MESSAGES)
   const uid = useId()
   return (
     <section aria-labelledby={`${uid}-about`} className="space-y-2">
       <h3 id={`${uid}-about`} className="text-sm font-semibold">
-        About
+        {REPORT.about}
       </h3>
       <dl className="divide-y rounded-lg border">
         {rows.map((row) => (
@@ -223,7 +305,7 @@ function About({
               onCheckedChange={remember.onChange}
               aria-describedby={`${uid}-remember-note`}
             />
-            <Label htmlFor={`${uid}-remember`}>Remember on this computer</Label>
+            <Label htmlFor={`${uid}-remember`}>{t.remember}</Label>
           </div>
           <p id={`${uid}-remember-note`} className="text-muted-foreground text-xs leading-relaxed">
             {remember.note}
@@ -267,6 +349,7 @@ export function DoctorDialog({
   /** Shown only while the page is paired. */
   onForget?: () => void
 }) {
+  const t = useMessages(DOCTOR_MESSAGES)
   // Opened from two places with no DialogTrigger, so Radix has nowhere to return focus to:
   // remember what had it, and put it back on close instead of leaving it on <body>.
   const opener = useRef<HTMLElement | null>(null)
@@ -284,9 +367,9 @@ export function DoctorDialog({
         }}
       >
         <DialogHeader>
-          <DialogTitle>Environment check</DialogTitle>
+          <DialogTitle>{t.title}</DialogTitle>
           <DialogDescription>
-            What this page can do right now, and what to fix. {checklistSummary(items)}
+            {t.description} {checklistSummary(items)}
           </DialogDescription>
         </DialogHeader>
         {/* Shorter on a phone, where the footer's buttons take two rows. */}
@@ -300,19 +383,19 @@ export function DoctorDialog({
             variant="outline"
             onClick={() => {
               navigator.clipboard.writeText(environmentText(about, items, phoneName)).then(
-                () => toast.success('Copied the environment check'),
+                () => toast.success(t.copied),
                 () =>
-                  toast.error('Copy failed', {
-                    description: 'Your browser blocked clipboard access.',
+                  toast.error(t.copyFailed, {
+                    description: t.clipboardBlocked,
                   }),
               )
             }}
           >
-            <ClipboardCopy /> Copy as text
+            <ClipboardCopy /> {t.copyText}
           </Button>
           {onForget && (
             <Button variant="outline" onClick={onForget}>
-              <Unlink /> Forget pairing
+              <Unlink /> {t.forget}
             </Button>
           )}
           {onRecheck && (
@@ -326,7 +409,7 @@ export function DoctorDialog({
               }}
             >
               {rechecking ? <Loader2 className="animate-spin" /> : <RotateCcw />}
-              {rechecking ? 'Checking…' : 'Re-check'}
+              {rechecking ? t.checking : t.recheck}
             </Button>
           )}
           <Button
@@ -334,7 +417,7 @@ export function DoctorDialog({
               onOpenChange(false)
             }}
           >
-            Close
+            {t.close}
           </Button>
         </DialogFooter>
       </DialogContent>

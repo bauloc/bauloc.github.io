@@ -1,21 +1,32 @@
 import '@fontsource-variable/geist'
 
 import { Activity, FlaskConical, Loader2, Unplug, Wifi } from 'lucide-react'
-import { lazy, useEffect, useEffectEvent, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  lazy,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react'
 import { toast } from 'sonner'
 
 import { HomeButton, SITE_URL } from '@/components/home-button'
+import { LanguageToggle } from '@/components/language-toggle'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { Toaster } from '@/components/toaster'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import { defineMessages, localized, useMessages } from '@/lib/i18n'
+import { useLocale } from '@/lib/locale'
 
 import { createAgentBackend } from './backends/agent'
 import { DEVICE_ERRORS, deviceErrorMessage, type Backend } from './backends/backend'
 import { createMockBackend } from './backends/mock'
 import { createWebUsbBackend } from './backends/webusb'
-import { BLACK_SHOT_TEXT } from './black-shot'
+import { BLACK_SHOT } from './black-shot'
 import type { FixWiring } from './components/checklist'
 import {
   DeviceDetailPane,
@@ -54,7 +65,7 @@ import type { DoctorReport } from './helper/protocol'
 import { helperAnnouncement, pairError, rememberNote } from './helper/status'
 import { readStoredPort, readStoredToken } from './helper/token'
 import { helperUpdate } from './helper/update'
-import { createLogSessions, RESUME_WINDOW_TEXT, type LogEvent } from './log-sessions'
+import { createLogSessions, RESUME_WINDOW_MS, spanText, type LogEvent } from './log-sessions'
 import { installPhoneOf, type Device } from './model'
 import {
   browserChecks,
@@ -92,6 +103,126 @@ const AppsTab = lazy(() => import('./components/apps-tab').then((m) => ({ defaul
 const ImagesTab = lazy(() =>
   import('./components/images-tab').then((m) => ({ default: m.ImagesTab })),
 )
+
+/** What the functions below and the log's events say, worded when they run. */
+const PAGE_TEXT = localized({
+  en: {
+    slowCapture: 'Still working — the first screenshot of an iPhone can take up to 20 seconds.',
+    logDropped: (name: string, wait: string) =>
+      `Lost the connection to ${name}. Its log picks up again if it comes back within ${wait}.`,
+    logResumed: (name: string) => `${name} is back. Its log resumed.`,
+    logUnlisted: (name: string) => `${name} left the device list, so its log stopped.`,
+    logGaveUp: (name: string) => `${name} didn’t come back, so its log stopped.`,
+    logStopped: 'The log stopped',
+    selectThenDrop: 'Select a ready Android phone first, then drop the file again.',
+    noIosInstall: 'Installing on iPhone and iPad isn’t supported yet.',
+    noInstall: 'This connection can’t install apps.',
+    notReady: (name: string) => `${name} isn’t ready. Fix what its card says, then try again.`,
+  },
+  vi: {
+    slowCapture: 'Vẫn đang chụp — lần chụp màn hình đầu tiên trên iPhone có thể mất tới 20 giây.',
+    logDropped: (name: string, wait: string) =>
+      `Mất kết nối với ${name}. Log sẽ tự chạy tiếp nếu thiết bị kết nối lại trong vòng ${wait}.`,
+    logResumed: (name: string) => `${name} đã kết nối lại. Log đã chạy tiếp.`,
+    logUnlisted: (name: string) => `${name} đã rời danh sách thiết bị nên log đã dừng.`,
+    logGaveUp: (name: string) => `${name} không kết nối lại nên log đã dừng.`,
+    logStopped: 'Log đã dừng',
+    selectThenDrop: 'Hãy chọn một điện thoại Android đã sẵn sàng, rồi thả lại tệp.',
+    noIosInstall: 'Chưa hỗ trợ cài đặt lên iPhone và iPad.',
+    noInstall: 'Kết nối này không cài được ứng dụng.',
+    notReady: (name: string) =>
+      `${name} chưa sẵn sàng. Hãy làm theo hướng dẫn đang hiện cho thiết bị này, rồi thử lại.`,
+  },
+})
+
+const DEVICE_LAB_MESSAGES = defineMessages({
+  en: {
+    updated: 'Device Lab was updated',
+    reload: 'Reload',
+    noWebUsb: 'WebUSB not available',
+    openFailed: 'Could not open that device',
+    noWebUsbDetail:
+      'Firefox and Safari do not implement WebUSB. Use Chrome or Edge, or the local helper.',
+    unknownError: 'Unknown error',
+    listFailed: 'Couldn’t list the USB devices',
+    shotFailed: (name: string) => `Screenshot of ${name} failed`,
+    shotBlack: (name: string) => `The screenshot of ${name} is all black`,
+    helperStopped: 'Local helper stopped',
+    helperStoppedDetail: 'Start it again; this page reconnects by itself.',
+    pairFailed: 'Couldn’t pair with the helper',
+    disconnected: (name: string) => `${name} disconnected.`,
+    disconnectFailed: (name: string) => `Couldn’t disconnect ${name}`,
+    adbRunning: 'Google’s adb server is running.',
+    adbFailed: 'Couldn’t start the adb server',
+    forgotten: 'This page is no longer paired with the helper.',
+    lane: {
+      none: 'No WebUSB',
+      idle: 'WebUSB ready',
+      ready: (ready: number, total: number) => `${String(ready)}/${String(total)} Android ready`,
+      title: 'This browser talks to Android devices directly over USB.',
+      noneTitle: 'Firefox and Safari do not implement WebUSB.',
+    },
+    cannotInstall: 'Can’t install here',
+    selectPhone: 'Select a ready Android phone first.',
+    dropUnreadable: 'Couldn’t read what was dropped',
+    pickInstead: 'Pick the files with Install app instead.',
+    /** The badge of `?mock=1`; `wide` is the part shown from md up. */
+    mock: (wide: (text: string) => ReactNode) => <>Mock{wide(' devices')}</>,
+    environmentCheck: 'Environment check',
+    connectAgain: 'Connect again',
+    disconnectTitle: 'Disconnect this Wi‑Fi device (adb disconnect)',
+    disconnect: 'Disconnect',
+    installTitle: 'Install an .apk, .apks, .xapk, .apkm or .aab, or drop one here',
+    credits:
+      'The Android robot is reproduced from work created and shared by Google, used under CC BY 3.0. Apple and the Apple logo are trademarks of Apple Inc.',
+  },
+  vi: {
+    updated: 'Device Lab đã được cập nhật',
+    reload: 'Tải lại',
+    noWebUsb: 'Không dùng được WebUSB',
+    openFailed: 'Không mở được thiết bị đó',
+    noWebUsbDetail:
+      'Firefox và Safari không hỗ trợ WebUSB. Hãy dùng Chrome hoặc Edge, hoặc helper cục bộ.',
+    unknownError: 'Lỗi không xác định',
+    listFailed: 'Không lấy được danh sách thiết bị USB',
+    shotFailed: (name: string) => `Không chụp được màn hình ${name}`,
+    shotBlack: (name: string) => `Ảnh chụp màn hình của ${name} toàn màu đen`,
+    helperStopped: 'Helper cục bộ đã dừng',
+    helperStoppedDetail: 'Hãy chạy lại helper; trang này sẽ tự kết nối lại.',
+    pairFailed: 'Không ghép nối được với helper',
+    disconnected: (name: string) => `Đã ngắt kết nối ${name}.`,
+    disconnectFailed: (name: string) => `Không ngắt kết nối được ${name}`,
+    adbRunning: 'adb server của Google đang chạy.',
+    adbFailed: 'Không khởi động được adb server',
+    forgotten: 'Trang này không còn ghép nối với helper nữa.',
+    lane: {
+      none: 'Không có WebUSB',
+      idle: 'WebUSB sẵn sàng',
+      ready: (ready: number, total: number) => `${String(ready)}/${String(total)} Android sẵn sàng`,
+      title: 'Trình duyệt này giao tiếp trực tiếp với thiết bị Android qua USB.',
+      noneTitle: 'Firefox và Safari không hỗ trợ WebUSB.',
+    },
+    cannotInstall: 'Không cài được ở đây',
+    selectPhone: 'Hãy chọn một điện thoại Android đã sẵn sàng trước.',
+    dropUnreadable: 'Không đọc được nội dung vừa thả',
+    pickInstead: 'Hãy chọn tệp bằng nút Cài ứng dụng.',
+    mock: (wide: (text: string) => ReactNode) => <>{wide('Thiết bị ')}Mock</>,
+    environmentCheck: 'Kiểm tra môi trường',
+    connectAgain: 'Kết nối lại',
+    disconnectTitle: 'Ngắt kết nối thiết bị Wi‑Fi này (adb disconnect)',
+    disconnect: 'Ngắt kết nối',
+    installTitle: 'Cài tệp .apk, .apks, .xapk, .apkm hoặc .aab, hoặc thả tệp vào đây',
+    credits:
+      'Robot Android được tái tạo từ tác phẩm do Google tạo ra và chia sẻ, được sử dụng theo giấy phép CC BY 3.0. Apple và logo Apple là nhãn hiệu của Apple Inc.',
+  },
+})
+
+/**
+ * The same messages, read in the language on screen when they are said: for a toast or an
+ * announcement raised once an operation ends, which may be after a language switch (an
+ * iPhone's first screenshot takes up to 20 s).
+ */
+const SAID = localized(DEVICE_LAB_MESSAGES)
 
 /** `?mock=1` adds the fixture lane, as the legacy page did — demoable with no phone attached. */
 function isMock(): boolean {
@@ -149,8 +280,6 @@ const AUTHORIZING_TICK_MS = 5_000
 
 /** An iPhone screenshot taking longer than this gets a "still working" toast (spec §6.8). */
 export const SLOW_CAPTURE_MS = 4_000
-const SLOW_CAPTURE_TEXT =
-  'Still working — the first screenshot of an iPhone can take up to 20 seconds.'
 /** The toast for a helper that stopped: one at a time, gone once it is back. */
 const LOST_TOAST = 'helper-lost'
 
@@ -202,13 +331,12 @@ function logEventText(event: LogEvent): string | null {
   const name = event.device.name || event.device.id
   switch (event.kind) {
     case 'dropped':
-      return `Lost the connection to ${name}. Its log picks up again if it comes back within ${RESUME_WINDOW_TEXT}.`
+      // The wait worded when it is said, not once at load, like the sentence around it.
+      return PAGE_TEXT.logDropped(name, spanText(RESUME_WINDOW_MS))
     case 'resumed':
-      return `${name} is back. Its log resumed.`
+      return PAGE_TEXT.logResumed(name)
     case 'gave-up':
-      return event.reason === 'unlisted'
-        ? `${name} left the device list, so its log stopped.`
-        : `${name} didn’t come back, so its log stopped.`
+      return event.reason === 'unlisted' ? PAGE_TEXT.logUnlisted(name) : PAGE_TEXT.logGaveUp(name)
     case 'failed':
       return null
   }
@@ -216,14 +344,13 @@ function logEventText(event: LogEvent): string | null {
 
 /** Why a drop or Install app can't go to this device, or null when it can. */
 export function installRefusal(device: Device | null, backend: Backend | undefined): string | null {
-  if (!device) return 'Select a ready Android phone first, then drop the file again.'
-  if (device.platform === 'ios') return 'Installing on iPhone and iPad isn’t supported yet.'
+  if (!device) return PAGE_TEXT.selectThenDrop
+  if (device.platform === 'ios') return PAGE_TEXT.noIosInstall
   if (device.platform === 'android' && device.connection === 'network') {
     return COPY.wifi.laterInstall
   }
-  if (!backend?.install) return 'This connection can’t install apps.'
-  if (device.state !== 'ready')
-    return `${device.name} isn’t ready. Fix what its card says, then try again.`
+  if (!backend?.install) return PAGE_TEXT.noInstall
+  if (device.state !== 'ready') return PAGE_TEXT.notReady(device.name)
   if (!device.capabilities.install) return DEVICE_ERRORS.INSTALL_UNSUPPORTED
   return null
 }
@@ -316,6 +443,13 @@ function installActions(lab: DeviceLab, backend: Backend, id: string): InstallAc
  * to match XConsole (shadcn/ui, light and dark), with the legacy page's behaviour kept.
  */
 export function DeviceLabPage() {
+  /*
+    Subscribed here, at the root, on purpose: Device Lab words much of what it shows outside
+    React (checks, errors, the helper's states, all in `localized` tables), so a language
+    switch re-renders the whole page and every one of them reads the new language.
+  */
+  useLocale()
+  const t = useMessages(DEVICE_LAB_MESSAGES)
   const [{ lab, helper }] = useState(createLabAndHelper)
   const [wifi] = useState(() => createWifi({ connection: helper }))
   // What advertises debugging on the network: looked for while the list shows it, never connected.
@@ -325,7 +459,7 @@ export function DeviceLabPage() {
     createLogSessions({
       onEvent: (event) => {
         if (event.kind === 'failed') {
-          toast.error('The log stopped', { description: deviceErrorMessage(event.error) })
+          toast.error(PAGE_TEXT.logStopped, { description: deviceErrorMessage(event.error) })
           return
         }
         const text = logEventText(event)
@@ -398,11 +532,11 @@ export function DeviceLabPage() {
     if (staleSaid.current) return
     staleSaid.current = true
     setAppUpdated(true)
-    toast.error('Device Lab was updated', {
+    toast.error(t.updated, {
       description: COPY.app.updated,
       duration: Infinity,
       action: {
-        label: 'Reload',
+        label: t.reload,
         onClick: () => {
           window.location.reload()
         },
@@ -512,15 +646,10 @@ export function DeviceLabPage() {
         (error instanceof Error && error.name === 'NotFoundError')
       )
         return
-      toast.error(
-        message === 'WEBUSB_UNSUPPORTED' ? 'WebUSB not available' : 'Could not open that device',
-        {
-          description:
-            message === 'WEBUSB_UNSUPPORTED'
-              ? 'Firefox and Safari do not implement WebUSB. Use Chrome or Edge, or the local helper.'
-              : message || 'Unknown error',
-        },
-      )
+      toast.error(message === 'WEBUSB_UNSUPPORTED' ? SAID.noWebUsb : SAID.openFailed, {
+        description:
+          message === 'WEBUSB_UNSUPPORTED' ? SAID.noWebUsbDetail : message || SAID.unknownError,
+      })
     })
   }
 
@@ -535,7 +664,7 @@ export function DeviceLabPage() {
         if (found.kind === 'adb') await lab.refresh()
       })
       .catch((error: unknown) => {
-        toast.error('Couldn’t list the USB devices', { description: deviceErrorMessage(error) })
+        toast.error(SAID.listFailed, { description: deviceErrorMessage(error) })
       })
       .finally(() => {
         setFinding(false)
@@ -550,7 +679,7 @@ export function DeviceLabPage() {
     const slow =
       device && slowCapture(device)
         ? setTimeout(() => {
-            toast(SLOW_CAPTURE_TEXT, { id: slowId })
+            toast(PAGE_TEXT.slowCapture, { id: slowId })
           }, SLOW_CAPTURE_MS)
         : null
     void lab.capture(id).then((failure) => {
@@ -559,13 +688,13 @@ export function DeviceLabPage() {
         toast.dismiss(slowId)
       }
       if (failure !== null) {
-        toast.error(`Screenshot of ${name} failed`, { description: failure })
+        toast.error(SAID.shotFailed(name), { description: failure })
         return
       }
       // Taken, but all black: kept in the list, and the tester told why at once.
       const shot = lab.getSnapshot().shots[0]
       if (shot?.deviceId === id && shot.black) {
-        toast.warning(`The screenshot of ${name} is all black`, { description: BLACK_SHOT_TEXT })
+        toast.warning(SAID.shotBlack(name), { description: BLACK_SHOT.text })
       }
     })
   }
@@ -628,9 +757,9 @@ export function DeviceLabPage() {
     const said = helperAnnouncement(before, phase, status.intent)
     if (said) lab.announce(said)
     if (phase === 'lost' && before !== 'lost' && status.intent) {
-      toast.error('Local helper stopped', {
+      toast.error(t.helperStopped, {
         id: LOST_TOAST,
-        description: 'Start it again; this page reconnects by itself.',
+        description: t.helperStoppedDetail,
       })
     }
     if (phase === 'connected') toast.dismiss(LOST_TOAST)
@@ -647,8 +776,7 @@ export function DeviceLabPage() {
     const port = link.port === null ? '' : `&port=${String(link.port)}`
     helper.pair(`#pair=${link.token}${port}`, status.remember).then(
       (result) => {
-        if (!result.ok)
-          toast.error('Couldn’t pair with the helper', { description: pairError(result, status) })
+        if (!result.ok) toast.error(SAID.pairFailed, { description: pairError(result, status) })
       },
       () => undefined,
     )
@@ -724,9 +852,9 @@ export function DeviceLabPage() {
     // Disconnecting on purpose is no drop: its log stops rather than waiting for it.
     logs.stop(serial)
     void wifi.disconnect(serial).then((failure) => {
-      if (failure === null) lab.announce(`${name} disconnected.`)
+      if (failure === null) lab.announce(SAID.disconnected(name))
       else
-        toast.error(`Couldn’t disconnect ${name}`, {
+        toast.error(SAID.disconnectFailed(name), {
           description: deviceErrorMessage(new Error(failure)),
         })
     })
@@ -761,11 +889,11 @@ export function DeviceLabPage() {
       .startAdb()
       .then(
         () => {
-          lab.announce('Google’s adb server is running.')
+          lab.announce(SAID.adbRunning)
           if (connected) void helper.doctor(true).then((next) => next && setDoctor(next))
         },
         (error: unknown) => {
-          toast.error('Couldn’t start the adb server', { description: deviceErrorMessage(error) })
+          toast.error(SAID.adbFailed, { description: deviceErrorMessage(error) })
         },
       )
       .finally(() => {
@@ -776,7 +904,7 @@ export function DeviceLabPage() {
   const forget = () => {
     helper.forget()
     setDoctor(null)
-    lab.announce('This page is no longer paired with the helper.')
+    lab.announce(t.forgotten)
   }
 
   const helperOn: HelperHandlers = {
@@ -845,10 +973,10 @@ export function DeviceLabPage() {
   const usbReady = usbDevices.filter((d) => d.state === 'ready').length
   const laneTone = !webusb ? 'warn' : usbDevices.length === 0 ? 'off' : usbReady ? 'ok' : 'warn'
   const laneText = !webusb
-    ? 'No WebUSB'
+    ? t.lane.none
     : usbDevices.length === 0
-      ? 'WebUSB ready'
-      : `${String(usbReady)}/${String(usbDevices.length)} Android ready`
+      ? t.lane.idle
+      : t.lane.ready(usbReady, usbDevices.length)
 
   const refusal = installRefusal(selected, selectedBackend)
   const selectedJobs = selected ? snap.jobs.filter((j) => j.deviceId === selected.id) : []
@@ -858,8 +986,8 @@ export function DeviceLabPage() {
     if (selected) showInstall(selected.id, files)
   }
   const refuseDrop = () => {
-    toast.error('Can’t install here', {
-      description: refusal ?? 'Select a ready Android phone first.',
+    toast.error(t.cannotInstall, {
+      description: refusal ?? t.selectPhone,
     })
   }
 
@@ -876,8 +1004,8 @@ export function DeviceLabPage() {
         if (files.length > 0) dropFiles(files)
       },
       () => {
-        toast.error('Couldn’t read what was dropped', {
-          description: 'Pick the files with Install app instead.',
+        toast.error(SAID.dropUnreadable, {
+          description: SAID.pickInstead,
         })
       },
     )
@@ -966,7 +1094,7 @@ export function DeviceLabPage() {
         <span key={snap.announcement.seq}>{snap.announcement.text}</span>
       </p>
 
-      <header className="bg-background/80 sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b px-4 backdrop-blur">
+      <header className="bg-background/80 sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b px-3 backdrop-blur sm:gap-3 sm:px-4">
         {/* The helper's own copy of this page (local mode) is served from 127.0.0.1, whose root
             is the helper's, not the site's. */}
         <HomeButton href={window.DVC_BOOT?.mode === 'local' ? SITE_URL : '/'} />
@@ -988,38 +1116,40 @@ export function DeviceLabPage() {
           <Badge
             variant="outline"
             className="gap-1.5"
-            title={
-              webusb
-                ? 'This browser talks to Android devices directly over USB.'
-                : 'Firefox and Safari do not implement WebUSB.'
-            }
+            title={webusb ? t.lane.title : t.lane.noneTitle}
           >
             <StateDot tone={laneTone} />
             {laneText}
           </Badge>
           <HelperChip status={status} devices={helperDevices} on={helperOn} update={update} />
         </div>
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex items-center gap-1 sm:gap-1.5">
           {mock && (
             <Badge
               variant="outline"
               className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-300"
             >
               <FlaskConical />
-              Mock<span className="hidden md:inline"> devices</span>
+              {/* The icon alone on a phone, where the language switch needs the room. */}
+              <span className="max-sm:sr-only">
+                {t.mock((text) => (
+                  <span className="hidden md:inline">{text}</span>
+                ))}
+              </span>
             </Badge>
           )}
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Environment check"
-            title="Environment check"
+            aria-label={t.environmentCheck}
+            title={t.environmentCheck}
             onClick={() => {
               setDoctorOpen(true)
             }}
           >
             <Activity />
           </Button>
+          <LanguageToggle />
           <ThemeToggle />
         </div>
       </header>
@@ -1100,7 +1230,7 @@ export function DeviceLabPage() {
                         ) : (
                           <Wifi />
                         )}
-                        Connect again
+                        {t.connectAgain}
                       </Button>
                     )
                   }
@@ -1122,7 +1252,7 @@ export function DeviceLabPage() {
                         variant="outline"
                         aria-disabled={wifiSnap.disconnecting !== null || undefined}
                         className="aria-disabled:opacity-50"
-                        title="Disconnect this Wi‑Fi device (adb disconnect)"
+                        title={t.disconnectTitle}
                         onClick={() => {
                           if (wifiSnap.disconnecting === null) disconnectWifi(selected.id)
                         }}
@@ -1132,17 +1262,14 @@ export function DeviceLabPage() {
                         ) : (
                           <Unplug />
                         )}
-                        Disconnect
+                        {t.disconnect}
                       </Button>
                     ) : (
                       selected?.platform === 'android' &&
                       selectedBackend?.install && (
                         <InstallButton
                           disabled={refusal !== null}
-                          title={
-                            refusal ??
-                            'Install an .apk, .apks, .xapk, .apkm or .aab, or drop one here'
-                          }
+                          title={refusal ?? t.installTitle}
                           onFiles={(files) => {
                             showInstall(selected.id, files)
                           }}
@@ -1217,8 +1344,7 @@ export function DeviceLabPage() {
       </InstallDropZone>
 
       <footer className="text-muted-foreground px-4 pb-4 text-center text-xs md:px-6">
-        The Android robot is reproduced from work created and shared by Google, used under CC BY
-        3.0. Apple and the Apple logo are trademarks of Apple Inc.
+        {t.credits}
       </footer>
 
       {/* One dialog per device that has had one, kept mounted while its device is listed, so a

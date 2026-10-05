@@ -12,10 +12,54 @@ import {
 import { Input } from '@/components/ui/input'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/cn'
+import { defineMessages, useMessages } from '@/lib/i18n'
 
 import { STATE_META, deviceMatches, hintFor, type Device, type Platform } from '../model'
 import { PlatformIcon } from './platform-icon'
 import { PlatformBadge, StateDot } from './status'
+
+const DEVICE_LIST_MESSAGES = defineMessages({
+  en: {
+    devices: 'Devices',
+    filter: 'Filter devices  ( / )',
+    filterLabel: 'Filter devices',
+    refreshLabel: 'Refresh devices (R)',
+    refreshTitle: 'Refresh (R)',
+    platform: 'Platform',
+    platforms: { all: 'All', android: 'Android', ios: 'iOS' },
+    add: {
+      label: 'Add a device',
+      usb: 'USB device…',
+      usbDetail: 'An Android phone on a cable',
+      usbUnavailable: 'Needs Chrome or Edge (WebUSB)',
+      network: 'Network device (Wi‑Fi)…',
+      networkDetail: 'An Android TV or phone, through the helper',
+    },
+    nothingConnected: 'Nothing connected right now',
+    noMatch: 'Nothing matches this filter',
+    noMatchDetail: 'Clear the filter, or choose All.',
+  },
+  vi: {
+    devices: 'Thiết bị',
+    filter: 'Lọc thiết bị  ( / )',
+    filterLabel: 'Lọc thiết bị',
+    refreshLabel: 'Làm mới danh sách thiết bị (R)',
+    refreshTitle: 'Làm mới (R)',
+    platform: 'Nền tảng',
+    platforms: { all: 'Tất cả', android: 'Android', ios: 'iOS' },
+    add: {
+      label: 'Thêm thiết bị',
+      usb: 'Thiết bị USB…',
+      usbDetail: 'Điện thoại Android cắm qua cáp',
+      usbUnavailable: 'Cần Chrome hoặc Edge (WebUSB)',
+      network: 'Thiết bị qua mạng (Wi‑Fi)…',
+      networkDetail: 'Android TV hoặc điện thoại, qua helper',
+    },
+    nothingConnected: 'Hiện chưa có thiết bị nào kết nối',
+    noMatch: 'Không có thiết bị nào khớp với bộ lọc',
+    noMatchDetail: 'Hãy xóa bộ lọc hoặc chọn Tất cả.',
+  },
+})
 
 /** One device as a row: what it is, what state it is in, and the first thing to fix. */
 function DeviceRow({
@@ -84,14 +128,11 @@ function DeviceRow({
 
 type PlatformFilter = 'all' | Platform
 
-const PLATFORM_FILTERS: readonly { value: PlatformFilter; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'android', label: 'Android' },
-  { value: 'ios', label: 'iOS' },
-]
+/** The segmented control's choices, in order; each is named by `platforms` in the messages. */
+const PLATFORM_FILTERS: readonly PlatformFilter[] = ['all', 'android', 'ios']
 
 const isPlatformFilter = (value: string): value is PlatformFilter =>
-  PLATFORM_FILTERS.some((f) => f.value === value)
+  PLATFORM_FILTERS.some((f) => f === value)
 
 /**
  * Add a device: a USB phone through the browser's picker (WebUSB), or a TV or phone on the
@@ -105,10 +146,11 @@ export function AddDeviceMenu({
   onAddUsb?: () => void
   onAddWifi: () => void
 }) {
+  const t = useMessages(DEVICE_LIST_MESSAGES).add
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="icon" aria-label="Add a device" title="Add a device">
+        <Button variant="outline" size="icon" aria-label={t.label} title={t.label}>
           <Plus />
         </Button>
       </DropdownMenuTrigger>
@@ -117,19 +159,17 @@ export function AddDeviceMenu({
         <DropdownMenuItem disabled={!onAddUsb} onSelect={onAddUsb} className="items-start">
           <Usb className="mt-0.5" />
           <span className="grid gap-0.5">
-            <span>USB device…</span>
+            <span>{t.usb}</span>
             <span className="text-muted-foreground text-xs">
-              {onAddUsb ? 'An Android phone on a cable' : 'Needs Chrome or Edge (WebUSB)'}
+              {onAddUsb ? t.usbDetail : t.usbUnavailable}
             </span>
           </span>
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={onAddWifi} className="items-start">
           <Wifi className="mt-0.5" />
           <span className="grid gap-0.5">
-            <span>Network device (Wi‑Fi)…</span>
-            <span className="text-muted-foreground text-xs">
-              An Android TV or phone, through the helper
-            </span>
+            <span>{t.network}</span>
+            <span className="text-muted-foreground text-xs">{t.networkDetail}</span>
           </span>
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -163,6 +203,7 @@ export function DeviceList({
   onAddWifi: () => void
   onRefresh: () => Promise<void>
 }) {
+  const t = useMessages(DEVICE_LIST_MESSAGES)
   const [filter, setFilter] = useState('')
   const [platform, setPlatform] = useState<PlatformFilter>('all')
   const [refreshing, setRefreshing] = useState(false)
@@ -172,13 +213,13 @@ export function DeviceList({
     p === 'all' ? devices.length : devices.filter((d) => d.platform === p).length
 
   return (
-    <aside aria-label="Devices" className="flex min-w-0 flex-col gap-3">
+    <aside aria-label={t.devices} className="flex min-w-0 flex-col gap-3">
       <div className="flex gap-2">
         <Input
           ref={filterRef}
           type="search"
-          placeholder="Filter devices  ( / )"
-          aria-label="Filter devices"
+          placeholder={t.filter}
+          aria-label={t.filterLabel}
           value={filter}
           onChange={(e) => {
             setFilter(e.target.value)
@@ -187,8 +228,8 @@ export function DeviceList({
         <Button
           variant="outline"
           size="icon"
-          aria-label="Refresh devices (R)"
-          title="Refresh (R)"
+          aria-label={t.refreshLabel}
+          title={t.refreshTitle}
           data-device-refresh
           // aria-disabled, not disabled: disabling the focused button drops focus to <body>.
           aria-disabled={refreshing}
@@ -213,10 +254,10 @@ export function DeviceList({
         onValueChange={(value) => {
           if (isPlatformFilter(value)) setPlatform(value)
         }}
-        aria-label="Platform"
+        aria-label={t.platform}
         className="bg-muted text-foreground/75 h-9 w-full rounded-lg p-[3px]"
       >
-        {PLATFORM_FILTERS.map(({ value, label }) => (
+        {PLATFORM_FILTERS.map((value) => (
           <ToggleGroupItem
             key={value}
             value={value}
@@ -233,7 +274,7 @@ export function DeviceList({
             )}
           >
             {value !== 'all' && <PlatformIcon platform={value} />}
-            {label}
+            {t.platforms[value]}
             <span className="tabular-nums">{count(value)}</span>
           </ToggleGroupItem>
         ))}
@@ -258,11 +299,11 @@ export function DeviceList({
           <Smartphone className="mb-3 size-8 opacity-60" />
           {devices.length === 0 ? (
             // Only while a log waits for its device to come back: the list is empty for now.
-            <p className="text-foreground font-medium">Nothing connected right now</p>
+            <p className="text-foreground font-medium">{t.nothingConnected}</p>
           ) : (
             <>
-              <p className="text-foreground font-medium">Nothing matches this filter</p>
-              <p className="mt-1">Clear the filter, or choose All.</p>
+              <p className="text-foreground font-medium">{t.noMatch}</p>
+              <p className="mt-1">{t.noMatchDetail}</p>
             </>
           )}
         </div>

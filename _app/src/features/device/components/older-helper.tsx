@@ -1,4 +1,5 @@
 import { cn } from '@/lib/cn'
+import { defineMessages, useMessages } from '@/lib/i18n'
 
 import { downloadCommand } from '../helper/status'
 import type { GatedFeature } from '../helper/update'
@@ -13,6 +14,11 @@ import { StateDot, TONE_SURFACE } from './status'
   feature shipped just left the feature out, and the tester saw nothing and no reason.
 */
 
+const OLDER_HELPER_MESSAGES = defineMessages({
+  en: { title: 'Update the helper' },
+  vi: { title: 'Cập nhật helper' },
+})
+
 export function OlderHelper({
   feature,
   port,
@@ -23,11 +29,12 @@ export function OlderHelper({
   port: number
   className?: string
 }) {
+  const t = useMessages(OLDER_HELPER_MESSAGES)
   return (
     <div className={cn('min-w-0 space-y-2 rounded-xl border p-3', TONE_SURFACE.warn, className)}>
       <p className="flex items-center gap-2 text-sm leading-6 font-medium">
         <StateDot tone="warn" />
-        Update the helper
+        {t.title}
       </p>
       <p className="text-muted-foreground text-sm leading-relaxed">
         {COPY.older.sentence(feature)}

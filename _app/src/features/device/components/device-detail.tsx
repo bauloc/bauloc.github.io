@@ -18,10 +18,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CopyButton } from '@/components/copy-button'
+import { defineMessages, localized, useMessages } from '@/lib/i18n'
 
 import {
   DETAIL_GROUPS,
   STATE_META,
+  detailLabel,
   detailMarkdown,
   hintFor,
   isNote,
@@ -38,8 +40,94 @@ import { HintCard } from './hint-card'
 import { Screenshots } from './screenshots'
 import { PlatformBadge, StateDot } from './status'
 
+/** What the functions and the tab boundary below say, worded when they run. */
+const DETAIL_TEXT = localized({
+  en: {
+    adbServer: 'Google’s adb server',
+    devicectl: 'Xcode’s devicectl',
+    notReady: 'The device is not ready',
+    noScreenshots: 'Screenshots are unavailable for this device — see the note above.',
+    takeVia: (via: string) => `Take a screenshot (S) · through ${via}`,
+    take: 'Take a screenshot (S)',
+    updated: 'Device Lab was updated',
+    tabFailed: (tab: string) => `The ${tab} tab didn’t load`,
+    reloadToRetry: (reason: string) => `${reason}. Reload the page to try again.`,
+    unknownError: 'Unknown error',
+    reload: 'Reload',
+  },
+  vi: {
+    adbServer: 'adb server của Google',
+    devicectl: 'devicectl của Xcode',
+    notReady: 'Thiết bị chưa sẵn sàng',
+    noScreenshots: 'Không chụp được màn hình thiết bị này — xem ghi chú ở trên.',
+    takeVia: (via: string) => `Chụp màn hình (S) · qua ${via}`,
+    take: 'Chụp màn hình (S)',
+    updated: 'Device Lab đã được cập nhật',
+    tabFailed: (tab: string) => `Không tải được thẻ ${tab}`,
+    reloadToRetry: (reason: string) => `${reason}. Hãy tải lại trang để thử lại.`,
+    unknownError: 'Lỗi không xác định',
+    reload: 'Tải lại',
+  },
+})
+
+const DEVICE_DETAIL_MESSAGES = defineMessages({
+  en: {
+    note: 'Note',
+    copy: (label: string) => `Copy ${label}`,
+    tabs: { overview: 'Overview', apps: 'Apps', images: 'Images' },
+    loadingTab: (tab: string) => `Loading ${tab}`,
+    gone: 'That device disconnected',
+    goneDetail: (id: ReactNode) => (
+      <>
+        {id} is no longer connected. Plug it back in, or reconnect it over Wi‑Fi, and it will
+        reappear in the list.
+      </>
+    ),
+    select: 'Select a device to see its identifiers and take screenshots.',
+    region: 'Device detail',
+    identifiersLater: 'Identifiers appear once the device is ready.',
+    readFailed: (name: string) => `Could not read details from ${name}`,
+    retry: 'Retry',
+    loadingDetails: 'Loading details',
+    takeScreenshot: 'Take Screenshot',
+    copiedMarkdown: 'Copied as Markdown',
+    pasteIntoTicket: 'Paste it straight into the ticket.',
+    copyFailed: 'Copy failed',
+    clipboardBlocked: 'Your browser blocked clipboard access.',
+    copyMarkdown: 'Copy all as Markdown',
+    sections: (name: string) => `${name} sections`,
+  },
+  vi: {
+    note: 'Ghi chú',
+    copy: (label: string) => `Sao chép ${label}`,
+    tabs: { overview: 'Tổng quan', apps: 'Ứng dụng', images: 'Ảnh' },
+    loadingTab: (tab: string) => `Đang tải thẻ ${tab}`,
+    gone: 'Thiết bị đó đã ngắt kết nối',
+    goneDetail: (id: ReactNode) => (
+      <>
+        {id} không còn kết nối. Hãy cắm lại hoặc kết nối lại qua Wi‑Fi để thiết bị hiện lại trong
+        danh sách.
+      </>
+    ),
+    select: 'Chọn một thiết bị để xem thông tin định danh và chụp màn hình.',
+    region: 'Chi tiết thiết bị',
+    identifiersLater: 'Thông tin định danh sẽ hiện khi thiết bị sẵn sàng.',
+    readFailed: (name: string) => `Không đọc được thông tin chi tiết từ ${name}`,
+    retry: 'Thử lại',
+    loadingDetails: 'Đang tải thông tin chi tiết',
+    takeScreenshot: 'Chụp màn hình',
+    copiedMarkdown: 'Đã sao chép dạng Markdown',
+    pasteIntoTicket: 'Dán thẳng vào ticket.',
+    copyFailed: 'Không sao chép được',
+    clipboardBlocked: 'Trình duyệt đã chặn quyền truy cập bộ nhớ tạm.',
+    copyMarkdown: 'Sao chép tất cả dạng Markdown',
+    sections: (name: string) => `Các mục của ${name}`,
+  },
+})
+
 /** One group of identifiers: label, value, and Copy — the values are what testers paste into tickets. */
 function DetailGroup({ title, fields }: { title: string; fields: Record<string, string> }) {
+  const t = useMessages(DEVICE_DETAIL_MESSAGES)
   const rows = Object.entries(fields).filter(([, v]) => v)
   if (rows.length === 0) return null
   return (
@@ -49,14 +137,16 @@ function DetailGroup({ title, fields }: { title: string; fields: Record<string, 
       </CardHeader>
       <CardContent>
         <dl className="divide-y">
-          {rows.map(([label, value]) => {
-            const note = isNote(label)
+          {rows.map(([key, value]) => {
+            const note = isNote(key)
+            // The key is Apple's or Google's English; the row shows it in the language on screen.
+            const label = detailLabel(key)
             return (
               <div
-                key={label}
+                key={key}
                 className="grid grid-cols-[8.5rem_1fr] items-center gap-3 py-1.5 sm:grid-cols-[10rem_1fr]"
               >
-                <dt className="text-muted-foreground text-sm">{note ? 'Note' : label}</dt>
+                <dt className="text-muted-foreground text-sm">{note ? t.note : label}</dt>
                 {/* Device-supplied: rendered as text, never markup. The Copy button sits inside
                     the <dd>, since a <dl> group may hold only terms and descriptions. */}
                 {note ? (
@@ -66,7 +156,7 @@ function DetailGroup({ title, fields }: { title: string; fields: Record<string, 
                     <span className="min-w-0 flex-1 font-mono text-sm wrap-anywhere" title={value}>
                       {value}
                     </span>
-                    <CopyButton text={value} label={`Copy ${label}`} />
+                    <CopyButton text={value} label={t.copy(label)} />
                   </dd>
                 )}
               </div>
@@ -88,9 +178,9 @@ export function screenshotVia(
 ): string | null {
   if (device.backend === 'webusb') return 'WebUSB'
   if (device.backend !== 'agent') return null
-  if (device.platform === 'android') return 'Google’s adb server'
+  if (device.platform === 'android') return DETAIL_TEXT.adbServer
   if (device.connection === 'simulator') return 'simctl'
-  return lanes?.ios.screenshots === 'devicectl' ? 'Xcode’s devicectl' : null
+  return lanes?.ios.screenshots === 'devicectl' ? DETAIL_TEXT.devicectl : null
 }
 
 /** Take Screenshot's tooltip: what it does, or why it can't. */
@@ -98,11 +188,11 @@ export function screenshotTitle(
   device: Pick<Device, 'state' | 'capabilities'>,
   via: string | null,
 ): string {
-  if (device.state !== 'ready') return 'The device is not ready'
+  if (device.state !== 'ready') return DETAIL_TEXT.notReady
   if (!device.capabilities.screenshot) {
-    return 'Screenshots are unavailable for this device — see the note above.'
+    return DETAIL_TEXT.noScreenshots
   }
-  return via ? `Take a screenshot (S) · through ${via}` : 'Take a screenshot (S)'
+  return via ? DETAIL_TEXT.takeVia(via) : DETAIL_TEXT.take
 }
 
 /**
@@ -131,12 +221,6 @@ export function WifiNote({
 
 /** The detail pane's tabs. Files joins them in P2. */
 export type DetailTab = 'overview' | 'apps' | 'images'
-
-const TAB_LABELS: Readonly<Record<DetailTab, string>> = {
-  overview: 'Overview',
-  apps: 'Apps',
-  images: 'Images',
-}
 
 const TAB_ICONS: Readonly<Record<DetailTab, typeof LayoutList>> = {
   overview: LayoutList,
@@ -190,12 +274,14 @@ class TabBoundary extends Component<
         <TriangleAlert className="mt-0.5 size-4 shrink-0 text-red-500" />
         <div className="flex-1 text-sm">
           <p className="font-medium">
-            {stale ? 'Device Lab was updated' : `The ${this.props.name} tab didn’t load`}
+            {stale ? DETAIL_TEXT.updated : DETAIL_TEXT.tabFailed(this.props.name)}
           </p>
           <p className="text-muted-foreground mt-0.5">
             {stale
               ? COPY.app.updated
-              : `${failed.error instanceof Error ? failed.error.message : 'Unknown error'}. Reload the page to try again.`}
+              : DETAIL_TEXT.reloadToRetry(
+                  failed.error instanceof Error ? failed.error.message : DETAIL_TEXT.unknownError,
+                )}
           </p>
         </div>
         <Button
@@ -205,7 +291,7 @@ class TabBoundary extends Component<
             window.location.reload()
           }}
         >
-          <RotateCcw /> Reload
+          <RotateCcw /> {DETAIL_TEXT.reload}
         </Button>
       </div>
     )
@@ -222,11 +308,12 @@ function LazyTab({
   onStale?: () => void
   children: ReactNode
 }) {
+  const t = useMessages(DEVICE_DETAIL_MESSAGES)
   return (
     <TabBoundary name={name} onStale={onStale}>
       <Suspense
         fallback={
-          <div className="grid gap-3" aria-label={`Loading ${name}`}>
+          <div className="grid gap-3" aria-label={t.loadingTab(name)}>
             <Skeleton className="h-16 rounded-xl" />
             <Skeleton className="h-64 rounded-xl" />
           </div>
@@ -318,27 +405,27 @@ export function DeviceDetailPane({
   onZoom: (zoom: number) => void
   onClearShots: () => void
 }) {
+  const t = useMessages(DEVICE_DETAIL_MESSAGES)
   if (!device) {
     const empty = (
       <div className="text-muted-foreground flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed p-8 text-center text-sm">
         {goneId ? (
           <>
             <Unplug className="mb-3 size-8 opacity-70" />
-            <p className="text-foreground font-medium">That device disconnected</p>
+            <p className="text-foreground font-medium">{t.gone}</p>
             <p className="mt-1 max-w-sm">
-              <span className="font-mono wrap-anywhere">{goneId}</span> is no longer connected. Plug
-              it back in, or reconnect it over Wi‑Fi, and it will reappear in the list.
+              {t.goneDetail(<span className="font-mono wrap-anywhere">{goneId}</span>)}
             </p>
             {goneAction && <div className="mt-4">{goneAction}</div>}
           </>
         ) : (
-          <p>Select a device to see its identifiers and take screenshots.</p>
+          <p>{t.select}</p>
         )}
       </div>
     )
     // A log that was running waits for the device here, and says so (log-sessions.ts).
     return (
-      <section aria-label="Device detail" className="flex min-w-0 flex-col gap-4">
+      <section aria-label={t.region} className="flex min-w-0 flex-col gap-4">
         {empty}
         {goneId && log}
       </section>
@@ -366,18 +453,16 @@ export function DeviceDetailPane({
   const overview = (
     <>
       {!ready ? (
-        <p className="text-muted-foreground text-sm">
-          Identifiers appear once the device is ready.
-        </p>
+        <p className="text-muted-foreground text-sm">{t.identifiersLater}</p>
       ) : detail.status === 'failed' ? (
         <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/5 p-4">
           <TriangleAlert className="mt-0.5 size-4 shrink-0 text-red-500" />
           <div className="flex-1 text-sm">
-            <p className="font-medium">Could not read details from {device.name}</p>
+            <p className="font-medium">{t.readFailed(device.name)}</p>
             <p className="text-muted-foreground mt-0.5">{detail.message}</p>
           </div>
           <Button variant="outline" size="sm" onClick={onReloadDetail}>
-            <RotateCcw /> Retry
+            <RotateCcw /> {t.retry}
           </Button>
         </div>
       ) : loaded ? (
@@ -387,7 +472,7 @@ export function DeviceDetailPane({
           ))}
         </div>
       ) : (
-        <div className="grid gap-4 xl:grid-cols-2" aria-label="Loading details">
+        <div className="grid gap-4 xl:grid-cols-2" aria-label={t.loadingDetails}>
           {[0, 1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-44 rounded-xl" />
           ))}
@@ -412,7 +497,7 @@ export function DeviceDetailPane({
   )
 
   return (
-    <section aria-label="Device detail" className="flex min-w-0 flex-col gap-4">
+    <section aria-label={t.region} className="flex min-w-0 flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <StateDot tone={meta.tone} className="size-2.5" />
@@ -434,7 +519,7 @@ export function DeviceDetailPane({
             }}
           >
             {capturing ? <Loader2 className="animate-spin" /> : <Camera />}
-            Take Screenshot
+            {t.takeScreenshot}
           </Button>
           {actions}
           <Button
@@ -444,17 +529,17 @@ export function DeviceDetailPane({
               if (!loaded) return
               navigator.clipboard.writeText(detailMarkdown(loaded, new Date())).then(
                 () =>
-                  toast.success('Copied as Markdown', {
-                    description: 'Paste it straight into the ticket.',
+                  toast.success(t.copiedMarkdown, {
+                    description: t.pasteIntoTicket,
                   }),
                 () =>
-                  toast.error('Copy failed', {
-                    description: 'Your browser blocked clipboard access.',
+                  toast.error(t.copyFailed, {
+                    description: t.clipboardBlocked,
                   }),
               )
             }}
           >
-            <ClipboardCopy /> Copy all as Markdown
+            <ClipboardCopy /> {t.copyMarkdown}
           </Button>
         </div>
       </div>
@@ -490,19 +575,19 @@ export function DeviceDetailPane({
       <Tabs
         value={open}
         onValueChange={(value) => {
-          const next = tabs.find((t) => t === value)
+          const next = tabs.find((id) => id === value)
           if (next) onTab(next)
         }}
         className="gap-4"
       >
         {tabs.length > 1 && (
-          <TabsList aria-label={`${device.name} sections`} className="w-full sm:w-fit">
-            {tabs.map((t) => {
-              const Icon = TAB_ICONS[t]
+          <TabsList aria-label={t.sections(device.name)} className="w-full sm:w-fit">
+            {tabs.map((id) => {
+              const Icon = TAB_ICONS[id]
               return (
-                <TabsTrigger key={t} value={t} className="px-3">
+                <TabsTrigger key={id} value={id} className="px-3">
                   <Icon />
-                  {TAB_LABELS[t]}
+                  {t.tabs[id]}
                 </TabsTrigger>
               )
             })}
@@ -519,14 +604,14 @@ export function DeviceDetailPane({
         </TabsContent>
         {tabs.includes('apps') && (
           <TabsContent value="apps" className="min-w-0">
-            <LazyTab name="Apps" onStale={onStale}>
+            <LazyTab name={t.tabs.apps} onStale={onStale}>
               {apps}
             </LazyTab>
           </TabsContent>
         )}
         {tabs.includes('images') && (
           <TabsContent value="images" className="min-w-0">
-            <LazyTab name="Images" onStale={onStale}>
+            <LazyTab name={t.tabs.images} onStale={onStale}>
               {images}
             </LazyTab>
           </TabsContent>
