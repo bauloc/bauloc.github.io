@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * cv.mjs — print the /profile/cv page to the PDFs that the profile's DOWNLOAD button serves,
+ * cv.mjs — print the /profile/cv page to the PDFs that the profile's "Download CV (PDF)" link serves,
  * one per language.
  *
  * The CV is a page of the app (src/features/profile/pages/cv-page.tsx, data in cv.ts and

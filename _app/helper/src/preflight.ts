@@ -995,9 +995,10 @@ export function formatChecklist(items: readonly PreflightItem[], opts: { all: bo
 }
 
 /**
- * The whole `--doctor` output (§1.9): who is running, the full checklist, then each lane's
- * read-only probe of its attached devices. Paste it into a PR or a bug report: it never
- * holds the token, key material, log text, IMEI or phone numbers.
+ * The whole `--doctor` output (§1.9): who is running, the full checklist, each lane's
+ * read-only probe of its attached devices, then one look at this computer's network (§4.9).
+ * Paste it into a PR or a bug report: it never holds the token, key material, log text, IMEI,
+ * phone numbers, a hardware address or a device's name.
  */
 export async function printDoctor(
   ctx: PreflightContext,
@@ -1031,4 +1032,12 @@ export async function printDoctor(
     }
   }
   if (!probed) write('  No lane can probe devices in this run.')
+  if (!ctx.lan) return
+  write('')
+  write('Network')
+  try {
+    await ctx.lan.probeForDoctor((line) => write(`  ${line}`))
+  } catch (error) {
+    write(`  The network probe stopped early: ${clean(errorText(error), 200)}`)
+  }
 }

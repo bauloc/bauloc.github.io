@@ -6,8 +6,8 @@ import { LANGUAGES, isLocale, setLocale, useLocale } from '@/lib/locale'
 import { SITE_MESSAGES } from './messages'
 
 /**
- * EN · VI in a console header: a segmented control in shadcn's tabs look, Device Lab's
- * platform filter made small. Both languages stay in view, so nobody has to guess whether a
+ * EN · VI in the site header's command-line row: two monospace segments on the row's dark
+ * ground, the current one lit. Both languages stay in view, so nobody has to guess whether a
  * label names the current language or the next one; each is named in itself.
  */
 export function LanguageToggle({ className }: { className?: string }) {
@@ -21,7 +21,10 @@ export function LanguageToggle({ className }: { className?: string }) {
         if (isLocale(value)) setLocale(value)
       }}
       aria-label={t.language}
-      className={cn('bg-muted text-foreground/75 h-8 rounded-lg p-[3px]', className)}
+      className={cn(
+        'h-7 rounded-md bg-white/[0.06] p-0.5 ring-1 ring-white/10 ring-inset',
+        className,
+      )}
     >
       {LANGUAGES.map((language) => (
         <ToggleGroupItem
@@ -36,10 +39,10 @@ export function LanguageToggle({ className }: { className?: string }) {
             setLocale(language.value)
           }}
           className={cn(
-            'h-full min-w-9 rounded-md border border-transparent px-2 text-xs font-semibold data-[spacing=0]:rounded-md',
-            'hover:text-foreground hover:bg-transparent',
-            'data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm',
-            'dark:data-[state=on]:border-input dark:data-[state=on]:bg-input/30',
+            'font-terminal h-full min-w-8 rounded-[5px] px-1.5 text-xs font-medium text-zinc-400 data-[spacing=0]:rounded-[5px]',
+            'hover:bg-transparent hover:text-zinc-100',
+            'data-[state=on]:bg-white/15 data-[state=on]:text-zinc-50',
+            'focus-visible:ring-2 focus-visible:ring-green-400',
           )}
         >
           {language.short}

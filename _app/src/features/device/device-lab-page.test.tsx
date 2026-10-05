@@ -10,7 +10,7 @@ import { DeviceLabPage, installRefusal, keepListed, slowCapture, withOpen } from
 import type * as ConnectionModule from './helper/connection'
 import type * as EnvModule from './preflight/env'
 import type { HelperConnection, HelperStatus } from './helper/connection'
-import type { HelperDevice } from './helper/protocol'
+import type { HelperDevice, LanDevice, LanResult } from './helper/protocol'
 import { normalizeDevice } from './model'
 
 /*
@@ -28,6 +28,15 @@ const fake = vi.hoisted(() => {
   return { state }
 })
 
+/** A look that found nothing, as a helper with nothing on its network answers. */
+const LAN_NONE: LanResult = {
+  devices: [],
+  networks: [],
+  sources: { presence: 'ok', neighbors: 'hidden', resolver: 'dns-sd', ssdp: 'ok' },
+  scannedAt: 1,
+  durationMs: 0,
+}
+
 const calls = {
   connect: vi.fn(),
   forget: vi.fn(),
@@ -40,6 +49,7 @@ const calls = {
     () => new Promise(() => undefined),
   ),
   nearby: vi.fn<HelperConnection['nearby']>(() => Promise.resolve({ devices: [], scannedAt: 1 })),
+  lanDevices: vi.fn<HelperConnection['lanDevices']>(() => Promise.resolve(LAN_NONE)),
 }
 
 function setHelper(status: HelperStatus, devices: readonly HelperDevice[] = fake.state.devices) {
@@ -78,6 +88,7 @@ function fakeConnection(): HelperConnection {
     pairNetwork: calls.pairNetwork,
     disconnectNetwork: calls.disconnectNetwork,
     nearby: calls.nearby,
+    lanDevices: calls.lanDevices,
     api: {
       detail: () => new Promise(() => undefined),
       screenshot: calls.screenshot,
@@ -685,6 +696,159 @@ describe('DeviceLabPage, with the local helper', () => {
     expect(section).not.toHaveTextContent('older than this page')
   })
 
+  const LAN_HELPER = helperStatus('connected', {
+    health: {
+      ...HEALTH,
+      features: ['android.start-server', 'android.connect', 'android.discover', 'lan.discover'],
+    },
+  })
+  const lanDevice = (address: string, patch: Partial<LanDevice> = {}): LanDevice => ({
+    address,
+    self: false,
+    gateway: false,
+    hostnames: [],
+    names: [],
+    services: [],
+    found: ['reply', 'mdns'],
+    ...patch,
+  })
+  /** An Android TV that announces itself, debugging off: Connect over Wi‑Fi…. */
+  const LAN_BRAVIA = lanDevice('192.168.68.101', {
+    services: [
+      { type: '_androidtvremote2._tcp', port: 6466, name: 'SONY KD-43X8050H' },
+      { type: '_googlecast._tcp', port: 8009, txt: { fn: 'Bedroom TV', md: 'BRAVIA 4K VH2' } },
+    ],
+  })
+  /** The listed Living Room TV, as the network sees it: Show. */
+  const LAN_SHIELD = lanDevice('192.168.1.42', {
+    services: [{ type: '_googlecast._tcp', txt: { fn: 'Living Room TV', md: 'SHIELD' } }],
+  })
+  const lanReply = (devices: LanDevice[]) => {
+    calls.lanDevices.mockImplementation(() =>
+      Promise.resolve({
+        ...LAN_NONE,
+        devices,
+        networks: [
+          { interface: 'en0', address: '192.168.68.113', prefix: 24, size: 254, scanned: 254 },
+        ],
+      }),
+    )
+  }
+  const chooseScan = () => {
+    act(() => {
+      screen.getByRole('link', { name: 'Scan Device' }).click()
+    })
+  }
+  const scanList = () => screen.findByRole('region', { name: 'Devices on this network' })
+
+  it('Scan Device lists every device on this network in the page; Connect Device comes back', async () => {
+    nearbyReply([])
+    lanReply([LAN_BRAVIA, LAN_SHIELD])
+    await renderPage()
+    setHelper(LAN_HELPER, [TV_ROW])
+    // Connect Device first, with the device list; nothing on the network is asked yet.
+    expect(screen.getByRole('link', { name: 'Connect Device' })).toHaveAttribute('aria-current', 'page')
+    expect(calls.lanDevices).not.toHaveBeenCalled()
+    chooseScan()
+    const list = await scanList()
+    expect(calls.lanDevices).toHaveBeenCalledWith(false, expect.any(AbortSignal))
+    await waitFor(() => {
+      expect(list).toHaveTextContent('Bedroom TV')
+    })
+    expect(list).toHaveAccessibleDescription(/^2 devices on 192\.168\.68\.0\/24 · looked /)
+    act(() => {
+      screen.getByRole('link', { name: 'Connect Device' }).click()
+    })
+    expect(screen.queryByRole('region', { name: 'Devices on this network' })).toBeNull()
+    expect(screen.getByRole('button', { name: /Living Room TV/ })).toBeVisible()
+  })
+
+  it('opens on Scan Device when the address says ?view=scan, and tells the route of a change', async () => {
+    nearbyReply([])
+    lanReply([LAN_BRAVIA])
+    const change = vi.fn()
+    render(<DeviceLabPage view="scan" onViewChange={change} />)
+    await waitFor(() => {
+      expect(live()).toHaveTextContent('Device Lab ready.')
+    })
+    expect(screen.getByRole('link', { name: 'Scan Device' })).toHaveAttribute('aria-current', 'page')
+    expect(await scanList()).toBeVisible()
+    act(() => {
+      screen.getByRole('link', { name: 'Connect Device' }).click()
+    })
+    expect(change).toHaveBeenCalledWith('connect')
+  })
+
+  it('…Connect over Wi‑Fi… opens the Wi‑Fi dialog over the list, filled in; Show goes to the device', async () => {
+    // The TV doesn't advertise debugging: nothing "On this network" to connect.
+    nearbyReply([])
+    lanReply([LAN_BRAVIA, LAN_SHIELD])
+    await renderPage()
+    setHelper(LAN_HELPER, [TV_ROW])
+    chooseScan()
+    const list = await scanList()
+    const wifiButton = await within(list).findByRole('button', {
+      name: 'Connect Bedroom TV (192.168.68.101:5555) over Wi‑Fi…',
+    })
+    act(() => {
+      wifiButton.click()
+    })
+    const wifi = await screen.findByRole('dialog', { name: 'Connect over Wi‑Fi' })
+    expect(within(wifi).getByLabelText<HTMLInputElement>('IP address').value).toBe('192.168.68.101')
+    expect(within(wifi).getByLabelText<HTMLInputElement>('Port').value).toBe('5555')
+    // Filled in only: connecting is still the tester's click, after turning debugging on.
+    expect(calls.connectNetwork).not.toHaveBeenCalled()
+    act(() => {
+      within(wifi).getAllByRole('button', { name: 'Close' })[0]?.click()
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Connect over Wi‑Fi' })).toBeNull()
+    })
+    // Back on the list, under the dialog all along. Show goes to Connect Device, that device
+    // selected.
+    const back = screen.getByRole('region', { name: 'Devices on this network' })
+    act(() => {
+      within(back).getByRole('button', { name: 'Show Living Room TV in the device list' }).click()
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: 'Devices on this network' })).toBeNull()
+    })
+    expect(screen.getByRole('link', { name: 'Connect Device' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('button', { name: /Living Room TV/, pressed: true })).toBeVisible()
+  })
+
+  it('…a TV advertising debugging gets the same Connect as “On this network”', async () => {
+    nearbyReply([BRAVIA])
+    lanReply([LAN_BRAVIA])
+    await renderPage()
+    setHelper(LAN_HELPER, [TV_ROW])
+    chooseScan()
+    const list = await scanList()
+    const connect = await within(list).findByRole('button', {
+      name: 'Connect Bedroom TV (192.168.68.101:5555)',
+    })
+    act(() => {
+      connect.click()
+    })
+    expect(calls.connectNetwork).toHaveBeenCalledOnce()
+    expect(calls.connectNetwork).toHaveBeenCalledWith({ host: '192.168.68.101', port: 5555 })
+    const wifi = await screen.findByRole('dialog', { name: 'Connect over Wi‑Fi' })
+    expect(within(wifi).getByRole('list', { name: 'Progress' })).toHaveTextContent(
+      'Connecting to 192.168.68.101:5555…',
+    )
+  })
+
+  it('…from the Gate too; a helper older than the list says so, and nothing is asked', async () => {
+    await renderPage()
+    setHelper(DISCOVER_HELPER, [])
+    chooseScan()
+    const list = await scanList()
+    expect(list).toHaveTextContent(
+      'Your helper is older than this page: it can’t list every device on this network yet.',
+    )
+    expect(calls.lanDevices).not.toHaveBeenCalled()
+  })
+
   it('says “update available” on the chip and the notice when a newer helper is published', async () => {
     readPublished.mockImplementation(() =>
       Promise.resolve({ version: '1.1.0', sha256: 'cd'.repeat(32) }),
@@ -719,7 +883,8 @@ describe('DeviceLabPage, with the local helper', () => {
     setHelper(WIFI_HELPER, [])
     const notice = await screen.findByRole('region', { name: 'Local helper' })
     expect(notice).toHaveTextContent('Helper update available. Helper 1.1.0 is out')
-    expect(screen.getByRole('heading', { name: 'Connect a device' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Scan or connect a device' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Connect Device' })).toHaveAttribute('aria-current', 'page')
     // The Gate's cards say a stopped helper; the strip doesn't repeat it there.
     setHelper(helperStatus('lost'), [])
     expect(screen.queryByRole('region', { name: 'Local helper' })).toBeNull()

@@ -553,6 +553,31 @@ describe('createHelperClient', () => {
     expect(calls[0]?.init.body).toBeUndefined()
   })
 
+  it('lanDevices is a GET with the token, ?refresh=1 to look again, and only local addresses', async () => {
+    const { fetch, calls } = scripted(() =>
+      json({
+        scannedAt: 5,
+        durationMs: 3_900,
+        devices: [
+          { address: '192.168.68.1', gateway: true, found: ['gateway'] },
+          // Whatever the helper sent, the page never lists these.
+          { address: '8.8.8.8', found: ['ssdp'] },
+          { address: '127.0.0.1', found: ['self'] },
+        ],
+      }),
+    )
+    const client = createHelperClient(API, () => 'T'.repeat(43), { fetch })
+    const reply = await client.lanDevices(false)
+    await client.lanDevices(true)
+    expect(reply.devices.map((d) => d.address)).toEqual(['192.168.68.1'])
+    expect(calls.map((c) => `${c.init.method ?? ''} ${c.url.replace(API, '')}`)).toEqual([
+      'GET /api/lan/devices',
+      'GET /api/lan/devices?refresh=1',
+    ])
+    expect(authHeader(calls[0]?.init ?? {})).toBe(`Bearer ${'T'.repeat(43)}`)
+    expect(calls[0]?.init.body).toBeUndefined()
+  })
+
   it('doctor asks ?refresh=1 only on Re-check; start-server is a POST', async () => {
     const { fetch, calls } = scripted((url) =>
       url.includes('start-server')

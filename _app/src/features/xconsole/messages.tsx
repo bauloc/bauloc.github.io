@@ -56,6 +56,10 @@ export const XCONSOLE_MESSAGES = defineMessages({
       ),
       create: 'Create one',
       missing: 'Enter a token to continue.',
+      /** After Cancel: what the page says instead of the dialog. */
+      notConnected: 'Not connected to GitHub',
+      notConnectedBody:
+        'XConsole reads and publishes the pages through the repository, so it needs a token first.',
       logOut: 'Log out',
       connect: 'Connect',
       save: 'Save',
@@ -244,6 +248,8 @@ export const XCONSOLE_MESSAGES = defineMessages({
       ),
       create: 'Tạo token',
       missing: 'Nhập token để tiếp tục.',
+      notConnected: 'Chưa kết nối GitHub',
+      notConnectedBody: 'XConsole đọc và đăng các trang qua repo, nên cần có token trước.',
       logOut: 'Đăng xuất',
       connect: 'Kết nối',
       save: 'Lưu',

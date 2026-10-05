@@ -47,10 +47,12 @@ const SECTIONS = /** @type {Record<string, string>} */ ({
   'src/preflight.ts': '§12 Doctor and preflight',
   'src/http.ts': '§13 HTTP API',
   'src/local-mode.ts': '§14 Local mode',
-  'src/bridge.ts': '§15 Bridge lifecycle',
+  'src/lan-net.ts': '§15 LAN sources',
+  'src/lan.ts': '§16 Every device on this network',
+  'src/bridge.ts': '§17 Bridge lifecycle',
   'src/cli.ts': '§1 Command line',
-  'src/banner.ts': '§15 Banner',
-  'src/main.ts': '§15 Startup, signals and exports',
+  'src/banner.ts': '§17 Banner',
+  'src/main.ts': '§17 Startup, signals and exports',
 })
 
 /* ------------------------------------------------------------- Node 18 denylist --- */

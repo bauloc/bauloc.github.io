@@ -197,6 +197,17 @@ function fakeHelper(port = 8787) {
         }),
       )
     }
+    if (url.pathname === '/api/lan/devices') {
+      return Promise.resolve(
+        json({
+          scannedAt: 1,
+          durationMs: 4_000,
+          devices: [{ address: '192.168.68.1', gateway: true, found: ['reply', 'gateway'] }],
+          networks: [],
+          sources: { presence: 'ok', neighbors: 'hidden', resolver: 'dns-sd', ssdp: 'ok' },
+        }),
+      )
+    }
     if (url.pathname === '/api/android/start-server') {
       return Promise.resolve(
         json({ android: { status: 'ok', adb: 'found', startedByHelper: true } }),
@@ -1181,6 +1192,33 @@ describe('pair, forget, doctor, startAdb', () => {
       ['/api/android/nearby', 'GET', `Bearer ${TOKEN}`],
       ['/api/android/nearby?refresh=1', 'GET', `Bearer ${TOKEN}`],
     ])
+  })
+
+  it('lanDevices: only when the helper lists lan.discover, --no-android or not', async () => {
+    const { conn, helper } = setup({ stores: paired() })
+    await expect(conn.lanDevices()).rejects.toMatchObject({ code: 'HELPER_UNREACHABLE' })
+    conn.start()
+    await flush()
+    await expect(conn.lanDevices()).rejects.toMatchObject({ code: 'LAN_UNSUPPORTED' })
+    expect(helper.seen.some((s) => s.path.startsWith('/api/lan/'))).toBe(false)
+
+    // The features come with health: a fresh start reads them. The Android lane has no say.
+    helper.state.features = ['lan.discover']
+    helper.state.lanes = { ...LANES, android: { status: 'off', adb: 'missing' } } as Lanes
+    conn.stop()
+    conn.start()
+    await flush()
+    const reply = await conn.lanDevices()
+    expect(reply.devices).toEqual([
+      expect.objectContaining({ address: '192.168.68.1', gateway: true }),
+    ])
+    await conn.lanDevices(true)
+    const asked = helper.seen.filter((s) => s.path.startsWith('/api/lan/'))
+    expect(asked.map((s) => [s.path, s.method, s.authorization])).toEqual([
+      ['/api/lan/devices', 'GET', `Bearer ${TOKEN}`],
+      ['/api/lan/devices?refresh=1', 'GET', `Bearer ${TOKEN}`],
+    ])
+    expect(conn.getStatus().phase).toBe('connected')
   })
 
   it('a failed operation polls the list at once; operations need a connection', async () => {

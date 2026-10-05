@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Device Lab helper 1.1.0 (bauloc-device-bridge)
+ * Device Lab helper 1.2.0 (bauloc-device-bridge)
  *
  * Device Lab (https://bauloc.github.io/device/) shows identifiers, screenshots and logs for
  * the phones plugged into this Mac. Android works straight from Chrome over WebUSB. macOS
@@ -21,12 +21,21 @@
  *   - Android: shares Google's adb server when one is running. It starts one only when you
  *     click "Start adb server" on the page, and never stops it. It looks for Android TVs and
  *     phones on the Wi-Fi with read-only mDNS questions, and never connects one by itself.
+ *   - On this network: when you open the list or press Refresh, it lists every device on this
+ *     computer's own network so you can pick one to work with. It only reads what devices
+ *     announce about themselves (mDNS, SSDP), the names this computer already knows, the
+ *     neighbour table, and the answer to one harmless datagram per address of its own subnet;
+ *     it changes nothing, logs in to nothing, and nothing runs in the background.
+ *   - Devices on this network, only when the page asks: what devices on this computer's own
+ *     network say about themselves (mDNS, SSDP), the names this computer already knows, and
+ *     one UDP datagram to each address of its own subnet to see what answers. No port scan.
  *
  * What it never does
  *   - Listen on anything but 127.0.0.1, or send telemetry.
  *   - Run sudo, pair or unpair a device, show a Trust prompt itself, change a device
  *     setting, mount or download a developer disk image, install apps, or kill adb.
- *   - Return the pair record, IMEI, phone numbers, MAC addresses or any key not on its
+ *   - Return the pair record, IMEI, phone numbers, MAC addresses (for a network device: only
+ *     whether its address is private, and its maker's 3-byte prefix) or any key not on its
  *     allowlists.
  *
  * Every request meets these checks, in this order
@@ -52,29 +61,32 @@
  *   This file          https://github.com/bauloc/bauloc.github.io/blob/master/device/agent/device-bridge.mjs
  *
  * Contents (line numbers in this file)
- *      91  Node version guard                   src/guard.ts
- *     113  §1 Constants, limits and allowlists  src/constants.ts
- *     306  §1 Command line                      src/cli.ts
- *     436  §2 Utilities                         src/util.ts
- *     683  §3 Property lists                    src/plist.ts
- *     807  §4a Running tools                    src/process.ts
- *    1126  §4b Finding tools                    src/tools.ts
- *    1800  §5 usbmuxd client                    src/usbmuxd.ts
- *    2145  §6 Lockdown client                   src/lockdown.ts
- *    2453  §7 iOS lane                          src/ios-lane.ts
- *    4148  §8 Simulator lane                    src/simulator-lane.ts
- *    4564  §9 mDNS browser                      src/mdns.ts
- *    5728  §9 Android lane                      src/android-lane.ts
- *    7698  §10 Device registry                  src/registry.ts
- *    7989  §11 Token, proof and pairing         src/auth.ts
- *    8163  §12 Doctor and preflight             src/preflight.ts
- *    8867  §13 HTTP API                         src/http.ts
- *    9562  §14 Local mode                       src/local-mode.ts
- *    9825  §15 Bridge lifecycle                 src/bridge.ts
- *   10248  §15 Banner                           src/banner.ts
- *   10330  §15 Startup, signals and exports     src/main.ts
+ *     103  Node version guard                   src/guard.ts
+ *     125  §1 Constants, limits and allowlists  src/constants.ts
+ *     372  §1 Command line                      src/cli.ts
+ *     502  §2 Utilities                         src/util.ts
+ *     756  §3 Property lists                    src/plist.ts
+ *     880  §4a Running tools                    src/process.ts
+ *    1199  §4b Finding tools                    src/tools.ts
+ *    1873  §5 usbmuxd client                    src/usbmuxd.ts
+ *    2218  §6 Lockdown client                   src/lockdown.ts
+ *    2526  §7 iOS lane                          src/ios-lane.ts
+ *    4221  §8 Simulator lane                    src/simulator-lane.ts
+ *    4637  §9 mDNS browser                      src/mdns.ts
+ *    6376  §9 Android lane                      src/android-lane.ts
+ *    8349  §10 Device registry                  src/registry.ts
+ *    8640  §11 Token, proof and pairing         src/auth.ts
+ *    8814  §12 Doctor and preflight             src/preflight.ts
+ *    9527  §13 HTTP API                         src/http.ts
+ *   10239  §14 Local mode                       src/local-mode.ts
+ *   10502  §15 LAN sources                      src/lan-net.ts
+ *   11220  §16 Every device on this network     src/lan.ts
+ *   11963  §17 Bridge lifecycle                 src/bridge.ts
+ *   12415  §17 Banner                           src/banner.ts
+ *   12497  §17 Startup, signals and exports     src/main.ts
  */
 import path from "node:path";
+import { setMaxListeners } from "node:events";
 import { StringDecoder } from "node:string_decoder";
 import { spawn } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeSync } from "node:fs";
@@ -114,7 +126,7 @@ if (tooOld) {
 /** What answers on 127.0.0.1: the page checks `health.name` before it trusts anything else. */
 const NAME = "bauloc-device-bridge";
 /** Semver of this file. The page shows it and compares it with the published file. */
-const VERSION = "1.1.0";
+const VERSION = "1.2.0";
 /**
  * The wire protocol's integer major. Within a major only additions are allowed (fields,
  * codes, endpoints, `features`); the page accepts DVC_MIN_AGENT ≤ PROTOCOL ≤ DVC_MAX_AGENT.
@@ -170,7 +182,13 @@ const LIMITS = {
 	/** Upstream responses kept in memory by local mode. */
 	upstreamEntries: 300,
 	/** Devices one Wi-Fi scan reports (§4.8). */
-	nearby: 64
+	nearby: 64,
+	/** Devices one look at this computer's network reports (§4.9). */
+	lanDevices: 256,
+	/** Addresses one presence check covers: two /24 networks (§4.9). */
+	lanTargets: 512,
+	/** Presence sockets open at once (§4.9): a /24 in one go, far below Node's file limit. */
+	lanSockets: 256
 };
 /** §1.12 timeouts in milliseconds. Tests pass shorter ones through createBridge(). */
 const TIMEOUTS = {
@@ -203,6 +221,13 @@ const TIMEOUTS = {
 	mdnsWindow: 2e3,
 	systemBrowse: 1500,
 	systemResolve: 1500,
+	lanPresence: 1e3,
+	lanSsdp: 3e3,
+	lanDescription: 2e3,
+	lanReverse: 1200,
+	lanScan: 7e3,
+	lanCache: 3e4,
+	lanGap: 3e3,
 	doctorCheck: 5e3,
 	doctorSlowCheck: 1e4,
 	doctorTotal: 12e3,
@@ -301,6 +326,47 @@ const INSTALL = {
 	adb: "brew install --cask android-platform-tools",
 	libimobiledevice: "brew install libimobiledevice"
 };
+/** The search targets of each SSDP M-SEARCH: every device and service, and every root device. */
+const LAN_SSDP_TARGETS = ["ssdp:all", "upnp:rootdevice"];
+/**
+ * The only TXT keys a service passes on (§4.9): models, makers, the names owners give their
+ * devices, HomeKit's category and Android's API level. Never an id, a serial, a key or an
+ * address: `deviceid`, `id`, `pk`, `authTag`, `identifier`, `mac`, `UUID` and the rest stay out.
+ */
+const LAN_TXT_KEYS = [
+	"model",
+	"md",
+	"fn",
+	"ty",
+	"product",
+	"usb_MFG",
+	"usb_MDL",
+	"mfg",
+	"mdl",
+	"am",
+	"rpMd",
+	"ci",
+	"n",
+	"given_name",
+	"name",
+	"api",
+	"manufacturer",
+	"friendly_name"
+];
+/**
+ * Service types asked about on every look, besides those the network lists: Device Lab's
+ * own. macOS's daemon leaves `_adb-tls-connect._tcp` out of its list of types even while it
+ * knows a phone that advertises it [V 2026-10-04].
+ */
+const LAN_STATIC_TYPES = [
+	"_adb._tcp",
+	"_adb-tls-connect._tcp",
+	"_adb-tls-pairing._tcp",
+	"_androidtvremote2._tcp",
+	"_googlecast._tcp",
+	"_apple-mobdev2._tcp",
+	"_remotepairing._tcp"
+];
 
 //#endregion
 //#region src/cli.ts
@@ -544,11 +610,18 @@ function aborted(signal) {
 /**
  * One AbortSignal that aborts when any parent does, after `timeoutMs`, or on abort().
  * AbortSignal.any() would do this, but it arrived in Node 20 and this file runs on 18.
+ *
+ * Neither it nor its parents cap their abort listeners, as no AbortSignal does on Node 24:
+ * a parent holds one per signal linked to it (every request and adb exchange links to the
+ * bridge's shutdown signal), and a linked signal one per process, socket or wait of its work
+ * (a dns-sd run: two per process). Node 18 and 20 cap them at 10 and print a
+ * MaxListenersExceededWarning, in the tester's terminal, past it.
  */
 function linkSignals(parents, timeoutMs) {
 	const controller = new AbortController();
 	const abort = () => controller.abort();
 	const live = parents.filter((parent) => parent !== void 0);
+	setMaxListeners(0, controller.signal, ...live);
 	let timer;
 	const dispose = () => {
 		for (const parent of live) parent.removeEventListener("abort", abort);
@@ -686,7 +759,7 @@ function plural(n, one, many = one + "s") {
  * Only the XML form: both daemons answer in the form they are asked in, and binary plists
  * reach the helper nowhere it parses one (CoreDevice's Info.plist is read by PlistBuddy).
  */
-const ENTITIES = {
+const ENTITIES$1 = {
 	amp: "&",
 	lt: "<",
 	gt: ">",
@@ -700,7 +773,7 @@ function unescapeXml(text) {
 			const code = parseInt(entity.slice(hex ? 2 : 1), hex ? 16 : 10);
 			return code >= 0 && code <= 1114111 ? String.fromCodePoint(code) : match;
 		}
-		return ENTITIES[entity] ?? match;
+		return ENTITIES$1[entity] ?? match;
 	});
 }
 function escapeXml(text) {
@@ -4583,7 +4656,8 @@ function createSimulatorLane(ctx, cadence = {}) {
  *
  * Everything that arrives is untrusted: every length, count and compression pointer is
  * checked against the packet before it is read (a pointer may only go backwards, and the
- * hops are counted), names are capped at 255 bytes, and what is kept is capped too.
+ * hops are counted), names are capped at 255 bytes and must be UTF-8, what is kept is
+ * capped too, and nothing an answer carries can throw out of a socket event or a timer.
  *
  * The second half, systemBrowse(), asks the same question of the computer's own mDNS daemon
  * through its tool (dns-sd on macOS, avahi-browse on Linux): see "system resolver" below.
@@ -4653,6 +4727,12 @@ function encodeName(name) {
  * a label or pointer past the end, a reserved label type, a pointer that does not go back
  * before every place this name was already read from (so no loop is possible), more than
  * 32 hops, or more than 255 bytes. `next` is where the record goes on after the name.
+ *
+ * A label must be UTF-8, as mDNS names are (RFC 6762 §16). Any other byte would read as
+ * U+FFFD, three bytes where it was one, and encodeName() could not write the name back as
+ * it came, or at all once a label passes 63 bytes (22 bytes of 0xFF come back as 66). So a
+ * name this returns can always be asked about again: the follow-ups never meet one that
+ * encodeName() refuses.
  */
 function readName(buf, offset) {
 	const labels = [];
@@ -4682,7 +4762,9 @@ function readName(buf, offset) {
 		if (end > buf.length) return null;
 		length += byte + 1;
 		if (length > 255) return null;
-		labels.push(buf.toString("utf8", pos + 1, end));
+		const label = buf.toString("utf8", pos + 1, end);
+		if (!Buffer.from(label, "utf8").equals(buf.subarray(pos + 1, end))) return null;
+		labels.push(label);
 		pos = end;
 	}
 	return {
@@ -4827,11 +4909,21 @@ function errnoError(code, message) {
 	return Object.assign(new Error(message), { code });
 }
 /**
+ * Closes a dgram socket that may be half set up: one whose bind failed still holds its handle
+ * (and keeps the process alive) until it is closed, and close() throws on one already closed.
+ */
+function closeSocket(socket) {
+	try {
+		socket.close();
+	} catch {}
+}
+/**
  * The real transport: a udp4 socket on an ephemeral port (never 5353, which the system's
  * responder holds), TTL 255 as RFC 6762 §11 asks. A multicast query goes out once per
  * interface, waiting for each send before choosing the next interface; it fails only when it
  * left on none, with the first interface's error. With no interface at all it fails with
- * ENETDOWN: this computer is on no network.
+ * ENETDOWN: this computer is on no network. A socket whose bind fails is closed before the
+ * open rejects.
  */
 function udpTransport(o = {}) {
 	const address = o.address ?? "224.0.0.251";
@@ -4843,12 +4935,17 @@ function udpTransport(o = {}) {
 		socket.on("message", (packet, from) => {
 			if (!closed && packet.length <= 9e3) onPacket(packet, from.address);
 		});
-		socket.once("error", reject);
+		const unbound = (error) => {
+			closed = true;
+			closeSocket(socket);
+			reject(error);
+		};
+		socket.once("error", unbound);
 		const sendOnce = (packet) => new Promise((done, failed) => {
 			socket.send(packet, port, address, (error) => error ? failed(error) : done());
 		});
 		socket.bind(0, () => {
-			socket.off("error", reject);
+			socket.off("error", unbound);
 			/** From here on a socket error is a send that failed: send() reports it. */
 			socket.on("error", () => void 0);
 			if (multicast) socket.setMulticastTTL(255);
@@ -4872,7 +4969,7 @@ function udpTransport(o = {}) {
 				close() {
 					if (closed) return;
 					closed = true;
-					socket.close();
+					closeSocket(socket);
 				}
 			});
 		});
@@ -4895,19 +4992,26 @@ function mdnsFailure(error) {
 	};
 }
 /** Caps on what one browse keeps, whatever the network sends. */
-const KEEP = {
+const KEEP$1 = {
 	instances: 256,
 	names: 512,
 	addresses: 8,
 	txt: 32,
 	sources: 8
 };
+/** `list` in pieces of at most `size`; an empty list is one empty piece. */
+function inPieces(list, size) {
+	const pieces = [];
+	for (let i = 0; i === 0 || i < list.length; i += size) pieces.push(list.slice(i, i + size));
+	return pieces;
+}
 /**
- * One browse: PTR questions for `services`, sent again halfway through the window; as
- * answers arrive, SRV and TXT questions for instances whose SRV is missing, and A and AAAA
- * questions for SRV targets without an address, each name asked once. After `windowMs` the
- * socket is closed and what was learnt is returned. A record with TTL 0 (a goodbye) removes
- * what it names.
+ * One browse: PTR questions for `services` (12 to a packet), sent again halfway through the
+ * window; as answers arrive, SRV and TXT questions for instances whose SRV is missing, and A
+ * and AAAA questions for SRV targets without an address, each name asked once. After
+ * `windowMs` the socket is closed and what was learnt is returned. A record with TTL 0 (a
+ * goodbye) removes what it names. A signal that has aborted before the socket opens, or while
+ * it opens, ends the browse with nothing sent.
  */
 async function browse(o) {
 	const wanted = new Map(o.services.map((service) => [nameKey(service), service]));
@@ -4926,10 +5030,10 @@ async function browse(o) {
 	let followTimer;
 	let done = false;
 	const remember = (map, key, value) => {
-		if (map.has(key) || map.size < KEEP.names) map.set(key, value);
+		if (map.has(key) || map.size < KEEP$1.names) map.set(key, value);
 	};
 	/** `list` with `address` added (within the cap) or, for a goodbye, removed. */
-	const withAddress = (list, address, gone) => gone ? list.filter((a) => a !== address) : list.includes(address) || list.length >= KEEP.addresses ? list : [...list, address];
+	const withAddress = (list, address, gone) => gone ? list.filter((a) => a !== address) : list.includes(address) || list.length >= KEEP$1.addresses ? list : [...list, address];
 	const take = (record, from) => {
 		const key = nameKey(record.name);
 		const gone = record.ttl === 0;
@@ -4944,7 +5048,7 @@ async function browse(o) {
 				if (!set) pointers.set(key, set = new Map());
 				const target = nameKey(record.target);
 				if (gone) set.delete(target);
-				else if (set.has(target) || set.size < KEEP.instances) set.set(target, record.target);
+				else if (set.has(target) || set.size < KEEP$1.instances) set.set(target, record.target);
 				return;
 			}
 			case "SRV": {
@@ -4965,7 +5069,7 @@ async function browse(o) {
 			}
 			case "TXT":
 				if (gone) return void txt.delete(key);
-				remember(txt, key, record.strings.slice(0, KEEP.txt));
+				remember(txt, key, record.strings.slice(0, KEEP$1.txt));
 				return;
 			case "A":
 			case "AAAA": {
@@ -4975,23 +5079,27 @@ async function browse(o) {
 				if (from === void 0) return;
 				let bySource = sourced.get(key);
 				if (!bySource) {
-					if (gone || sourced.size >= KEEP.names) return;
+					if (gone || sourced.size >= KEEP$1.names) return;
 					sourced.set(key, bySource = new Map());
 				}
 				const mine = withAddress(bySource.get(from) ?? [], record.address, gone);
-				if (mine.length && (bySource.has(from) || bySource.size < KEEP.sources)) bySource.set(from, mine);
+				if (mine.length && (bySource.has(from) || bySource.size < KEEP$1.sources)) bySource.set(from, mine);
 				else if (!mine.length) bySource.delete(from);
 				return;
 			}
 		}
 	};
-	/** SRV and TXT for instances without an SRV, A and AAAA for targets without an address. */
+	/**
+	 * SRV and TXT for instances without an SRV, A and AAAA for targets without an address. It
+	 * runs in a timer, where a throw would stop the helper, so a packet that cannot be written
+	 * or sent is dropped (readName() returns no name encodeName() would refuse).
+	 */
 	const followUp = () => {
 		if (done || !transport) return;
 		const questions = [];
 		const ask = (name, type) => {
 			const tag = `${type} ${nameKey(name)}`;
-			if (asked.has(tag) || asked.size >= KEEP.names) return;
+			if (asked.has(tag) || asked.size >= KEEP$1.names) return;
 			asked.add(tag);
 			questions.push({
 				name,
@@ -5008,10 +5116,10 @@ async function browse(o) {
 				ask(record.target, "AAAA");
 			}
 		}
-		for (let i = 0; i < questions.length; i += MAX_QUESTIONS) {
+		for (let i = 0; i < questions.length; i += MAX_QUESTIONS) try {
 			const packet = encodeQuery(id, questions.slice(i, i + MAX_QUESTIONS));
 			transport.send(packet).catch(() => void 0);
-		}
+		} catch {}
 	};
 	/**
 	 * Ties each SRV in a packet to the addresses that came with it: the A and AAAA records for
@@ -5041,7 +5149,7 @@ async function browse(o) {
 				addresses: known?.addresses ?? [],
 				from: known?.from ?? from
 			};
-			if (bound.has(key) || bound.size < KEEP.names) bound.set(key, next);
+			if (bound.has(key) || bound.size < KEEP$1.names) bound.set(key, next);
 		}
 	};
 	/** An instance's addresses, by what ties them to it (ServiceInstance.addresses). */
@@ -5051,16 +5159,38 @@ async function browse(o) {
 		if (tied?.from !== void 0) return sourced.get(nameKey(target))?.get(tied.from) ?? [tied.from];
 		return addresses.get(nameKey(target)) ?? [];
 	};
+	/**
+	 * Every answer, from the transport's message event, where a throw would stop the helper: a
+	 * packet that makes anything here throw is dropped, as a malformed one is.
+	 */
 	const onPacket = (packet, from) => {
 		if (done) return;
-		const message = parseMessage(packet);
-		/** Ours (legacy unicast echoes the id) or a multicast answer (id 0). */
-		if (!message?.response || message.id !== id && message.id !== 0) return;
-		for (const record of message.records) take(record, from);
-		bind(message.records, from);
+		try {
+			const message = parseMessage(packet);
+			/** Ours (legacy unicast echoes the id) or a multicast answer (id 0). */
+			if (!message?.response || message.id !== id && message.id !== 0) return;
+			for (const record of message.records) take(record, from);
+			bind(message.records, from);
+		} catch {
+			return;
+		}
 		clearTimeout(followTimer);
 		followTimer = setTimeout(followUp, 30);
 	};
+	/** Written before the socket opens: a type encodeName() refuses throws with nothing open. */
+	const browseQueries = inPieces(o.services, MAX_QUESTIONS).map((names) => encodeQuery(id, names.map((name) => ({
+		name,
+		type: "PTR"
+	}))));
+	/** Each piece once; the first one's error is the browse's (the rest leave the same way). */
+	const ask = async () => {
+		const [first, ...rest] = browseQueries;
+		if (first) await transport?.send(first);
+		for (const packet of rest) try {
+			transport?.send(packet).catch(() => void 0);
+		} catch {}
+	};
+	if (o.signal?.aborted) return { instances: [] };
 	try {
 		transport = await o.open(onPacket);
 	} catch (error) {
@@ -5069,16 +5199,16 @@ async function browse(o) {
 			failure: mdnsFailure(error)
 		};
 	}
-	const browseQuery = encodeQuery(id, o.services.map((name) => ({
-		name,
-		type: "PTR"
-	})));
-	const window = new AbortController();
-	const stop = () => window.abort();
-	o.signal?.addEventListener("abort", stop, { once: true });
+	/** Shutdown while the socket opened: nothing is sent. */
+	if (o.signal?.aborted) {
+		done = true;
+		transport.close();
+		return { instances: [] };
+	}
+	const window = linkSignals([o.signal]);
 	try {
 		try {
-			await transport.send(browseQuery);
+			await ask();
 		} catch (error) {
 			return {
 				instances: [],
@@ -5088,31 +5218,121 @@ async function browse(o) {
 		const half = Math.floor(o.windowMs / 2);
 		await sleep(half, window.signal).catch(() => void 0);
 		if (!window.signal.aborted) {
-			transport.send(browseQuery).catch(() => void 0);
+			ask().catch(() => void 0);
 			await sleep(o.windowMs - half, window.signal).catch(() => void 0);
 		}
 	} finally {
 		done = true;
 		clearTimeout(followTimer);
-		o.signal?.removeEventListener("abort", stop);
+		window.dispose();
 		transport.close();
 	}
 	const instances = [];
-	const max = o.max ?? KEEP.instances;
+	const max = o.max ?? KEEP$1.instances;
 	for (const [serviceKey, service] of wanted) for (const [key, name] of pointers.get(serviceKey) ?? []) {
 		if (instances.length >= max) break;
 		const record = srv.get(key);
 		const found = record ? addressesOf(key, record.target) : [];
+		const from = record ? bound.get(key)?.from : void 0;
 		instances.push({
 			service,
 			instance: splitName(name)[0] ?? "",
 			target: record?.target ?? null,
 			port: record?.port ?? null,
 			addresses: [...found.filter((a) => !a.includes(":")), ...found.filter((a) => a.includes(":"))],
-			txt: txt.get(key) ?? []
+			txt: txt.get(key) ?? [],
+			...from !== void 0 ? { from } : {}
 		});
 	}
 	return { instances };
+}
+/** RFC 6763 §9: asking this name lists every service type on the network. */
+const SERVICE_TYPES_NAME = "_services._dns-sd._udp.local";
+/** A service type as the tools take it (RFC 6763 §7): `_ipp._tcp`, at most 63 bytes a label. */
+const SERVICE_TYPE = /^_[A-Za-z0-9][A-Za-z0-9_-]{0,61}\._(?:tcp|udp)$/;
+/** Types one look asks about, at most, besides the fixed ones. */
+const MAX_SERVICE_TYPES = 48;
+/**
+ * `_ipp._tcp` from what a device or a tool said (`_ipp._tcp.local.` and the like), or null
+ * when it is not a service type the helper asks about. One whose label holds 12 hex digits in
+ * a row is refused too: that is how a hardware address reads (`_FC9F5ED42C8A._tcp` was on
+ * the owner's network), and a type is passed on to the page as it is.
+ */
+function serviceType(text) {
+	const type = text.trim().replace(/\.$/, "").replace(/\.local$/i, "");
+	return SERVICE_TYPE.test(type) && !/[0-9A-Fa-f]{12}/.test(type) ? type : null;
+}
+/**
+ * The service types the network lists (§4.9): one PTR question for `_services._dns-sd._udp`
+ * from the helper's own socket, sent again halfway through the window, the same way browse()
+ * asks (legacy unicast, the QU bit, id 0 taken). Only a PTR to `<type>.local` with a valid
+ * type counts; nothing is asked next, and nothing an answer carries can throw.
+ */
+async function browseServiceTypes(o) {
+	const id = 1 + Math.floor(Math.random() * 65534);
+	const max = o.max ?? 48;
+	const types = new Map();
+	const meta = nameKey(SERVICE_TYPES_NAME);
+	let done = false;
+	const onPacket = (packet) => {
+		if (done) return;
+		try {
+			const message = parseMessage(packet);
+			if (!message?.response || message.id !== id && message.id !== 0) return;
+			for (const record of message.records) {
+				if (record.type !== "PTR" || record.ttl === 0 || nameKey(record.name) !== meta) continue;
+				const labels = splitName(record.target);
+				if (labels.length !== 3 || nameKey(labels[2] ?? "") !== "local") continue;
+				const type = serviceType(`${labels[0] ?? ""}.${labels[1] ?? ""}`);
+				if (type && (types.has(nameKey(type)) || types.size < max)) types.set(nameKey(type), type);
+			}
+		} catch {
+			return;
+		}
+	};
+	const query = encodeQuery(id, [{
+		name: SERVICE_TYPES_NAME,
+		type: "PTR"
+	}]);
+	if (o.signal?.aborted) return { types: [] };
+	let transport;
+	try {
+		transport = await o.open(onPacket);
+	} catch (error) {
+		return {
+			types: [],
+			failure: mdnsFailure(error)
+		};
+	}
+	if (o.signal?.aborted) {
+		done = true;
+		transport.close();
+		return { types: [] };
+	}
+	const window = linkSignals([o.signal]);
+	try {
+		try {
+			await transport.send(query);
+		} catch (error) {
+			return {
+				types: [],
+				failure: mdnsFailure(error)
+			};
+		}
+		const half = Math.floor(o.windowMs / 2);
+		await sleep(half, window.signal).catch(() => void 0);
+		if (!window.signal.aborted) {
+			try {
+				transport.send(query).catch(() => void 0);
+			} catch {}
+			await sleep(o.windowMs - half, window.signal).catch(() => void 0);
+		}
+	} finally {
+		done = true;
+		window.dispose();
+		transport.close();
+	}
+	return { types: [...types.values()] };
 }
 /** Caps on what one run keeps, whatever the tools print (instances: per group). */
 const SYSTEM_KEEP = {
@@ -5121,7 +5341,7 @@ const SYSTEM_KEEP = {
 	addresses: 8
 };
 /** The service types that advertise adb itself; the others only name an address. */
-const ADB_TYPES = new Set([
+const ADB_TYPES$1 = new Set([
 	"_adb._tcp",
 	"_adb-tls-connect._tcp",
 	"_adb-tls-pairing._tcp"
@@ -5179,6 +5399,21 @@ function isExecutable(file) {
 	}
 }
 /**
+ * One of avahi-utils' tools: at `given` when that is set (absolute and executable, or none),
+ * else the first absolute PATH entry or extra directory (/usr/bin, /usr/local/bin unless
+ * `extraDirs` says otherwise) that has it.
+ */
+function avahiTool(name, given, o) {
+	if (given !== void 0) return path.isAbsolute(given) && isExecutable(given) ? given : null;
+	const dirs = [...o.searchPath.split(path.delimiter), ...o.extraDirs ?? ["/usr/bin", "/usr/local/bin"]];
+	for (const dir of dirs) {
+		if (!dir || !path.isAbsolute(dir)) continue;
+		const file = path.join(dir, name);
+		if (isExecutable(file)) return file;
+	}
+	return null;
+}
+/**
  * The tools to ask on `platform`: dns-sd at its fixed path on macOS (never looked up: a
  * planted `dns-sd` on PATH must not run), avahi-browse on Linux from `avahiBrowsePath` or,
  * when that is undefined, the first absolute PATH entry or extra directory that has it.
@@ -5192,22 +5427,23 @@ function systemMdnsTools(o) {
 		dnsSd: null,
 		avahiBrowse: null
 	};
-	if (o.avahiBrowsePath !== void 0) return {
-		dnsSd: null,
-		avahiBrowse: path.isAbsolute(o.avahiBrowsePath) && isExecutable(o.avahiBrowsePath) ? o.avahiBrowsePath : null
-	};
-	const dirs = [...o.searchPath.split(path.delimiter), ...o.extraDirs ?? ["/usr/bin", "/usr/local/bin"]];
-	for (const dir of dirs) {
-		if (!dir || !path.isAbsolute(dir)) continue;
-		const file = path.join(dir, "avahi-browse");
-		if (isExecutable(file)) return {
-			dnsSd: null,
-			avahiBrowse: file
-		};
-	}
 	return {
 		dnsSd: null,
-		avahiBrowse: null
+		avahiBrowse: avahiTool("avahi-browse", o.avahiBrowsePath, o)
+	};
+}
+function reverseTools(o) {
+	if (o.platform === "darwin") return {
+		dnsSd: path.isAbsolute(o.dnsSdPath) && isExecutable(o.dnsSdPath) ? o.dnsSdPath : null,
+		avahiResolve: null
+	};
+	if (o.platform !== "linux") return {
+		dnsSd: null,
+		avahiResolve: null
+	};
+	return {
+		dnsSd: null,
+		avahiResolve: avahiTool("avahi-resolve", o.avahiResolvePath, o)
 	};
 }
 /**
@@ -5375,13 +5611,18 @@ function parseAvahiLine(line, type) {
 	const third = second < 0 ? -1 : line.indexOf(";", second + 1);
 	if (third < 0) return null;
 	const protocol = line.slice(second + 1, third);
-	const found = new RegExp(`;${type.replace(/\./g, "\\.")};local`, "i").exec(line.slice(third));
-	if (!found) return null;
-	const at = third + found.index;
+	/**
+	 * Found as text, never as a pattern (a type holding `(` or `+` would be one), and in ASCII
+	 * case only, as DNS compares names: nameKey() keeps the line's length, so positions in it
+	 * stay valid.
+	 */
+	const marker = `;${nameKey(type)};local`;
+	const at = nameKey(line).indexOf(marker, third);
+	if (at < 0) return null;
 	const labels = presentationLabels(line.slice(third + 1, at));
 	const instance = labels?.length === 1 ? labels[0] : void 0;
 	if (!instance) return null;
-	const rest = line.slice(at + found[0].length);
+	const rest = line.slice(at + marker.length);
 	if (op !== "=") return rest === "" ? {
 		op,
 		protocol,
@@ -5402,6 +5643,100 @@ function parseAvahiLine(line, type) {
 		port,
 		txt: parseAvahiTxt(m[4] ?? "")
 	};
+}
+/**
+ * A `dns-sd -B _services._dns-sd._udp local.` line, as the type it lists, or null:
+ * `22:56:04.523  Add  3  14 .  _tcp.local.  _ipp` → `_ipp._tcp`. The daemon lists each
+ * type once per interface; this computer's own (lo0) are among them.
+ */
+function parseDnsSdTypeLine(line) {
+	const entry = parseDnsSdBrowseLine(line);
+	if (entry?.op !== "Add" || entry.domain !== ".") return null;
+	const proto = /^(_(?:tcp|udp))\.local\.?$/i.exec(entry.type)?.[1];
+	return proto ? serviceType(`${entry.instance}.${proto}`) : null;
+}
+/** One record of `dns-sd -Z <type> local.`: `<owner>  PTR|SRV|TXT  <data>`, names relative to `local.`. */
+const ZONE_LINE = /^(\S+)\s+(PTR|SRV|TXT)(?:\s+(.*))?$/;
+/** An SRV's data: priority and weight (dns-sd prints 0 0), the port, the host, then a comment. */
+const ZONE_SRV = /^\d{1,5}\s+\d{1,5}\s+(\d{1,5})\s+(\S+)(?:\s+;.*)?$/;
+/** `<instance>.<type>` in presentation form, `.local` optional, as the instance, or null. */
+function zoneInstance(name, type) {
+	const labels = presentationLabels(name);
+	if (labels && nameKey(labels[labels.length - 1] ?? "") === "local") labels.pop();
+	if (labels?.length !== 3 || !labels[0]) return null;
+	return sameName(`${labels[1] ?? ""}.${labels[2] ?? ""}`, type) ? labels[0] : null;
+}
+/**
+ * One line of `dns-sd -Z <type> local.` (dns-sd's zone-file listing of a type: the PTR, SRV
+ * and TXT of every instance, without addresses) for `type`, or null:
+ *
+ *   _ipp._tcp  PTR  HP\032Neverstop\032Laser._ipp._tcp
+ *   HP\032Neverstop\032Laser._ipp._tcp  SRV  0 0 631 NPIF25F81.local. ; Replace with unicast FQDN of target host
+ *   HP\032Neverstop\032Laser._ipp._tcp  TXT  "txtvers=1" "ty=HP Neverstop Laser MFP 120x"
+ *
+ * Owners are in presentation form (`\032`, `\.`, raw UTF-8); TXT strings are double-quoted
+ * with `\"` and `\\` escaped, as avahi writes them. The `lb._dns-sd._udp PTR @` line, the
+ * comments and the headers do not match.
+ */
+function parseDnsSdZoneLine(line, type) {
+	const m = ZONE_LINE.exec(line);
+	if (!m?.[1] || !m[2]) return null;
+	const rr = m[2];
+	const data = (m[3] ?? "").trim();
+	if (rr === "PTR") {
+		if (nameKey(serviceType(m[1]) ?? "") !== nameKey(type)) return null;
+		const instance = zoneInstance(data, type);
+		return instance ? {
+			instance,
+			type: rr
+		} : null;
+	}
+	const instance = zoneInstance(m[1], type);
+	if (!instance) return null;
+	if (rr === "TXT") return {
+		instance,
+		type: rr,
+		txt: parseAvahiTxt(data)
+	};
+	const srv = ZONE_SRV.exec(data);
+	const port = Number(srv?.[1]);
+	if (!srv?.[2] || port < 1 || port > 65535) return null;
+	return {
+		instance,
+		type: rr,
+		host: srv[2],
+		port
+	};
+}
+/**
+ * `HH:MM:SS.mmm  Add  40000002  14  113.68.168.192.in-addr.arpa.  PTR  IN  BAULOCs-MacBook-Pro.local.`
+ * (dns-sd -q): the name asked and its answer. A negative answer prints `0.0.0.0` and then
+ * `No Such Record`.
+ */
+const QUERY_LINE = /^\d{1,2}:\d{2}:\d{2}\.\d{3}\s+(Add|Rmv)\s+[0-9A-Fa-f]+\s+(?:\S\s+)?-?\d+\s+(\S+)\s+PTR\s+IN\s+(\S+)(\s+No Such Record)?\s*$/;
+function parseDnsSdQueryLine(line) {
+	const m = QUERY_LINE.exec(line);
+	if (!m?.[1] || !m[2] || !m[3]) return null;
+	return {
+		op: m[1],
+		name: m[2],
+		answer: m[4] ? null : m[3]
+	};
+}
+/**
+ * The type of an `avahi-browse -a -p` browse line (`+;eth0;IPv4;<name>;_ipp._tcp;local`, or
+ * `-`), from its last two fields, which cannot hold a `;`; null for anything else.
+ */
+function avahiLineType(line) {
+	if (line[0] !== "+" && line[0] !== "-" || line[1] !== ";") return null;
+	const fields = line.split(";");
+	if (fields.length < 6 || fields[fields.length - 1] !== "local") return null;
+	return serviceType(fields[fields.length - 2] ?? "");
+}
+/** `avahi-resolve -a <address>`: `<address>\t<host>` for the address asked, or null. */
+function parseAvahiResolveLine(line, address) {
+	const m = /^(\S+)\t(\S+)$/.exec(line.trim());
+	return m?.[1] === address && m[2] && usableHost(m[2]) ? m[2] : null;
 }
 /**
  * How long a dns-sd or avahi-browse that ignores SIGTERM may linger before SIGKILL. collect()
@@ -5506,34 +5841,24 @@ function dropSharedHosts(instances) {
 		addresses: []
 	} : i);
 }
-async function dnsSdBrowse(o, file) {
-	const max = o.max ?? SYSTEM_KEEP.instances;
-	const run = linkSignals([o.signal], o.browseMs + 2 * o.resolveMs);
-	const concurrency = o.concurrency ?? 4;
-	const pool = priorityLimiter(concurrency, nameSlots(concurrency));
-	/** service|instance key → what was learnt, in the order browses added them. */
-	const found = new Map();
-	/** Instances taken per group (adb, names): each capped at `max` on its own. */
-	const taken = {
-		adb: 0,
-		names: 0
-	};
-	const resolved = new Map();
+/**
+ * `dns-sd -G v4 <host>`: its IPv4 addresses, once per host per run, each lookup in a `slot`
+ * of the run's limiter and ended `AFTER_ANSWER_MS` after its first address (or `resolveMs`).
+ */
+function addressLookups(o, file, signal, slot) {
 	const lookups = new Map();
-	const pending = [];
-	/** `dns-sd -G v4 <host>`: its IPv4 addresses, once per host per run. */
-	const lookUp = (host) => {
+	return (host) => {
 		const key = host.toLowerCase().replace(/\.$/, "");
 		let promise = lookups.get(key);
 		if (!promise) {
-			promise = pool("first", async () => {
+			promise = slot(async () => {
 				const addresses = [];
 				let grace;
 				await collect(o.streamTool, file, [
 					"-G",
 					"v4",
 					host
-				], o.resolveMs, run.signal, (line, finish) => {
+				], o.resolveMs, signal, (line, finish) => {
 					const answer = parseDnsSdAddressLine(line);
 					if (!answer || !sameName(answer.host, host)) return;
 					if (answer.op === "Rmv") {
@@ -5551,8 +5876,24 @@ async function dnsSdBrowse(o, file) {
 		}
 		return promise;
 	};
+}
+async function dnsSdBrowse(o, file) {
+	const max = o.max ?? SYSTEM_KEEP.instances;
+	const run = linkSignals([o.signal], o.browseMs + 2 * o.resolveMs);
+	const concurrency = o.concurrency ?? 4;
+	const pool = priorityLimiter(concurrency, nameSlots(concurrency));
+	/** service|instance key → what was learnt, in the order browses added them. */
+	const found = new Map();
+	/** Instances taken per group (adb, names): each capped at `max` on its own. */
+	const taken = {
+		adb: 0,
+		names: 0
+	};
+	const resolved = new Map();
+	const pending = [];
+	const lookUp = addressLookups(o, file, run.signal, (fn) => pool("first", fn));
 	/** `dns-sd -L <instance> <type> local.`, then its host's addresses. */
-	const resolve = (key, service, instance) => pool(ADB_TYPES.has(bareType(service)) ? "first" : "names", async () => {
+	const resolve = (key, service, instance) => pool(ADB_TYPES$1.has(bareType(service)) ? "first" : "names", async () => {
 		let reached = null;
 		let txt = [];
 		let grace;
@@ -5609,7 +5950,7 @@ async function dnsSdBrowse(o, file) {
 			known.gone = false;
 			return;
 		}
-		const group = ADB_TYPES.has(bareType(service)) ? "adb" : "names";
+		const group = ADB_TYPES$1.has(bareType(service)) ? "adb" : "names";
 		if (taken[group] >= max || !usableInstance(entry.instance)) return;
 		taken[group]++;
 		found.set(key, {
@@ -5684,7 +6025,7 @@ async function avahiBrowse(o, file) {
 						if (!known.addresses.includes(entry.address) && known.addresses.length < SYSTEM_KEEP.addresses) known.addresses.push(entry.address);
 						return;
 					}
-					const group = ADB_TYPES.has(type) ? "adb" : "names";
+					const group = ADB_TYPES$1.has(type) ? "adb" : "names";
 					if (taken[group] >= max) return;
 					taken[group]++;
 					const labels = presentationLabels(entry.host ?? "") ?? [];
@@ -5722,6 +6063,313 @@ async function systemBrowse(o) {
 		looked: false,
 		instances: []
 	};
+}
+/** How long a `dns-sd -Z` that printed records may stay quiet before it is ended. */
+const ZONE_QUIET_MS = 200;
+/** `dns-sd -Z` processes at a time. */
+const ZONE_SLOTS = 6;
+/** `dns-sd -G` lookups at a time. */
+const LOOKUP_SLOTS = 4;
+/** What one whole-network run keeps: instances in all, of one type, and hosts looked up. */
+const ALL_KEEP = {
+	instances: 256,
+	perType: 64,
+	hosts: 128
+};
+/**
+ * Every service on the network through the system's daemon (§4.9), as ServiceInstances whose
+ * `service` is `<type>.local`.
+ *
+ * dns-sd: the daemon's list of types (`dns-sd -B _services._dns-sd._udp local.`, for
+ * `browseMs`), and for each type it lists (at most MAX_SERVICE_TYPES) and each of `services`
+ * one `dns-sd -Z <type> local.`, the zone listing of every instance of the type in one
+ * process: 6 at a time, ended 200 ms after its last record, else after `resolveMs`. Each host
+ * an SRV names is looked up once with `dns-sd -G v4`, 4 at a time. The whole run is cut at
+ * `browseMs + 2 × resolveMs`, and no killed process is waited for.
+ *
+ * avahi: one `avahi-browse -a -r -p -t -k`, cut at `browseMs + resolveMs`, its types learnt
+ * from its own browse lines before its resolved lines are read; IPv4 answers only.
+ *
+ * Addresses are as the daemon gives them for a host name: whether a name ties a service to
+ * one address (two TVs both say `Android.local`) is the caller's to decide.
+ */
+async function systemBrowseAll(o) {
+	if (o.tools.dnsSd) return dnsSdBrowseAll(o, o.tools.dnsSd);
+	if (o.tools.avahiBrowse) return avahiBrowseAll(o, o.tools.avahiBrowse);
+	return {
+		tool: null,
+		looked: false,
+		instances: []
+	};
+}
+async function dnsSdBrowseAll(o, file) {
+	const run = linkSignals([o.signal], o.browseMs + 2 * o.resolveMs);
+	const zoneSlot = createLimiter(ZONE_SLOTS);
+	const lookUp = addressLookups(o, file, run.signal, createLimiter(LOOKUP_SLOTS));
+	/** type key → its `-Z` run. */
+	const zones = new Map();
+	/** `type|instance` → what its records said, in the order they came. */
+	const found = new Map();
+	const perType = new Map();
+	/** host key → its addresses, once per host. */
+	const hosts = new Map();
+	const hostKey = (host) => host.toLowerCase().replace(/\.$/, "");
+	let listed = 0;
+	const take = (type, record) => {
+		if (!usableInstance(record.instance)) return;
+		const key = `${nameKey(type)}|${record.instance.toLowerCase()}`;
+		let entry = found.get(key);
+		if (!entry) {
+			const count = perType.get(nameKey(type)) ?? 0;
+			if (found.size >= ALL_KEEP.instances || count >= ALL_KEEP.perType) return;
+			perType.set(nameKey(type), count + 1);
+			found.set(key, entry = {
+				type,
+				instance: record.instance,
+				txt: []
+			});
+		}
+		/** One block per interface: the first SRV and the first TXT stand. */
+		if (record.type === "SRV" && entry.host === void 0 && record.host) {
+			if (!usableHost(record.host)) return;
+			const host = hostKey(record.host);
+			if (!hosts.has(host) && hosts.size >= ALL_KEEP.hosts) return;
+			entry.host = record.host;
+			entry.port = record.port;
+			if (!hosts.has(host)) hosts.set(host, lookUp(record.host));
+		}
+		if (record.type === "TXT" && record.txt && !entry.txt.length) entry.txt = record.txt.slice(0, SYSTEM_KEEP.txt);
+	};
+	const zone = (type) => {
+		const key = nameKey(type);
+		if (zones.has(key)) return;
+		const ran = zoneSlot(async () => {
+			let quiet;
+			const outcome = await collect(o.streamTool, file, [
+				"-Z",
+				type,
+				"local."
+			], o.resolveMs, run.signal, (line, finish) => {
+				const record = parseDnsSdZoneLine(line, type);
+				if (!record) return;
+				take(type, record);
+				clearTimeout(quiet);
+				quiet = setTimeout(finish, ZONE_QUIET_MS);
+			});
+			clearTimeout(quiet);
+			return outcome;
+		});
+		zones.set(key, ran);
+	};
+	try {
+		for (const service of o.services) {
+			const type = serviceType(service);
+			if (type) zone(type);
+		}
+		const listing = await collect(o.streamTool, file, [
+			"-B",
+			"_services._dns-sd._udp",
+			"local."
+		], o.browseMs, run.signal, (line) => {
+			const type = parseDnsSdTypeLine(line);
+			if (!type || zones.has(nameKey(type)) || listed >= 48) return;
+			listed++;
+			zone(type);
+		});
+		/** No `-Z` starts once the listing has ended: every run is in `zones` now. */
+		const outcomes = await Promise.all(zones.values());
+		const addresses = new Map();
+		for (const [key, lookup] of hosts) addresses.set(key, await lookup);
+		const instances = [];
+		for (const entry of found.values()) {
+			if (entry.host === void 0 || entry.port === void 0) continue;
+			instances.push({
+				service: `${entry.type}.local`,
+				instance: entry.instance,
+				target: (presentationLabels(entry.host) ?? [entry.host]).join("."),
+				port: entry.port,
+				addresses: addresses.get(hostKey(entry.host)) ?? [],
+				txt: entry.txt
+			});
+		}
+		const looked = listing.stopped && !listing.error || found.size > 0 || outcomes.some((z) => z.stopped && !z.error);
+		return {
+			tool: "dns-sd",
+			looked,
+			instances,
+			...looked ? {} : { detail: whyNot("dns-sd", listing) }
+		};
+	} finally {
+		run.dispose();
+	}
+}
+async function avahiBrowseAll(o, file) {
+	const run = linkSignals([o.signal], o.browseMs + o.resolveMs);
+	/** Learnt from the browse lines (`+`, `-`), which come before a service's resolved lines. */
+	const types = new Map();
+	for (const service of o.services) {
+		const type = serviceType(service);
+		if (type) types.set(nameKey(type), type);
+	}
+	const most = types.size + 48;
+	const byKey = new Map();
+	const gone = new Set();
+	const perType = new Map();
+	let lines = 0;
+	try {
+		const outcome = await collect(o.streamTool, file, [
+			"-a",
+			"-r",
+			"-p",
+			"-t",
+			"-k"
+		], o.browseMs + o.resolveMs, run.signal, (line) => {
+			const learnt = avahiLineType(line);
+			if (learnt && !types.has(nameKey(learnt)) && types.size < most) types.set(nameKey(learnt), learnt);
+			for (const type of types.values()) {
+				const entry = parseAvahiLine(line, type);
+				if (!entry) continue;
+				lines++;
+				const key = `${nameKey(type)}|${entry.instance.toLowerCase()}`;
+				if (entry.op === "-") return void gone.add(key);
+				if (entry.op === "+") return void gone.delete(key);
+				if (entry.protocol !== "IPv4" || !entry.address || !net.isIPv4(entry.address)) return;
+				if (!usableInstance(entry.instance) || entry.port === void 0) return;
+				const known = byKey.get(key);
+				if (known) {
+					if (!known.addresses.includes(entry.address) && known.addresses.length < SYSTEM_KEEP.addresses) known.addresses.push(entry.address);
+					return;
+				}
+				const count = perType.get(nameKey(type)) ?? 0;
+				if (byKey.size >= ALL_KEEP.instances || count >= ALL_KEEP.perType) return;
+				perType.set(nameKey(type), count + 1);
+				const labels = presentationLabels(entry.host ?? "") ?? [];
+				byKey.set(key, {
+					service: `${type}.local`,
+					instance: entry.instance,
+					target: labels.join(".") || null,
+					port: entry.port,
+					addresses: [entry.address],
+					txt: entry.txt ?? []
+				});
+				return;
+			}
+		});
+		const looked = lines > 0 || !outcome.error && !outcome.stopped && outcome.code === 0;
+		const failed = !!outcome.error || !outcome.stopped && outcome.code !== 0;
+		return {
+			tool: "avahi-browse",
+			looked,
+			instances: [...byKey.entries()].filter(([key]) => !gone.has(key)).map(([, i]) => i),
+			...looked || !failed ? {} : { detail: whyNot("avahi-browse", outcome) }
+		};
+	} finally {
+		run.dispose();
+	}
+}
+/** `192.168.68.110` → `110.68.168.192.in-addr.arpa`: where an address's reverse name lives. */
+function reverseName(address) {
+	return `${address.split(".").reverse().join(".")}.in-addr.arpa`;
+}
+/** Reverse lookups at a time. */
+const REVERSE_SLOTS = 8;
+/** A `.local` name an answer gave, without its root dot, or null. */
+function localName(text) {
+	const labels = presentationLabels(text);
+	const name = labels?.join(".") ?? "";
+	return labels && labels.length >= 2 && usableHost(name) ? name.replace(/\.$/, "") : null;
+}
+/**
+ * The `.local` name of each address that has one (§4.9): the reverse PTR every mDNS
+ * responder publishes for the addresses it holds (RFC 6762 §4), which names a phone or a
+ * computer that announces no service at all. macOS: `dns-sd -fmc -q <d.c.b.a>.in-addr.arpa.
+ * PTR` (`-fmc` keeps it on mDNS: the router's DNS knows none of these names), Linux:
+ * `avahi-resolve -a <address>`, each ended at its first answer or `timeoutMs`, 8 at a time;
+ * elsewhere, one set of questions from the helper's own socket, answered within `timeoutMs`.
+ * The whole step is cut at `2 × timeoutMs`. Only a `.local` name counts; nothing throws.
+ */
+async function reverseNames(o) {
+	const names = new Map();
+	const addresses = o.addresses.filter((address) => net.isIPv4(address));
+	if (!addresses.length || o.signal?.aborted) return names;
+	const run = linkSignals([o.signal], 2 * o.timeoutMs);
+	try {
+		const { dnsSd, avahiResolve } = o.tools;
+		if (!dnsSd && !avahiResolve) {
+			await ownReverse(o, addresses, names, run.signal);
+			return names;
+		}
+		const slot = createLimiter(REVERSE_SLOTS);
+		await Promise.all(addresses.map((address) => slot(async () => {
+			if (run.signal.aborted) return;
+			let name = null;
+			if (dnsSd) {
+				const asked = `${reverseName(address)}.`;
+				await collect(o.streamTool, dnsSd, [
+					"-fmc",
+					"-q",
+					asked,
+					"PTR"
+				], o.timeoutMs, run.signal, (line, finish) => {
+					const answer = parseDnsSdQueryLine(line);
+					if (answer?.op !== "Add" || !sameName(answer.name, asked)) return;
+					name = answer.answer === null ? null : localName(answer.answer);
+					finish();
+				});
+			} else if (avahiResolve) await collect(o.streamTool, avahiResolve, ["-a", address], o.timeoutMs, run.signal, (line, finish) => {
+				const host = parseAvahiResolveLine(line, address);
+				if (!host) return;
+				name = localName(host);
+				finish();
+			});
+			if (name) names.set(address, name);
+		})));
+		return names;
+	} finally {
+		run.dispose();
+	}
+}
+/** Reverse names asked from the helper's own socket: one query set, then `timeoutMs` of answers. */
+async function ownReverse(o, addresses, names, signal) {
+	const id = 1 + Math.floor(Math.random() * 65534);
+	const byName = new Map(addresses.map((address) => [nameKey(reverseName(address)), address]));
+	const queries = inPieces(addresses, MAX_QUESTIONS).map((piece) => encodeQuery(id, piece.map((address) => ({
+		name: reverseName(address),
+		type: "PTR"
+	}))));
+	let done = false;
+	const onPacket = (packet) => {
+		if (done) return;
+		try {
+			const message = parseMessage(packet);
+			if (!message?.response || message.id !== id && message.id !== 0) return;
+			for (const record of message.records) {
+				const address = byName.get(nameKey(record.name));
+				if (record.type !== "PTR" || record.ttl === 0 || !address || names.has(address)) continue;
+				const name = splitName(record.target).join(".");
+				if (/\.local$/i.test(name) && usableHost(name)) names.set(address, name);
+			}
+		} catch {
+			return;
+		}
+	};
+	if (signal.aborted) return;
+	let transport;
+	try {
+		transport = await o.open(onPacket);
+	} catch {
+		return;
+	}
+	try {
+		if (signal.aborted) return;
+		for (const packet of queries) try {
+			transport.send(packet).catch(() => void 0);
+		} catch {}
+		await sleep(o.timeoutMs, signal).catch(() => void 0);
+	} finally {
+		done = true;
+		transport.close();
+	}
 }
 
 //#endregion
@@ -5907,10 +6555,10 @@ const ADB_NETWORK_PORT = 5555;
 function badRequest(message) {
 	return new HelperError("BAD_REQUEST", 400, message);
 }
-const IPV4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+const IPV4$1 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 /** 10/8, 172.16/12, 192.168/16, 169.254/16 (link-local) and 100.64/10 (carrier-grade NAT). */
 function isLocalIpv4(address) {
-	if (!IPV4.test(address)) return false;
+	if (!IPV4$1.test(address)) return false;
 	const [a = 0, b = 0] = address.split(".").map(Number);
 	return a === 10 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a === 169 && b === 254 || a === 100 && b >= 64 && b <= 127;
 }
@@ -5952,7 +6600,7 @@ function parseNetworkHost(value) {
 		return address.toLowerCase() + (zone === null ? "" : `%${zone}`);
 	}
 	if (/^[\d.]+$/.test(host)) {
-		if (!isLocalIpv4(host)) throw badRequest(IPV4.test(host) ? "Only devices on your local network: 10.x, 172.16–31.x, 192.168.x, 169.254.x or 100.64–127.x." : "That is not an IP address.");
+		if (!isLocalIpv4(host)) throw badRequest(IPV4$1.test(host) ? "Only devices on your local network: 10.x, 172.16–31.x, 192.168.x, 169.254.x or 100.64–127.x." : "That is not an IP address.");
 		return host;
 	}
 	const name = host.toLowerCase().replace(/\.$/, "");
@@ -5985,7 +6633,7 @@ const systemLookup = async (name) => (await dns.lookup(name, {
  * here would not resolve for adb either: `unresolved` at once, nothing sent.
  */
 async function checkResolvedName(host, lookup, timeoutMs, fail) {
-	if (IPV4.test(host) || host.includes(":")) return;
+	if (IPV4$1.test(host) || host.includes(":")) return;
 	let addresses;
 	const deadline = new AbortController();
 	try {
@@ -6561,7 +7209,7 @@ function kindOfService(service) {
  * link-local IPv6 (no zone travels in an mDNS answer). Normalised, or null.
  */
 function offerableAddress(address) {
-	if (!IPV4.test(address) && !net.isIPv6(address)) return null;
+	if (!IPV4$1.test(address) && !net.isIPv6(address)) return null;
 	if (/^fe[89ab]/i.test(address)) return null;
 	try {
 		return parseNetworkHost(address);
@@ -6720,7 +7368,7 @@ const KIND_ORDER = {
 };
 /** IPv4 by number, then IPv6 as text: the order a tester reads a network in. */
 function hostOrder(host) {
-	if (!IPV4.test(host)) return `1${host}`;
+	if (!IPV4$1.test(host)) return `1${host}`;
 	return `0${host.split(".").map((n) => n.padStart(3, "0")).join(".")}`;
 }
 /**
@@ -6823,7 +7471,7 @@ const NEARBY_MESSAGE = {
 };
 /** The page's wording for a scan the system resolver did instead of the helper's own queries. */
 const NEARBY_NOTE = "Looked through this computer's own resolver: the helper's own queries could not reach the network. Connecting may be refused for the same reason; if it is, the helper says how to fix it.";
-const NO_SYSTEM = {
+const NO_SYSTEM$1 = {
 	tool: null,
 	looked: false,
 	instances: []
@@ -6848,7 +7496,7 @@ async function scanNearby(o) {
 			windowMs: o.windowMs,
 			signal: o.signal
 		}),
-		(o.system?.(o.signal) ?? Promise.resolve(NO_SYSTEM)).catch(() => NO_SYSTEM),
+		(o.system?.(o.signal) ?? Promise.resolve(NO_SYSTEM$1)).catch(() => NO_SYSTEM$1),
 		o.adbList().catch(() => "")
 	]);
 	const { found, names } = nearbyFromBrowse([...browsed.instances, ...system.instances]);
@@ -6916,10 +7564,13 @@ const KIND_LABEL = {
 	wireless: "Wireless debugging",
 	pairing: "pairing screen open"
 };
-/** --doctor: one indented line per found service. */
+/**
+ * --doctor: one indented line per found service, named by its model, else its instance
+ * (`adb-<serial>…`), never by the name its owner gave it (T18: the output is pasted into PRs).
+ */
 function nearbyLines(devices) {
 	return devices.map((d) => clean(`  ${[
-		d.name || d.model || d.instance,
+		d.model || d.instance,
 		networkSerial(d.host, d.port),
 		KIND_LABEL[d.kind],
 		...d.osVersion ? [`Android ${d.osVersion}`] : [],
@@ -8828,9 +9479,10 @@ function formatChecklist(items, opts) {
 	return lines;
 }
 /**
- * The whole `--doctor` output (§1.9): who is running, the full checklist, then each lane's
- * read-only probe of its attached devices. Paste it into a PR or a bug report: it never
- * holds the token, key material, log text, IMEI or phone numbers.
+ * The whole `--doctor` output (§1.9): who is running, the full checklist, each lane's
+ * read-only probe of its attached devices, then one look at this computer's network (§4.9).
+ * Paste it into a PR or a bug report: it never holds the token, key material, log text, IMEI,
+ * phone numbers, a hardware address or a device's name.
  */
 async function printDoctor(ctx, write) {
 	const { items, macos } = await gather(ctx, { refresh: true });
@@ -8861,6 +9513,14 @@ async function printDoctor(ctx, write) {
 		}
 	}
 	if (!probed) write("  No lane can probe devices in this run.");
+	if (!ctx.lan) return;
+	write("");
+	write("Network");
+	try {
+		await ctx.lan.probeForDoctor((line) => write(`  ${line}`));
+	} catch (error) {
+		write(`  The network probe stopped early: ${clean(errorText(error), 200)}`);
+	}
 }
 
 //#endregion
@@ -8982,7 +9642,8 @@ const ROUTES = {
 	"/api/android/connect": "POST",
 	"/api/android/pair": "POST",
 	"/api/android/disconnect": "POST",
-	"/api/android/nearby": "GET"
+	"/api/android/nearby": "GET",
+	"/api/lan/devices": "GET"
 };
 const DEVICE_ROUTE = /^\/api\/devices\/([^/]*)\/(detail|screenshot|retry|logs)$/;
 const DEVICE_ACTIONS = {
@@ -9160,6 +9821,8 @@ function createApi(deps) {
 			if (pathname === "/api/android/pair") return pairNetwork(req, res, headers);
 			if (pathname === "/api/android/disconnect") return disconnectNetwork(req, res, headers);
 			if (pathname === "/api/android/nearby") return nearby(res, search, headers);
+			if (pathname === "/api/lan/devices") return lanDevices(res, search, headers);
+			/** The last fixed route: every one above has its own line, or it would land here. */
 			return startAdbServer(res, headers);
 		}
 		const match = DEVICE_ROUTE.exec(pathname);
@@ -9352,6 +10015,20 @@ function createApi(deps) {
 		const op = operation(res);
 		try {
 			sendJson(res, 200, await android.nearby(refresh, op.signal), headers);
+		} finally {
+			op.dispose();
+		}
+	}
+	/**
+	 * GET /api/lan/devices[?refresh=1]: every device on this computer's network (§4.9). Read-only,
+	 * and the bridge's own: it needs no lane, so `--no-android` leaves it on. A look runs on the
+	 * helper's signal; this request only stops waiting when its client leaves.
+	 */
+	async function lanDevices(res, search, headers) {
+		const refresh = new URLSearchParams(search).get("refresh") === "1";
+		const op = operation(res);
+		try {
+			sendJson(res, 200, await deps.lan.devices(refresh, op.signal), headers);
 		} finally {
 			op.dispose();
 		}
@@ -9648,7 +10325,7 @@ function sendPlain(res, status, text, extra = {}) {
 	res.end(body);
 }
 /** A decoded body, refused as soon as it grows past `cap`. */
-async function readCapped(response, cap) {
+async function readCapped$1(response, cap) {
 	/** content-length counts the compressed bytes: over the cap means the decoded body is too. */
 	if (Number(response.headers.get("content-length")) > cap) {
 		await response.body?.cancel();
@@ -9728,7 +10405,7 @@ function createLocalMode(opts) {
 			}
 			try {
 				return {
-					body: await readCapped(response, LIMITS.upstream),
+					body: await readCapped$1(response, LIMITS.upstream),
 					etag: response.headers.get("etag"),
 					checkedAt: opts.now()
 				};
@@ -9822,15 +10499,1481 @@ function createLocalMode(opts) {
 }
 
 //#endregion
+//#region src/lan-net.ts
+/**
+ * §15 LAN sources: what the helper may learn about this computer's own network (§4.9), each
+ * source on its own, read-only, bounded, and fed only by what the helper derives itself. A
+ * page names nothing here: no address, range or port ever comes from a request.
+ *
+ * - Interfaces: the networks looked at are this computer's own private IPv4 networks on real
+ *   interfaces (never a VPN tunnel, a VM or container bridge, AirDrop or loopback), at most
+ *   the /24 around this computer on a larger one, at most 512 addresses in all.
+ * - Presence: one byte in one UDP datagram to port 9 of each of those addresses, from a
+ *   connected socket. A host that is there answers with ICMP port unreachable, which the
+ *   socket reports as ECONNREFUSED: the one sign of life that needs no privilege and no
+ *   process, and that phones dropping TCP and ping still give [V 2026-10-04: 15–615 ms on
+ *   the owner's network, the dozing Pixel included]. Silence says nothing.
+ * - The neighbour (ARP) table, where the system shares it (macOS 27 shows the helper an empty
+ *   one), and the default gateway, through fixed system paths or Linux's /proc files.
+ * - SSDP: one M-SEARCH socket, and the UPnP description a device points to in its answer,
+ *   fetched only from that device's own address: the one HTTP request the helper makes.
+ *
+ * Every answer is untrusted: tables and answers are matched line by line against their exact
+ * shape, sizes are capped before anything is parsed, and a hardware address is only ever
+ * turned into the two facts macFacts() allows, never passed on.
+ */
+const IPV4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+const toInt = (address) => address.split(".").reduce((n, part) => (n << 8 | Number(part)) >>> 0, 0);
+const fromInt = (n) => [
+	n >>> 24,
+	n >>> 16 & 255,
+	n >>> 8 & 255,
+	n & 255
+].map(String).join(".");
+/** 255.255.255.0 → 24; null for a mask whose ones are not contiguous. */
+function prefixOf(netmask) {
+	if (!IPV4.test(netmask)) return null;
+	const mask = toInt(netmask);
+	for (let prefix = 0; prefix <= 32; prefix++) if ((prefix === 0 ? 0 : 4294967295 << 32 - prefix >>> 0) === mask) return prefix;
+	return null;
+}
+/** 10/8, 172.16/12 and 192.168/16: the networks a home or an office is on. */
+function isPrivateIpv4(address) {
+	const [a = 0, b = 0] = address.split(".").map(Number);
+	return a === 10 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168;
+}
+/** os.networkInterfaces(), flattened: BridgeOptions.lanInterfaces' default. */
+function systemInterfaces() {
+	const out = [];
+	for (const [name, list] of Object.entries(os.networkInterfaces())) for (const entry of list ?? []) out.push({
+		name,
+		address: entry.address,
+		netmask: entry.netmask,
+		family: entry.family,
+		internal: entry.internal
+	});
+	return out;
+}
+/**
+ * Interfaces that are not a local network of their own: VPN tunnels (utun, tun, tap, WireGuard,
+ * Tailscale, ZeroTier, PPP, IPsec), VM and container bridges, AirDrop's, loopback.
+ */
+const VIRTUAL_INTERFACE = /^(?:utun|tun|tap|wg|tailscale|zt|ppp|ipsec|gif|stf|awdl|llw|bridge|vmnet|vboxnet|docker|br-|veth|virbr|lo)/i;
+/** At most this many networks are listed, whatever the interfaces say. */
+const MAX_NETWORKS = 16;
+/**
+ * The networks to look at (§4.9): each non-internal IPv4 address in 10/8, 172.16/12 or
+ * 192.168/16 on an interface that is not virtual (169.254/16 and 100.64/10 never are: link-local,
+ * and carrier-grade NAT or Tailscale), with a prefix from 8 to 30. The presence check covers
+ * the whole network when it is a /24 or smaller, else the /24 around this computer's address;
+ * a network's own network and broadcast addresses, and this computer's, are never targets.
+ * `scanned` counts the host addresses covered (this computer's included), so a whole /24 reads
+ * 254 of 254. Once `maxTargets` addresses are planned, a network that does not fit is listed
+ * with `scanned: 0`; one whose addresses another interface already covers adds none.
+ */
+function lanNetworks(interfaces, maxTargets = LIMITS.lanTargets) {
+	const lan = interfaces.filter((i) => (i.family === "IPv4" || i.family === 4) && !i.internal && IPV4.test(i.address) && isPrivateIpv4(i.address) && !VIRTUAL_INTERFACE.test(i.name)).slice(0, MAX_NETWORKS);
+	const own = new Map();
+	for (const i of lan) if (!own.has(i.address)) own.set(i.address, clean(i.name, 40));
+	const networks = [];
+	const targets = [];
+	const ranges = [];
+	const planned = new Set();
+	for (const i of lan) {
+		const prefix = prefixOf(i.netmask);
+		if (prefix === null || prefix < 8 || prefix > 30) continue;
+		const self = toInt(i.address);
+		const block = 2 ** (32 - prefix);
+		const network = self - self % block >>> 0;
+		const broadcast = network + block - 1;
+		const start = prefix >= 24 ? network : self - self % 256;
+		const end = prefix >= 24 ? broadcast : start + 255;
+		const fresh = [];
+		let covered = 0;
+		for (let n = start; n <= end; n++) {
+			if (n === network || n === broadcast) continue;
+			covered++;
+			if (!own.has(fromInt(n)) && !planned.has(n)) fresh.push(n);
+		}
+		ranges.push({
+			network,
+			broadcast
+		});
+		const fits = targets.length + fresh.length <= maxTargets;
+		if (fits) for (const n of fresh) {
+			planned.add(n);
+			targets.push(fromInt(n));
+		}
+		networks.push({
+			interface: clean(i.name, 40),
+			address: i.address,
+			prefix,
+			size: block - 2,
+			scanned: fits ? covered : 0
+		});
+	}
+	return {
+		networks,
+		targets,
+		own,
+		ranges
+	};
+}
+/** On one of `ranges`, and neither its network nor its broadcast address. */
+function onLan(address, ranges) {
+	if (!IPV4.test(address)) return false;
+	const n = toInt(address);
+	return ranges.some((r) => n > r.network && n < r.broadcast);
+}
+const PROBE = Buffer.from([0]);
+/** The real presence check: BridgeOptions.lanPresence's default. */
+function presenceTransport() {
+	return (address, o) => new Promise((resolve, reject) => {
+		if (o.signal.aborted) return resolve("silent");
+		const socket = dgram.createSocket({ type: "udp4" });
+		let settled = false;
+		let sent = false;
+		const settle = (outcome) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			o.signal.removeEventListener("abort", onAbort);
+			closeSocket(socket);
+			if (outcome instanceof Error) reject(outcome);
+			else resolve(outcome);
+		};
+		const onAbort = () => settle("silent");
+		const timer = setTimeout(() => settle("silent"), o.windowMs);
+		o.signal.addEventListener("abort", onAbort, { once: true });
+		/** Port unreachable is the answer; after the byte left, any other error means nobody. */
+		socket.on("error", (error) => {
+			if (error.code === "ECONNREFUSED") settle("refused");
+			else settle(sent ? "silent" : error);
+		});
+		/** Node passes connect's error to its callback, though its types leave the argument out. */
+		socket.connect(o.port, address, (error) => {
+			if (error) return settle(error);
+			if (settled) return;
+			socket.send(PROBE, (sendError) => {
+				if (sendError) settle(sendError);
+				else sent = true;
+			});
+		});
+	});
+}
+/** New sockets per tick, and the tick: at most 400 a second, so replies are not dropped. */
+const PRESENCE_PACE = {
+	perTick: 4,
+	tickMs: 10
+};
+/**
+ * The presence check of every target (§4.9): one socket each, at most `pool` open at once,
+ * opened at most 4 every 10 ms, each closed at its answer or after `windowMs`. With the
+ * defaults a /24 is done in about 1.7 s and two in about 2.7 s. When the signal aborts no
+ * socket is opened any more and every open one is closed at once. The sockets wait on a signal
+ * of its own, linked to `o.signal`, which takes their 256 abort listeners without Node 18 and
+ * 20's warning, whatever signal the caller passed.
+ */
+function checkPresence(targets, o) {
+	const run = linkSignals([o.signal]);
+	return new Promise((resolve) => {
+		const present = new Set();
+		let sent = 0;
+		let first = null;
+		let next = 0;
+		let open = 0;
+		let timer;
+		let ended = false;
+		const end = () => {
+			if (ended || open > 0 || timer !== void 0) return;
+			if (next < targets.length && !run.signal.aborted) return;
+			ended = true;
+			run.signal.removeEventListener("abort", onAbort);
+			resolve({
+				present,
+				sent,
+				...sent === 0 && first !== null ? { failure: mdnsFailure(first) } : {}
+			});
+		};
+		const launch = (address) => {
+			open++;
+			Promise.resolve().then(() => o.open(address, {
+				port: o.port,
+				windowMs: o.windowMs,
+				signal: run.signal
+			})).then((answer) => {
+				sent++;
+				if (answer === "refused") present.add(address);
+			}, (error) => {
+				first ??= error;
+			}).finally(() => {
+				open--;
+				end();
+			});
+		};
+		const tick = () => {
+			timer = void 0;
+			if (!run.signal.aborted) {
+				for (let n = 0; n < PRESENCE_PACE.perTick && open < o.pool; n++) {
+					const address = targets[next];
+					if (address === void 0) break;
+					next++;
+					launch(address);
+				}
+				if (next < targets.length) timer = setTimeout(tick, PRESENCE_PACE.tickMs);
+			}
+			end();
+		};
+		const onAbort = () => {
+			clearTimeout(timer);
+			timer = void 0;
+			end();
+		};
+		run.signal.addEventListener("abort", onAbort, { once: true });
+		tick();
+	}).finally(() => run.dispose());
+}
+/** `6c:2:e0:f2:5f:81` (macOS drops leading zeros), `6C-02-E0-F2-5F-81` → `6c:02:e0:f2:5f:81`. */
+function normalizeMac(text) {
+	const parts = text.trim().split(/[:-]/);
+	if (parts.length !== 6 || !parts.every((p) => /^[0-9A-Fa-f]{1,2}$/.test(p))) return null;
+	return parts.map((p) => p.padStart(2, "0").toLowerCase()).join(":");
+}
+/** A hardware address of one device: not all zeros, not multicast, not broadcast. */
+function unicastMac(mac) {
+	return (parseInt(mac.slice(0, 2), 16) & 1) === 0 && mac !== "00:00:00:00:00:00";
+}
+/**
+ * All a hardware address may tell (§4.9): whether it is a private one (the locally
+ * administered bit: phones, tablets and laptops make one up per network), and, only when it
+ * is not, its maker's 3-byte prefix. The address itself goes no further.
+ */
+function macFacts(mac) {
+	const privateAddress = (parseInt(mac.slice(0, 2), 16) & 2) !== 0;
+	return privateAddress ? { privateAddress } : {
+		privateAddress,
+		maker: mac.slice(0, 8).replace(/:/g, "").toUpperCase()
+	};
+}
+/** Entries kept from one table, whatever it holds. */
+const MAX_NEIGHBOURS = 1024;
+/** A table or a route listing larger than this is not read past it. */
+const MAX_TABLE = 262144;
+function neighbour(address, mac) {
+	const normal = normalizeMac(mac ?? "");
+	return address && IPV4.test(address) && normal && unicastMac(normal) ? {
+		address,
+		mac: normal
+	} : null;
+}
+function neighbours(text, read) {
+	const out = [];
+	for (const line of text.split("\n")) {
+		const entry = read(line);
+		if (entry) out.push(entry);
+		if (out.length >= MAX_NEIGHBOURS) break;
+	}
+	return out;
+}
+/**
+ * macOS `arp -an`: `? (192.168.68.1) at 14:eb:b6:97:cd:50 on en0 ifscope [ethernet]`, octets
+ * without leading zeros; `(incomplete)` and multicast entries are no device.
+ */
+function parseArpDarwin(text) {
+	return neighbours(text, (line) => {
+		const m = /^\S*\s*\((\S+)\) at ([0-9A-Fa-f]{1,2}(?::[0-9A-Fa-f]{1,2}){5}) on \S/.exec(line);
+		return neighbour(m?.[1], m?.[2]);
+	});
+}
+/**
+ * Linux /proc/net/arp: `IP address  HW type  Flags  HW address  Mask  Device` rows; only flags
+ * 0x2 (complete) and 0x6 (permanent) carry an address that answered.
+ */
+function parseProcNetArp(text) {
+	return neighbours(text, (line) => {
+		const fields = line.trim().split(/\s+/);
+		if (fields.length < 6 || !/^0x[0-9A-Fa-f]+$/.test(fields[2] ?? "")) return null;
+		const flags = parseInt(fields[2] ?? "", 16);
+		return flags === 2 || flags === 6 ? neighbour(fields[0], fields[3]) : null;
+	});
+}
+/**
+ * Windows `ARP.EXE -a`: under each `Interface: … --- 0x4` header, rows of an address, a
+ * hyphenated hardware address and a type word. The headers and the word are translated
+ * (`dynamisch`), so neither is read: the row's shape and the address decide.
+ */
+function parseArpWindows(text) {
+	return neighbours(text, (line) => {
+		const m = /^\s*(\S+)\s+([0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5})\s+\S+\s*$/.exec(line);
+		return neighbour(m?.[1], m?.[2]);
+	});
+}
+/** At most `max` bytes of a file (a /proc file reports no size), or a rejection. */
+async function readCapped(file, max) {
+	if (!path.isAbsolute(file)) throw new Error(`${file} is not an absolute path.`);
+	const handle = await open(file, "r");
+	try {
+		const buffer = Buffer.alloc(max);
+		let length = 0;
+		while (length < max) {
+			const { bytesRead } = await handle.read(buffer, length, max - length, null);
+			if (!bytesRead) break;
+			length += bytesRead;
+		}
+		return buffer.toString("utf8", 0, length);
+	} finally {
+		await handle.close();
+	}
+}
+/** How long the neighbour table's tool may take, and the route's. */
+const TABLE_MS = 3e3;
+const ROUTE_MS = 2e3;
+/**
+ * The neighbour table (§4.9): `ok` with its complete entries, `hidden` when it was read and
+ * held none (what macOS 27 shows a process like the helper: `arp -an` prints nothing),
+ * `none` when it could not be read. Never throws.
+ */
+async function readNeighbours(o) {
+	try {
+		let entries;
+		if (o.platform === "linux") entries = parseProcNetArp(await readCapped(o.procNetArpPath, MAX_TABLE));
+		else if (o.platform === "darwin" || o.platform === "win32") {
+			const { stdout } = await o.runTool(o.arpPath, o.platform === "win32" ? ["-a"] : ["-an"], {
+				timeoutMs: TABLE_MS,
+				maxBytes: MAX_TABLE,
+				signal: o.signal
+			});
+			entries = o.platform === "win32" ? parseArpWindows(stdout) : parseArpDarwin(stdout);
+		} else return {
+			entries: [],
+			state: "none"
+		};
+		return {
+			entries,
+			state: entries.length ? "ok" : "hidden"
+		};
+	} catch {
+		return {
+			entries: [],
+			state: "none"
+		};
+	}
+}
+/** macOS `route -n get default`: its `gateway:` line, when that is an IPv4 address. */
+function parseRouteGetDefault(text) {
+	const m = /^\s*gateway:\s*(\S+)\s*$/m.exec(text);
+	return m?.[1] && IPV4.test(m[1]) ? m[1] : null;
+}
+/**
+ * Linux /proc/net/route: of the default routes (Destination 00000000, flags RTF_UP and
+ * RTF_GATEWAY), the gateway of the one with the lowest metric, written in hex in network
+ * order read as a little-endian number: `0102A8C0` is 192.168.2.1.
+ */
+function parseProcNetRoute(text) {
+	let best = null;
+	for (const line of text.split("\n").slice(1)) {
+		const f = line.trim().split(/\s+/);
+		if (f.length < 8 || f[1] !== "00000000" || !/^[0-9A-Fa-f]{8}$/.test(f[2] ?? "")) continue;
+		if ((parseInt(f[3] ?? "", 16) & 3) !== 3) continue;
+		const address = (f[2]?.match(/../g) ?? []).reverse().map((hex) => String(parseInt(hex, 16))).join(".");
+		const metric = Number(f[6]);
+		if (IPV4.test(address) && address !== "0.0.0.0" && (!best || metric < best.metric)) best = {
+			address,
+			metric
+		};
+	}
+	return best?.address ?? null;
+}
+/**
+ * Windows `ROUTE.EXE print -4 0.0.0.0`: rows of `0.0.0.0  0.0.0.0  <gateway>  <interface>
+ * <metric>`, the gateway of the lowest metric. Columns by position; no translated word read.
+ */
+function parseRouteWindows(text) {
+	let best = null;
+	for (const line of text.split("\n")) {
+		const m = /^\s*0\.0\.0\.0\s+0\.0\.0\.0\s+(\S+)\s+(\S+)\s+(\d{1,9})\s*$/.exec(line);
+		if (!m?.[1] || !IPV4.test(m[1]) || !IPV4.test(m[2] ?? "")) continue;
+		const metric = Number(m[3]);
+		if (!best || metric < best.metric) best = {
+			address: m[1],
+			metric
+		};
+	}
+	return best?.address ?? null;
+}
+/** The default gateway's IPv4 address, or null. Never throws. */
+async function readGateway(o) {
+	try {
+		if (o.platform === "linux") return parseProcNetRoute(await readCapped(o.procNetRoutePath, MAX_TABLE));
+		if (o.platform !== "darwin" && o.platform !== "win32") return null;
+		const argv = o.platform === "win32" ? [
+			"print",
+			"-4",
+			"0.0.0.0"
+		] : [
+			"-n",
+			"get",
+			"default"
+		];
+		const { stdout } = await o.runTool(o.routePath, argv, {
+			timeoutMs: ROUTE_MS,
+			maxBytes: MAX_TABLE,
+			signal: o.signal
+		});
+		return o.platform === "win32" ? parseRouteWindows(stdout) : parseRouteGetDefault(stdout);
+	} catch {
+		return null;
+	}
+}
+const SSDP_ADDRESS = "239.255.255.250";
+const SSDP_PORT = 1900;
+/** An SSDP answer is a few hundred bytes (UDA 2.0 §1.3.3); a larger datagram is dropped. */
+const MAX_SSDP_PACKET = 2048;
+/**
+ * The real SSDP socket: udp4, bound to 0.0.0.0 on an ephemeral port (never 1900, which the
+ * system's own SSDP service may hold), multicast TTL 2 (UDA 2.0 §1.3.2). Answers come back
+ * unicast to it. A socket whose bind fails is closed before the open rejects.
+ */
+function ssdpTransport(o = {}) {
+	const address = o.address ?? "239.255.255.250";
+	const port = o.port ?? 1900;
+	const multicast = /^2(?:2[4-9]|3\d)\./.test(address);
+	return (onPacket) => new Promise((resolve, reject) => {
+		const socket = dgram.createSocket({ type: "udp4" });
+		let closed = false;
+		socket.on("message", (packet, from) => {
+			if (!closed && packet.length <= MAX_SSDP_PACKET) onPacket(packet, from.address);
+		});
+		const unbound = (error) => {
+			closed = true;
+			closeSocket(socket);
+			reject(error);
+		};
+		socket.once("error", unbound);
+		socket.bind(0, () => {
+			socket.off("error", unbound);
+			/** From here on a socket error is a send that failed: send() reports it. */
+			socket.on("error", () => void 0);
+			if (multicast) socket.setMulticastTTL(2);
+			resolve({
+				send: (packet, local) => new Promise((done, failed) => {
+					if (closed) return done();
+					try {
+						if (multicast) socket.setMulticastInterface(local);
+					} catch (error) {
+						return failed(error instanceof Error ? error : new Error(String(error)));
+					}
+					socket.send(packet, port, address, (error) => error ? failed(error) : done());
+				}),
+				close() {
+					if (closed) return;
+					closed = true;
+					closeSocket(socket);
+				}
+			});
+		});
+	});
+}
+/** One M-SEARCH (UDA 2.0 §1.3.2): MX 2, the blank line that ends it. */
+function mSearch(target) {
+	return Buffer.from(`M-SEARCH * HTTP/1.1\r\nHOST: ${SSDP_ADDRESS}:${String(SSDP_PORT)}\r\nMAN: "ssdp:discover"\r\nMX: 2\r\nST: ${target}\r\n\r\n`, "latin1");
+}
+/**
+ * An SSDP answer's headers (`HTTP/1.1 200 OK`, then `NAME: value` lines; names in any case),
+ * or null for anything else. Each value is cleaned and capped; a line break cannot hide inside
+ * one, as lines are split first. The first of each header stands.
+ */
+function parseSsdpResponse(packet) {
+	if (packet.length > MAX_SSDP_PACKET) return null;
+	const lines = packet.toString("utf8").split(/\r?\n/);
+	if (!/^HTTP\/1\.[01] 200(?: |$)/i.test(lines[0] ?? "")) return null;
+	const out = {};
+	for (const line of lines.slice(1, 33)) {
+		if (!line.trim()) break;
+		const colon = line.indexOf(":");
+		if (colon <= 0) continue;
+		const name = line.slice(0, colon).trim().toLowerCase();
+		const value = clean(line.slice(colon + 1), 512).trim();
+		if (!value) continue;
+		if (name === "st") out.st ??= value;
+		else if (name === "usn") out.usn ??= value;
+		else if (name === "server") out.server ??= value;
+		else if (name === "location") out.location ??= value;
+	}
+	return out;
+}
+/** A UPnP device type (`urn:schemas-upnp-org:device:MediaRenderer:1`), or DIAL's service type. */
+const DEVICE_URN = /^urn:[A-Za-z0-9.-]{1,64}:device:[A-Za-z0-9_.-]{1,64}:\d{1,4}$|^urn:dial-multiscreen-org:service:dial:\d{1,4}$/i;
+/** The device type an ST or USN names (`uuid:…::urn:…:device:…:1`), or null. */
+function deviceTypeOf(text) {
+	const urn = text.includes("::") ? text.slice(text.lastIndexOf("::") + 2) : text;
+	return DEVICE_URN.test(urn) ? urn : null;
+}
+/** Answers taken from one search, whatever arrives. */
+const MAX_SSDP_ANSWERS = 256;
+/** Device types kept per address. */
+const MAX_SSDP_TYPES = 8;
+/** After this long every M-SEARCH is sent once more (UDP is lossy; UDA asks for more than one). */
+const SSDP_AGAIN_MS = 500;
+/**
+ * One SSDP search (§4.9): each of `targets`, out of each interface, twice 500 ms apart, then
+ * answers until `windowMs`. Only an answer from an address on the local network
+ * (offerableAddress) is taken, at most 256 of them. The socket is closed when the window ends
+ * or the signal aborts.
+ */
+async function searchSsdp(o) {
+	const devices = new Map();
+	let answers = 0;
+	let done = false;
+	const onPacket = (packet, from) => {
+		if (done || answers >= MAX_SSDP_ANSWERS) return;
+		try {
+			const answer = parseSsdpResponse(packet);
+			const address = offerableAddress(from);
+			if (!answer || !address || !IPV4.test(address)) return;
+			answers++;
+			let device = devices.get(address);
+			if (!device) {
+				if (devices.size >= MAX_SSDP_ANSWERS) return;
+				devices.set(address, device = { types: [] });
+			}
+			if (answer.server && device.server === void 0) device.server = answer.server;
+			if (answer.location && device.location === void 0) device.location = answer.location;
+			for (const text of [answer.st, answer.usn]) {
+				const type = text ? deviceTypeOf(text) : null;
+				if (type && !device.types.includes(type) && device.types.length < MAX_SSDP_TYPES) device.types.push(type);
+			}
+		} catch {
+			return;
+		}
+	};
+	if (o.signal.aborted || !o.interfaces.length) return { devices };
+	let transport;
+	try {
+		transport = await o.open(onPacket);
+	} catch (error) {
+		return {
+			devices,
+			failure: mdnsFailure(error)
+		};
+	}
+	const window = linkSignals([o.signal], o.windowMs);
+	/** Every search out of every interface, in turn; the number that left. */
+	const searchAll = async () => {
+		let sent = 0;
+		let first = null;
+		for (const local of o.interfaces) for (const target of o.targets) {
+			if (window.signal.aborted) return {
+				sent,
+				first
+			};
+			try {
+				await transport.send(mSearch(target), local);
+				sent++;
+			} catch (error) {
+				first ??= error;
+			}
+		}
+		return {
+			sent,
+			first
+		};
+	};
+	try {
+		const { sent, first } = await searchAll();
+		if (!sent && !window.signal.aborted) return {
+			devices,
+			failure: mdnsFailure(first)
+		};
+		await sleepUntil(SSDP_AGAIN_MS, window.signal);
+		if (!window.signal.aborted) await searchAll();
+		await sleepUntil(o.windowMs, window.signal);
+		return { devices };
+	} finally {
+		done = true;
+		window.dispose();
+		transport.close();
+	}
+}
+/** Waits `ms`, or less when `signal` aborts; never rejects. */
+function sleepUntil(ms, signal) {
+	return new Promise((resolve) => {
+		if (signal.aborted) return resolve();
+		const stop = () => {
+			clearTimeout(timer);
+			resolve();
+		};
+		const timer = setTimeout(() => {
+			signal.removeEventListener("abort", stop);
+			resolve();
+		}, ms);
+		signal.addEventListener("abort", stop, { once: true });
+	});
+}
+/** A description document larger than this is not read. */
+const MAX_DESCRIPTION = 65536;
+/**
+ * Where an SSDP answer's LOCATION may be fetched from, or null (§4.9). Only `http:` (never
+ * https or another scheme), no user or password, and a host that is an IPv4 address equal to
+ * the address the answer came from and on the local network: a device may point at itself
+ * only, never at this computer, another device or the internet. The port must be 1–65535.
+ */
+function descriptionTarget(location, from) {
+	let url;
+	try {
+		url = new URL(location);
+	} catch {
+		return null;
+	}
+	if (url.protocol !== "http:" || url.username || url.password) return null;
+	if (url.hostname !== from || !IPV4.test(from) || offerableAddress(from) !== from) return null;
+	const port = url.port ? Number(url.port) : 80;
+	if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+	return {
+		host: from,
+		port,
+		path: `${url.pathname}${url.search}`
+	};
+}
+/** The real fetch: node:http, never fetch(), which follows redirects (and warns on Node 18). */
+const fetchDescription = (target, o) => new Promise((resolve, reject) => {
+	if (o.signal.aborted) return reject(abortError());
+	const deadline = linkSignals([o.signal], o.timeoutMs);
+	let settled = false;
+	const settle = (error, body = "") => {
+		if (settled) return;
+		settled = true;
+		deadline.dispose();
+		if (error) {
+			request.destroy();
+			reject(error);
+		} else resolve(body);
+	};
+	const request = http.get({
+		host: target.host,
+		port: target.port,
+		path: target.path || "/",
+		headers: { Accept: "text/xml" },
+		agent: false,
+		signal: deadline.signal
+	}, (res) => {
+		const type = String(res.headers["content-type"] ?? "");
+		const length = Number(res.headers["content-length"] ?? 0);
+		if (res.statusCode !== 200 || type && !/xml/i.test(type) || length > o.maxBytes) {
+			res.resume();
+			return settle(new Error(`Not a description: ${String(res.statusCode)} ${type}`));
+		}
+		const chunks = [];
+		let size = 0;
+		res.on("data", (chunk) => {
+			size += chunk.length;
+			if (size > o.maxBytes) settle(new Error("The description is too large."));
+			else chunks.push(chunk);
+		});
+		res.on("end", () => settle(null, Buffer.concat(chunks).toString("utf8")));
+		res.on("error", (error) => settle(error));
+		/** After 'end' this changes nothing; before it, the answer was cut short. */
+		res.on("close", () => settle(new Error("The description was cut short.")));
+	});
+	request.on("error", (error) => settle(error));
+});
+/** The fields read from a description: the root device's own, nothing else. */
+const DESCRIPTION_FIELDS = [
+	"deviceType",
+	"friendlyName",
+	"manufacturer",
+	"modelName",
+	"modelNumber"
+];
+const ENTITIES = {
+	amp: "&",
+	lt: "<",
+	gt: ">",
+	quot: "\"",
+	apos: "'"
+};
+/**
+ * The root device's fields from a UPnP description (§4.9), by a tag scanner, not an XML
+ * parser: a document with a DOCTYPE or an ENTITY is refused whole (no entity is ever
+ * expanded), the first `<device>` is found, and each field is read only up to that device's
+ * own `<deviceList>` or end, as plain text (`&amp; &lt; &gt; &quot; &apos;` decoded, a field
+ * holding markup or CDATA skipped), cleaned and capped.
+ */
+function parseDescription(xml) {
+	if (xml.length > 65536 || /<!(?:DOCTYPE|ENTITY)/i.test(xml)) return {};
+	const start = xml.search(/<device(?:\s[^>]*)?>/);
+	if (start < 0) return {};
+	const body = xml.slice(start);
+	const stop = body.search(/<deviceList(?:\s[^>]*)?>|<\/device\s*>/);
+	const own = stop < 0 ? body : body.slice(0, stop);
+	const out = {};
+	for (const field of DESCRIPTION_FIELDS) {
+		const m = new RegExp(`<${field}\\s*>([^<]*)</${field}\\s*>`).exec(own);
+		if (!m) continue;
+		const text = clean((m[1] ?? "").replace(/&(amp|lt|gt|quot|apos);/g, (_, name) => ENTITIES[name] ?? ""), LIMITS.field).trim();
+		if (text) out[field] = text;
+	}
+	return out;
+}
+
+//#endregion
+//#region src/lan.ts
+/**
+ * §16 Every device on this network (§4.9): one look at this computer's own network, merged
+ * device by device, for "Devices on this network" on the page. It answers the owner's "list
+ * ALL the devices currently on the local network": the router, phones, tablets, TVs,
+ * computers, printers, speakers, smart-home things.
+ *
+ * A look runs only when the page asks (GET /api/lan/devices, and --doctor): never at startup,
+ * never on a timer. It gathers, at once and each bounded on its own (lan-net.ts, mdns.ts):
+ * the presence check of this computer's own subnets, the neighbour table and the default
+ * gateway, every mDNS service through the system's daemon and the helper's own socket, SSDP and
+ * the UPnP descriptions it points to, then the reverse names of what is there but still
+ * unnamed. The whole look is cut at `lanScan` (7 s); what arrived by then is the answer.
+ *
+ * The helper says what each device is called and announces, never what it is: kinds and names
+ * are the page's (lan-kinds.ts). And it never passes on a hardware address. One it reads (the
+ * neighbour table, an iPhone's `_apple-mobdev2` instance, a printer's TXT `mac=`, avahi's
+ * `_workstation`) becomes two facts, a private address or not and the maker's prefix of one
+ * that is not, and every text sent beside them loses whatever carries that address or a part
+ * of it (a printer's `(F25F81)`, its host `NPIF25F81`), as well as any UUID, run of 12 hex
+ * digits or written-out hardware address: with the maker's prefix in the same row, the last
+ * three bytes would give the whole address away.
+ */
+/** Per device, as the wire caps them (§4.9, mirrored by the page). */
+const KEEP = {
+	hostnames: 4,
+	names: 8,
+	services: 24,
+	txt: 8
+};
+/** UPnP descriptions fetched in one look, and at once. */
+const DESCRIPTIONS = {
+	max: 16,
+	slots: 4
+};
+/** Addresses asked for a reverse name in one look. */
+const MAX_REVERSE = 64;
+/** Instance names that are the device's own name (the page names a device by them first). */
+const NAME_TYPES = new Set([
+	"_companion-link._tcp",
+	"_airplay._tcp",
+	"_raop._tcp",
+	"_androidtvremote2._tcp",
+	"_ipp._tcp",
+	"_ipps._tcp",
+	"_printer._tcp",
+	"_privet._tcp",
+	"_hap._tcp",
+	"_spotify-connect._tcp",
+	"_sonos._tcp",
+	"_smb._tcp",
+	"_workstation._tcp"
+]);
+/** adbd names its services `adb-<serial>`: a serial, never passed on. */
+const ADB_TYPES = new Set([
+	"_adb._tcp",
+	"_adb-tls-connect._tcp",
+	"_adb-tls-pairing._tcp"
+]);
+/** LAN_TXT_KEYS by lower case: TXT keys compare case-insensitively (RFC 6763 §6.4). */
+const TXT_KEYS = new Map(LAN_TXT_KEYS.map((key) => [key.toLowerCase(), key]));
+/** A UUID, a hardware address written out, a run of 12 hex digits: ids, never names. */
+const UUID_TEXT = /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/g;
+const MAC_TEXT = /(?<![0-9A-Fa-f])[0-9A-Fa-f]{1,2}(?:[:-][0-9A-Fa-f]{1,2}){5}(?![0-9A-Fa-f])/g;
+const HEX_RUN = /[0-9A-Fa-f]{12,}/g;
+/** `6c02e0f25f81`'s whole and its last three bytes, as patterns, with or without `:`/`-`. */
+function idPatterns(id) {
+	const bytes = (hex) => (hex.match(/../g) ?? []).join("[:-]?");
+	return [new RegExp(bytes(id), "gi"), new RegExp(bytes(id.slice(6)), "gi")];
+}
+/**
+ * `text` without anything that carries a hardware address or an id (§4.9): UUIDs, written-out
+ * hardware addresses, runs of 12 hex digits, and every one of `hidden` (12 hex digits each,
+ * the addresses read for this device) whole or by its last three bytes. Brackets left empty
+ * and separators left dangling go too: `HP Neverstop Laser MFP 1200w (F25F81)` → `HP
+ * Neverstop Laser MFP 1200w`.
+ */
+function scrub(text, hidden = new Set()) {
+	let out = text.replace(UUID_TEXT, " ").replace(MAC_TEXT, " ").replace(HEX_RUN, " ");
+	for (const id of hidden) for (const pattern of idPatterns(id)) out = out.replace(pattern, " ");
+	return out.replace(/\(\s*\)|\[\s*\]|\{\s*\}|<\s*>/g, " ").replace(/\s+/g, " ").replace(/^[\s\-_.:@,;]+|[\s\-_.:@,;]+$/g, "");
+}
+/** Whether `text` holds anything scrub() would take out. */
+function carriesId(text, hidden = new Set()) {
+	const found = (pattern) => {
+		pattern.lastIndex = 0;
+		return pattern.test(text);
+	};
+	return found(UUID_TEXT) || found(MAC_TEXT) || found(HEX_RUN) || [...hidden].some((id) => idPatterns(id).some(found));
+}
+/** A hardware address (or AirPlay's device id, written like one) as 12 lower-case hex digits. */
+function idOf(text) {
+	const mac = normalizeMac(text);
+	if (mac) return mac.replace(/:/g, "");
+	return /^[0-9A-Fa-f]{12}$/.test(text.trim()) ? text.trim().toLowerCase() : null;
+}
+/** The fixed order of LanSource, the order `found` lists them in. */
+const SOURCES = [
+	"reply",
+	"neighbors",
+	"mdns",
+	"ssdp",
+	"reverse",
+	"gateway",
+	"self"
+];
+function createDrafts() {
+	const drafts = new Map();
+	return {
+		at(address) {
+			let draft = drafts.get(address);
+			if (!draft) {
+				draft = {
+					address,
+					self: false,
+					gateway: false,
+					found: new Set(),
+					hostnames: [],
+					names: [],
+					services: [],
+					macs: [],
+					hidden: new Set()
+				};
+				drafts.set(address, draft);
+			}
+			return draft;
+		},
+		get: (address) => drafts.get(address),
+		all: () => [...drafts.values()]
+	};
+}
+/** A hardware address read for `draft`: a fact source, and something to keep out of its texts. */
+function readMac(draft, mac) {
+	const id = idOf(mac);
+	if (!id) return;
+	draft.hidden.add(id);
+	const normal = normalizeMac(mac);
+	if (normal && !draft.macs.includes(normal)) draft.macs.push(normal);
+}
+/** A `.local` name for `draft` (an SRV target, a reverse name), without its root dot. */
+function addHostname(draft, host) {
+	const name = host.replace(/\.$/, "");
+	if (!usableHost(name) || name.length > 253) return;
+	if (draft.hostnames.some((h) => h.toLowerCase() === name.toLowerCase())) return;
+	draft.hostnames.push(name);
+}
+/**
+ * What an instance name may say (§4.9): `_apple-mobdev2`'s is `<hardware address>@<IPv6>…`
+ * (read, never passed on), `_raop`'s `<AirPlay id>@<name>` (the name only), avahi's
+ * `_workstation` `<name> [<hardware address>]` (the name only), and adbd's `adb-<serial>`
+ * nothing at all.
+ */
+function instanceName(type, instance, draft) {
+	const key = type.toLowerCase();
+	if (ADB_TYPES.has(key)) return void 0;
+	if (key === "_apple-mobdev2._tcp") {
+		const at = instance.indexOf("@");
+		if (at > 0) readMac(draft, instance.slice(0, at));
+		return;
+	}
+	let name = instance;
+	if (key === "_raop._tcp") {
+		const at = instance.indexOf("@");
+		if (at > 0) {
+			const id = idOf(instance.slice(0, at));
+			if (id) draft.hidden.add(id);
+			name = instance.slice(at + 1);
+		}
+	}
+	if (key === "_workstation._tcp") {
+		const m = /^(.*?)\s*\[([^\]]*)\]\s*$/.exec(instance);
+		if (m) {
+			readMac(draft, m[2] ?? "");
+			name = m[1] ?? "";
+		}
+	}
+	return name;
+}
+/** One mDNS service on `draft`: its type, port, instance name and TXT, as raw as they came. */
+function addService(draft, instance) {
+	const type = serviceType(instance.service);
+	if (!type) return;
+	const name = instanceName(type, instance.instance, draft);
+	for (const text of instance.txt) {
+		const eq = text.indexOf("=");
+		const key = eq < 0 ? "" : text.slice(0, eq).toLowerCase();
+		/** A printer's `mac=` is its hardware address; AirPlay's `deviceid=` reads like one. */
+		if (key === "mac") readMac(draft, text.slice(eq + 1));
+		if (key === "deviceid") {
+			const id = idOf(text.slice(eq + 1));
+			if (id) draft.hidden.add(id);
+		}
+	}
+	if (name !== void 0 && NAME_TYPES.has(type.toLowerCase())) draft.names.push({
+		text: name,
+		source: "mdns"
+	});
+	/** The daemon's and the helper's own browse often find the same instance: once. */
+	const same = draft.services.find((s) => s.type.toLowerCase() === type.toLowerCase() && s.instance.toLowerCase() === instance.instance.toLowerCase());
+	if (same) {
+		if (!same.txt.length) same.txt = instance.txt;
+		return;
+	}
+	draft.services.push({
+		type,
+		instance: instance.instance,
+		...instance.port !== null ? { port: instance.port } : {},
+		...name !== void 0 ? { name } : {},
+		txt: instance.txt
+	});
+}
+/** An IPv4 address a device may be listed at: a local one, as offerableAddress() writes it. */
+function lanAddress(address) {
+	const offered = offerableAddress(address);
+	return offered && /^\d{1,3}(?:\.\d{1,3}){3}$/.test(offered) ? offered : null;
+}
+/**
+ * The addresses mDNS ties `instance` to (§4.9). Its IPv4 addresses on the local network, those
+ * on the networks looked at when it has some. A host name that resolves to more than one of
+ * them, or `Android.local` (adbd's and Android TV's name on many devices at once), ties nothing
+ * by itself: only the helper's own browse, which heard the answer come from the device
+ * (`from`), still ties those.
+ */
+function tiedAddresses(instance, plan, shared) {
+	const local = instance.addresses.map(lanAddress).filter((a) => a !== null).filter((a, i, all) => all.indexOf(a) === i);
+	const onOurs = local.filter((a) => onLan(a, plan.ranges));
+	const addresses = onOurs.length ? onOurs : local;
+	const from = instance.from === void 0 ? null : lanAddress(instance.from);
+	/** An answer that brought only IPv6 addresses still came from the device's IPv4 one. */
+	if (from) return addresses.length ? addresses : [from];
+	if (!instance.target || shared(instance.target)) return [];
+	return addresses.length === 1 ? addresses : [];
+}
+/** The fields a page may get from one draft, every text cleaned, scrubbed and capped. */
+function finish(draft) {
+	const text = (value, max = LIMITS.field) => scrub(clean(value, 4 * max), draft.hidden).slice(0, max).trim();
+	const hostnames = draft.hostnames.filter((h) => !carriesId(h, draft.hidden)).slice(0, KEEP.hostnames);
+	const names = [];
+	for (const name of draft.names) {
+		const cleaned = text(name.text);
+		if (!cleaned || names.some((n) => n.text.toLowerCase() === cleaned.toLowerCase())) continue;
+		names.push({
+			text: cleaned,
+			source: name.source
+		});
+		if (names.length >= KEEP.names) break;
+	}
+	const services = [];
+	for (const s of draft.services) {
+		const name = s.name === void 0 ? "" : text(s.name);
+		const txt = {};
+		let keys = 0;
+		for (const entry of s.txt) {
+			const eq = entry.indexOf("=");
+			const key = eq < 0 ? void 0 : TXT_KEYS.get(entry.slice(0, eq).toLowerCase());
+			if (!key || key in txt || keys >= KEEP.txt) continue;
+			const value = text(entry.slice(eq + 1));
+			if (!value) continue;
+			txt[key] = value;
+			keys++;
+		}
+		services.push({
+			type: s.type,
+			...s.port !== void 0 ? { port: s.port } : {},
+			...name ? { name } : {},
+			...keys ? { txt } : {}
+		});
+		if (services.length >= KEEP.services) break;
+	}
+	let upnp;
+	if (draft.upnp) {
+		const u = draft.upnp;
+		const fields = {};
+		const pairs = [
+			["deviceType", u.deviceType ?? u.types.find((t) => /:device:/i.test(t)) ?? u.types[0]],
+			["friendlyName", u.friendlyName],
+			["manufacturer", u.manufacturer],
+			["modelName", u.modelName],
+			["modelNumber", u.modelNumber],
+			["server", u.server]
+		];
+		for (const [key, value] of pairs) {
+			const cleaned = value === void 0 ? "" : text(value);
+			if (cleaned) fields[key] = cleaned;
+		}
+		if (Object.keys(fields).length) upnp = fields;
+	}
+	const mac = draft.macs[0];
+	const facts = mac ? macFacts(mac) : null;
+	return {
+		address: draft.address,
+		self: draft.self,
+		gateway: draft.gateway,
+		hostnames,
+		names,
+		services,
+		...upnp ? { upnp } : {},
+		...facts?.maker ? { maker: facts.maker } : {},
+		...facts ? { privateAddress: facts.privateAddress } : {},
+		found: SOURCES.filter((source) => draft.found.has(source))
+	};
+}
+/** 192.168.68.2 before 192.168.68.10: addresses as numbers. */
+function addressOrder(a, b) {
+	const n = (address) => address.split(".").reduce((sum, part) => sum * 256 + Number(part), 0);
+	return n(a) - n(b);
+}
+/**
+ * Every source's finds, merged by IPv4 address (§4.9). A device exists where any source puts
+ * one: this computer's own addresses, the gateway, an address that answered the presence
+ * check, a complete neighbour entry, an mDNS service tied to an address, an SSDP answer. A
+ * reverse name only names one that exists. The gateway comes first, then by address; at most
+ * LIMITS.lanDevices. `unnamed`: what is there on the networks looked at with no `.local` name
+ * yet, at most 64, for the reverse names.
+ */
+function mergeLan(read) {
+	const { plan } = read;
+	const drafts = createDrafts();
+	for (const address of plan.own.keys()) {
+		const draft = drafts.at(address);
+		draft.self = true;
+		draft.found.add("self");
+	}
+	if (read.gateway && onLan(read.gateway, plan.ranges)) {
+		const draft = drafts.at(read.gateway);
+		draft.gateway = true;
+		draft.found.add("gateway");
+	}
+	for (const address of read.presence?.present ?? []) if (lanAddress(address)) drafts.at(address).found.add("reply");
+	for (const entry of read.neighbours.entries) {
+		if (!onLan(entry.address, plan.ranges) || plan.own.has(entry.address)) continue;
+		if (!lanAddress(entry.address)) continue;
+		const draft = drafts.at(entry.address);
+		draft.found.add("neighbors");
+		readMac(draft, entry.mac);
+	}
+	/** Host names that tie nothing (§4.9): Android.local, and a name with several addresses. */
+	const byHost = new Map();
+	for (const instance of [...read.system.instances, ...read.own.instances]) {
+		if (!instance.target) continue;
+		const key = instance.target.toLowerCase().replace(/\.$/, "");
+		const set = byHost.get(key) ?? new Set();
+		for (const a of instance.addresses) {
+			const local = lanAddress(a);
+			if (local && onLan(local, plan.ranges)) set.add(local);
+		}
+		byHost.set(key, set);
+	}
+	const shared = (host) => {
+		const key = host.toLowerCase().replace(/\.$/, "");
+		return key === "android.local" || (byHost.get(key)?.size ?? 0) > 1;
+	};
+	for (const instance of [...read.system.instances, ...read.own.instances]) for (const address of tiedAddresses(instance, plan, shared)) {
+		const draft = drafts.at(address);
+		draft.found.add("mdns");
+		if (instance.target) addHostname(draft, instance.target);
+		addService(draft, instance);
+	}
+	for (const [address, device] of read.ssdp.devices) {
+		if (!lanAddress(address)) continue;
+		const draft = drafts.at(address);
+		draft.found.add("ssdp");
+		const description = read.descriptions.get(address) ?? {};
+		draft.upnp = {
+			...description,
+			server: device.server,
+			types: device.types
+		};
+		if (description.friendlyName) draft.names.push({
+			text: description.friendlyName,
+			source: "ssdp"
+		});
+	}
+	for (const [address, host] of read.reverse) {
+		const draft = drafts.get(address);
+		/** A name that carries its hardware address (`ESP_AABBCC.local`) names nothing here. */
+		if (!draft || carriesId(host, draft.hidden)) continue;
+		draft.found.add("reverse");
+		addHostname(draft, host);
+	}
+	const all = drafts.all().sort((a, b) => Number(b.gateway) - Number(a.gateway) || addressOrder(a.address, b.address));
+	const unnamed = all.filter((d) => !d.hostnames.length && onLan(d.address, plan.ranges)).map((d) => d.address).slice(0, MAX_REVERSE);
+	return {
+		devices: all.slice(0, LIMITS.lanDevices).map(finish),
+		truncated: all.length > LIMITS.lanDevices,
+		unnamed
+	};
+}
+/** The page's wording, for a page with none of its own. */
+const LAN_MESSAGE = {
+	blocked: `Could not look for devices on this network. ${NETWORK_HINT.blocked}`,
+	"no-network": "Could not look for devices: this computer is not on a network. Turn on Wi-Fi, or plug in a network cable.",
+	failed: "Could not look for devices on this network."
+};
+const LAN_NOTE = "Listed through this computer's own resolver: the helper's own packets could not reach the network, so only devices that announce themselves are here.";
+const NO_SYSTEM = {
+	tool: null,
+	looked: false,
+	instances: []
+};
+/**
+ * The helper's own mDNS (§4.9): the types the network lists (half of `windowMs`), then every
+ * one of them and of LAN_STATIC_TYPES in one browse() (`windowMs`, 256 instances).
+ */
+async function ownBrowse(open, windowMs, signal) {
+	const listed = await browseServiceTypes({
+		open,
+		windowMs: Math.floor(windowMs / 2),
+		signal
+	});
+	if (listed.failure) return {
+		instances: [],
+		failure: listed.failure
+	};
+	if (signal.aborted) return { instances: [] };
+	const types = new Map();
+	for (const type of [...LAN_STATIC_TYPES, ...listed.types]) types.set(type.toLowerCase(), type);
+	return browse({
+		services: [...types.values()].map((type) => `${type}.local`),
+		open,
+		windowMs,
+		signal,
+		max: LIMITS.lanDevices
+	});
+}
+/** Up to 16 UPnP descriptions, 4 at a time, each only where descriptionTarget() allows it. */
+async function describe(ssdp, o) {
+	const out = new Map();
+	const jobs = [];
+	for (const [address, device] of ssdp.devices) {
+		const target = device.location ? descriptionTarget(device.location, address) : null;
+		if (target && jobs.length < DESCRIPTIONS.max) jobs.push([address, target]);
+	}
+	const slot = createLimiter(DESCRIPTIONS.slots);
+	await Promise.all(jobs.map(([address, target]) => slot(async () => {
+		if (o.signal.aborted) return;
+		try {
+			const xml = await o.lanDescription(target, {
+				timeoutMs: o.timeoutMs,
+				maxBytes: MAX_DESCRIPTION,
+				signal: o.signal
+			});
+			out.set(address, parseDescription(xml));
+		} catch {}
+	})));
+	return out;
+}
+/** `lanInterfaces()`, or none when it throws. */
+function interfacesOf(options) {
+	try {
+		return options.lanInterfaces();
+	} catch {
+		return [];
+	}
+}
+/**
+ * One look at this computer's network (§4.9): BridgeOptions.lanScan's default. Every source
+ * starts at once, except the neighbour table (after the presence check, which fills it), the
+ * UPnP descriptions (after SSDP) and the reverse names (after the presence check, the table,
+ * mDNS and SSDP, for what is there but unnamed). The look is cut at `lanScan`: sockets closed,
+ * tools killed, and what arrived is the answer. Never rejects: a source that fails says so in
+ * `sources`, `error` or `note`.
+ */
+async function scanLan(ctx) {
+	const { options: o, timeouts } = ctx;
+	const scannedAt = ctx.now();
+	const plan = lanNetworks(interfacesOf(o));
+	if (!plan.networks.length) return {
+		devices: [],
+		networks: [],
+		sources: {
+			presence: "off",
+			neighbors: "none",
+			resolver: "none",
+			ssdp: "ok"
+		},
+		scannedAt,
+		durationMs: Math.max(0, ctx.now() - scannedAt),
+		error: {
+			reason: "no-network",
+			message: LAN_MESSAGE["no-network"],
+			detail: "no network interface has a private IPv4 address"
+		}
+	};
+	const look = linkSignals([ctx.signal], timeouts.lanScan);
+	try {
+		const signal = look.signal;
+		const tables = {
+			platform: o.platform,
+			arpPath: o.arpPath,
+			procNetArpPath: o.procNetArpPath,
+			procNetRoutePath: o.procNetRoutePath,
+			routePath: o.routePath,
+			runTool: ctx.runTool,
+			signal
+		};
+		const presence = o.platform === "win32" || !plan.targets.length ? Promise.resolve(null) : checkPresence(plan.targets, {
+			open: o.lanPresence,
+			port: 9,
+			windowMs: timeouts.lanPresence,
+			pool: LIMITS.lanSockets,
+			signal
+		}).catch(() => null);
+		const neighbours = presence.then(() => readNeighbours(tables));
+		const gateway = readGateway(tables);
+		const system = systemBrowseAll({
+			services: LAN_STATIC_TYPES,
+			tools: systemMdnsTools(o),
+			streamTool: ctx.streamTool,
+			browseMs: timeouts.systemBrowse,
+			resolveMs: timeouts.systemResolve,
+			signal
+		}).catch(() => NO_SYSTEM);
+		const own = ownBrowse(o.mdns, timeouts.mdnsWindow, signal).catch((error) => ({
+			instances: [],
+			failure: {
+				reason: "failed",
+				code: "",
+				detail: clean(errorText(error), 200)
+			}
+		}));
+		const ssdp = searchSsdp({
+			open: o.lanSsdp,
+			interfaces: [...plan.own.keys()],
+			targets: LAN_SSDP_TARGETS,
+			windowMs: timeouts.lanSsdp,
+			signal
+		}).catch(() => ({ devices: new Map() }));
+		const descriptions = ssdp.then((found) => describe(found, {
+			lanDescription: o.lanDescription,
+			timeoutMs: timeouts.lanDescription,
+			signal
+		}));
+		const [p, n, g, s, m, ss] = await Promise.all([
+			presence,
+			neighbours,
+			gateway,
+			system,
+			own,
+			ssdp
+		]);
+		const sources = {
+			plan,
+			presence: p,
+			neighbours: n,
+			gateway: g,
+			system: s,
+			own: m,
+			ssdp: ss
+		};
+		const reverse = await reverseNames({
+			addresses: mergeLan({
+				...sources,
+				descriptions: new Map(),
+				reverse: new Map()
+			}).unnamed,
+			tools: reverseTools(o),
+			streamTool: ctx.streamTool,
+			open: o.mdns,
+			timeoutMs: timeouts.lanReverse,
+			signal
+		}).catch(() => new Map());
+		const read = {
+			...sources,
+			descriptions: await descriptions,
+			reverse
+		};
+		const merged = mergeLan(read);
+		return {
+			devices: merged.devices,
+			networks: plan.networks,
+			sources: sourcesOf(read, o.platform),
+			scannedAt,
+			durationMs: Math.max(0, ctx.now() - scannedAt),
+			...merged.truncated ? { truncated: true } : {},
+			...problemOf(read)
+		};
+	} finally {
+		look.dispose();
+	}
+}
+function sourcesOf(read, platform) {
+	const { presence } = read;
+	return {
+		presence: platform === "win32" || !presence || !read.plan.targets.length ? "off" : presence.sent === 0 && presence.failure ? "blocked" : "ok",
+		neighbors: read.neighbours.state,
+		resolver: !read.system.looked ? "none" : read.system.tool === "avahi-browse" ? "avahi" : "dns-sd",
+		ssdp: read.ssdp.failure ? "blocked" : "ok"
+	};
+}
+/**
+ * `error` only when nothing could look (§4.9): not one of the helper's own packets left (the
+ * presence check, its mDNS question, its M-SEARCH) and the system's resolver did not look
+ * either. When the resolver looked, `note` instead, with the same reason and detail: what it
+ * found is listed, and what announces nothing is missing.
+ */
+function problemOf(read) {
+	if ((read.presence?.sent ?? 0) > 0 || !read.own.failure || !read.ssdp.failure) return {};
+	const failure = read.presence?.failure ?? read.own.failure;
+	const said = {
+		reason: failure.reason,
+		detail: failure.detail
+	};
+	if (read.system.looked) return { note: {
+		...said,
+		message: LAN_NOTE
+	} };
+	return { error: {
+		...said,
+		message: LAN_MESSAGE[failure.reason],
+		detail: read.system.detail ? `${said.detail}; ${read.system.detail}` : said.detail
+	} };
+}
+/** `192.168.68.0/24`: a network as people write it. */
+function networkName(network) {
+	const n = network.address.split(".").map(Number).reduce((sum, part) => sum * 256 + part, 0);
+	const base = n - n % 2 ** (32 - network.prefix);
+	return `${[
+		base >>> 24,
+		base >>> 16 & 255,
+		base >>> 8 & 255,
+		base & 255
+	].join(".")}/${String(network.prefix)}`;
+}
+/** `Network: 11 devices on 192.168.68.0/24 (en0)`: counts and networks, never a name. */
+function lanSummary(result) {
+	const networks = result.networks.map((n) => `${networkName(n)} (${n.interface}${n.scanned < n.size ? `, ${String(n.scanned)} of ${String(n.size)} addresses checked` : ""})`);
+	const count = `${plural(result.devices.length, "device")}${result.truncated ? " or more" : ""}`;
+	return clean(`Network: ${count}${networks.length ? ` on ${networks.join(", ")}` : ""}`, 300);
+}
+/**
+ * The terminal's lines for a look (§4.9), printed only when they differ from the last ones:
+ * the summary, after a note's quiet line; or why it could not look, `blocked` with its causes
+ * and fixes (the macOS one only on a Mac), and the summary only when something was found.
+ */
+function lanLines(result, platform) {
+	const head = "Network: could not look for devices";
+	if (result.error) {
+		const { reason, detail } = result.error;
+		const lines = reason === "blocked" ? blockedLines(head, /EPERM|EACCES/.test(detail) ? "not permitted" : "no route to host", platform) : reason === "no-network" ? [`${head}: this computer is not on a network`] : [clean(`${head}: ${detail}`, 300)];
+		return result.devices.length ? [...lines, lanSummary(result)] : lines;
+	}
+	if (result.note) {
+		const tool = result.sources.resolver === "none" ? "the system resolver" : result.sources.resolver;
+		return [clean(`Network: listed through ${tool} only; the helper's own packets could not leave (${result.note.detail})`, 300), lanSummary(result)];
+	}
+	return [lanSummary(result)];
+}
+const FOUND_WORDS = {
+	reply: "reply",
+	neighbors: "neighbour table",
+	mdns: "mDNS",
+	ssdp: "SSDP",
+	reverse: "reverse name",
+	gateway: "gateway",
+	self: "this computer"
+};
+/**
+ * --doctor's Network section (§1.9, T18): the terminal's lines, what could look, then one line
+ * per device with its address, how it was found and the service types it announces. Never a
+ * name, a host name, a model or a hardware address: this output is pasted into PRs.
+ */
+function lanDoctorLines(result, platform) {
+	const s = result.sources;
+	const sources = [
+		`presence ${s.presence === "off" && platform === "win32" ? "off (Windows)" : s.presence}`,
+		s.neighbors === "ok" ? "neighbour table ok" : s.neighbors === "hidden" ? platform === "darwin" ? "neighbour table hidden by macOS" : "neighbour table empty" : "no neighbour table",
+		s.resolver === "none" ? "no resolver" : `resolver ${s.resolver}`,
+		`SSDP ${s.ssdp}`
+	].join(" · ");
+	return [
+		...lanLines(result, platform),
+		sources,
+		...result.devices.map((d) => clean([
+			d.address,
+			`found by ${d.found.map((source) => FOUND_WORDS[source]).join(", ")}`,
+			...d.services.length ? [[...new Set(d.services.map((service) => service.type))].join(", ")] : []
+		].join(" · "), 300))
+	];
+}
+/**
+ * The bridge's LAN scanner (§4.9), built always (it needs no lane, and `--no-android` leaves
+ * it on). One look at a time, a second caller joins it; a look answers for `lanCache` (30 s,
+ * from its start), and `?refresh=1` starts a new one only `lanGap` (3 s) after the last one
+ * started. A look runs on the helper's shutdown signal, never a request's: a page that leaves
+ * stops waiting, the look goes on for whoever else waits. Nothing runs before a request, and
+ * nothing starts once the helper is stopping.
+ */
+function createLanScanner(ctx) {
+	const flights = singleFlight();
+	const scanContext = {
+		options: ctx.options,
+		timeouts: ctx.timeouts,
+		runTool: ctx.runTool,
+		streamTool: ctx.streamTool,
+		signal: ctx.signal,
+		now: ctx.now
+	};
+	let last = null;
+	let reported = "";
+	let stopped = false;
+	const scanNow = () => flights.run("lan", async () => {
+		const startedAt = ctx.now();
+		const result = await ctx.options.lanScan(scanContext);
+		if (!stopped) last = {
+			result,
+			startedAt
+		};
+		return result;
+	});
+	/** The look's lines in the terminal, when they differ from the last ones printed. */
+	const report = (result) => {
+		const lines = lanLines(result, ctx.options.platform);
+		const key = lines.join("\n");
+		if (key === reported) return;
+		reported = key;
+		for (const line of lines) ctx.log(line);
+	};
+	return {
+		async devices(refresh, signal) {
+			if (stopped || ctx.signal.aborted) throw abortError();
+			const age = last ? ctx.now() - last.startedAt : Infinity;
+			const stale = age >= ctx.timeouts.lanCache || refresh && age >= ctx.timeouts.lanGap;
+			if (flights.has("lan") || stale) {
+				await Promise.race([scanNow(), aborted(signal)]);
+				if (signal.aborted) throw abortError();
+			}
+			const result = last?.result;
+			if (!result) throw abortError();
+			report(result);
+			return result;
+		},
+		async probeForDoctor(write) {
+			const result = await ctx.options.lanScan(scanContext);
+			for (const line of lanDoctorLines(result, ctx.options.platform)) write(line);
+		},
+		stop() {
+			stopped = true;
+		}
+	};
+}
+
+//#endregion
 //#region src/bridge.ts
 /** ANDROID_ADB_SERVER_PORT when it is a valid port, as adb itself reads it; else 5037. */
 function adbPortFrom(env) {
 	const port = Number(env.ANDROID_ADB_SERVER_PORT);
 	return Number.isInteger(port) && port > 0 && port < 65536 ? port : 5037;
 }
+/** `%SystemRoot%\System32\<file>`: where Windows keeps ARP.EXE and ROUTE.EXE. */
+function system32(env, file) {
+	return path.win32.join(env.SystemRoot ?? env.SYSTEMROOT ?? "C:\\Windows", "System32", file);
+}
 /** §1.6: every option filled. Tests replace the paths and ports so no real tool leaks in. */
 function resolveOptions(input = {}) {
 	const env = input.env ?? process.env;
+	const platform = input.platform ?? process.platform;
 	return {
 		port: input.port ?? 8787,
 		token: input.token,
@@ -9839,7 +11982,7 @@ function resolveOptions(input = {}) {
 		home: input.home ?? os.homedir(),
 		searchPath: input.searchPath ?? env.PATH ?? "",
 		extraDirs: input.extraDirs,
-		platform: input.platform ?? process.platform,
+		platform,
 		arch: input.arch ?? process.arch,
 		nodeVersion: input.nodeVersion ?? process.versions.node,
 		opensslVersion: input.opensslVersion ?? process.versions.openssl,
@@ -9884,7 +12027,17 @@ function resolveOptions(input = {}) {
 		fetch: input.fetch ?? ((url, init) => fetch(url, init)),
 		mdns: input.mdns ?? udpTransport(),
 		dnsSdPath: input.dnsSdPath ?? "/usr/bin/dns-sd",
-		avahiBrowsePath: input.avahiBrowsePath
+		avahiBrowsePath: input.avahiBrowsePath,
+		lanInterfaces: input.lanInterfaces ?? systemInterfaces,
+		lanPresence: input.lanPresence ?? presenceTransport(),
+		lanSsdp: input.lanSsdp ?? ssdpTransport(),
+		lanDescription: input.lanDescription ?? fetchDescription,
+		arpPath: input.arpPath ?? (platform === "win32" ? system32(env, "ARP.EXE") : "/usr/sbin/arp"),
+		procNetArpPath: input.procNetArpPath ?? "/proc/net/arp",
+		procNetRoutePath: input.procNetRoutePath ?? "/proc/net/route",
+		routePath: input.routePath ?? (platform === "win32" ? system32(env, "ROUTE.EXE") : "/sbin/route"),
+		avahiResolvePath: input.avahiResolvePath,
+		lanScan: input.lanScan ?? scanLan
 	};
 }
 /** The flags a run was started with, for the doctor report; never a token. */
@@ -10035,6 +12188,16 @@ function createBridge(input = {}) {
 		now: options.now,
 		childEnv: (extra) => childEnv(extra, options.env)
 	};
+	/** Every device on this network (§4.9): the bridge's own, whichever lanes run. */
+	const lan = createLanScanner({
+		options,
+		timeouts,
+		runTool: boundRunTool,
+		streamTool: boundStreamTool,
+		signal: shutdown.signal,
+		now: options.now,
+		log: logLine
+	});
 	const lanes = {};
 	if (factories.ios) lanes.ios = factories.ios(laneContext);
 	if (factories.android) lanes.android = factories.android(laneContext);
@@ -10075,7 +12238,8 @@ function createBridge(input = {}) {
 			lanes.android ? "android.discover" : null,
 			options.local ? "local" : null,
 			lanes.simulators ? "simulators" : null,
-			options.wifi ? "wifi" : null
+			options.wifi ? "wifi" : null,
+			"lan.discover"
 		].filter((feature) => feature !== null);
 		return {
 			name: NAME,
@@ -10106,7 +12270,8 @@ function createBridge(input = {}) {
 		},
 		signal: shutdown.signal,
 		now: options.now,
-		about
+		about,
+		lan
 	};
 	let preflightPromise = null;
 	const preflight = (opts = {}) => {
@@ -10148,7 +12313,8 @@ function createBridge(input = {}) {
 		pageConnected: createPageLog(logLine),
 		log: logLine,
 		bug,
-		signal: shutdown.signal
+		signal: shutdown.signal,
+		lan
 	});
 	async function listen() {
 		if (server) throw new Error("This bridge is already listening.");
@@ -10196,6 +12362,7 @@ function createBridge(input = {}) {
 			server?.close();
 			api.endStreams("shutdown");
 			shutdown.abort();
+			lan.stop();
 			await Promise.race([Promise.allSettled(laneList().map((lane) => Promise.resolve().then(() => lane.stop()))), sleep(timeouts.killGrace)]);
 			await killAll(timeouts.killGrace, children);
 			if (server && typeof server.closeIdleConnections === "function") server.closeIdleConnections();

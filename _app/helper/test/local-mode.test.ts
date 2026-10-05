@@ -49,7 +49,7 @@ describe('GET /device/ (§2.9)', () => {
     expect(reply.headers['content-encoding']).toBeUndefined()
     expect(Number(reply.headers['content-length'])).toBe(reply.body.length)
     expect(reply.text).toContain(
-      `<script>window.DVC_BOOT={"mode":"local","apiBase":"http://127.0.0.1:${String(s.port)}","protocol":1,"version":"1.1.0"}</script>`,
+      `<script>window.DVC_BOOT={"mode":"local","apiBase":"http://127.0.0.1:${String(s.port)}","protocol":1,"version":"1.2.0"}</script>`,
     )
     expect(reply.text).not.toContain(s.token)
     expect(reply.text).not.toContain(s.bridge.tokenId)

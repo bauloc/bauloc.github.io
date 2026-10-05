@@ -86,7 +86,7 @@ function contextOf(mac: FakeMac, extra: Extra = {}) {
     now: Date.now,
     about: () => ({
       name: 'bauloc-device-bridge',
-      version: '1.1.0',
+      version: '1.2.0',
       protocol: 1,
       node: options.nodeVersion,
       openssl: options.opensslVersion,
@@ -1169,7 +1169,7 @@ describe('24. --doctor output', () => {
     const text = await doctorText(await bareMac())
     expect(text).toBe(
       [
-        'bauloc-device-bridge 1.1.0 · doctor',
+        'bauloc-device-bridge 1.2.0 · doctor',
         'Node 24.12.0 (OpenSSL 3.6.1) · darwin-arm64 · macOS 27.0.1 · --no-open',
         '',
         'This Mac',
@@ -1199,6 +1199,10 @@ describe('24. --doctor output', () => {
         '',
         'Devices',
         '  No lane can probe devices in this run.',
+        '',
+        'Network',
+        '  Network: could not look for devices: this computer is not on a network',
+        '  presence off · no neighbour table · no resolver · SSDP ok',
       ].join('\n'),
     )
   })
@@ -1258,11 +1262,12 @@ describe('24. --doctor output', () => {
       },
     })
     await bridge.doctor((line) => lines.push(line))
-    const devices = lines.slice(lines.indexOf('Devices'))
+    const devices = lines.slice(lines.indexOf('Devices'), lines.indexOf('Network'))
     expect(devices).toEqual([
       'Devices',
       '  iPhone 12 Pro: pair record yes',
       '  The simulators probe stopped early: simctl went away',
+      '',
     ])
   })
 })

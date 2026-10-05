@@ -281,9 +281,11 @@ if (!CHECK_ONLY) {
     it writes the bundle, so a hand-written 404.html would reference the *previous* build's
     hashed chunks and would not be overwritten.
 
-    It replaces the old rafgraph spa-github-pages encoder, which was actively harmful: its
-    decoder had been deleted from profile/index.html, so `/terms/no-such-slug/` bounced to
-    `/profile/` with a 200 — an app-store reviewer with a typo saw a Flutter portfolio.
+    It replaces the old rafgraph spa-github-pages encoder, whose decoder had been deleted
+    from profile/index.html, so `/terms/no-such-slug/` bounced to `/profile/` with a 200.
+    An unknown address still ends on the profile — the router sends it there
+    (src/routes/__root.tsx) — but only after Pages has answered it with a 404, so a link
+    checker still sees the broken link.
   */
   copyFileSync(distIndex, path.join(ROOT, '404.html'))
 

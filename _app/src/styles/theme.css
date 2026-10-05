@@ -168,65 +168,75 @@
 /*
   ---- (e) The profile (`/profile/`). ----
 
-  A port of the Flutter portfolio that used to be served there, so its palette is Flutter's:
-  `Colors.teal` and its Material 3 scheme from `ColorScheme.fromSeed(seedColor: Colors.teal)`.
-  The values were sampled from the running Flutter build (converted from Display P3 to sRGB),
-  not derived, so the port looks like what visitors saw.
-
-  The original was light only. Its dark mode is the one Flutter would draw for the same seed:
-  `ColorScheme.fromSeed(seedColor: Colors.teal, brightness: Brightness.dark)`, computed with
-  Material Color Utilities' tonal-spot scheme — the same computation gives back every light
-  value below exactly, which is what makes the dark ones trustworthy.
+  The one-page profile, after brittanychiang.com. Its palette began as the Flutter portfolio's
+  that used to be served there: a tint and the Material 3 scheme `ColorScheme.fromSeed` makes
+  from it, first in the original's `Colors.teal`. On 2026-10-05 the owner asked for the green
+  of the site header's command line (Tailwind's green-400, #4ade80), so the tint and the
+  colours that carry it (the primary, the tags, the light under the pointer) are that green's
+  family: green-400 itself in dark mode, where it is bright on the ground, and its deeper steps
+  in light mode, where green-400 would wash out on white. The roles the game view and the toast
+  still use are the tonal-spot scheme Material Color Utilities makes from that hue, light and
+  dark.
 
   The CV's sheet (`[data-paper]`) keeps the light values in dark mode: it is paper, and it
   prints that way.
 */
 :root,
 .dark [data-paper] {
-  /* Colors.teal: the selected-item bar, the timeline, the ticks. Bright enough on both
-     grounds (5:1 on the dark one), so it is the accent in both modes. */
-  --profile-teal: #009688;
-  /* The side panel: Colors.teal. */
-  --profile-panel: #009688;
-  /* Colors.teal[50]: the contact cards, the project cards and the call to work together. */
-  --profile-card: #e0f2f1;
-  /* The page, and the text set on it. */
+  /* The tint: the selected-item bar, the timeline, the ticks, the headings' bars. Green-600 on
+     white (3.3:1); green-400, the header's own, in dark mode. */
+  --profile-tint: #16a34a;
+  /* The page, and the text set on it: headings and names (ink), running text, the quiet
+     labels (dates, the section nav at rest), and the hairlines. */
   --profile-page: #ffffff;
-  --profile-ink: #000000;
-  /* The menu rail: Colors.black12 over the scheme's surface. */
-  --profile-rail: #d6dcda;
-  /* The scheme's roles, by their M3 names. */
-  --profile-surface: #f4fbf8;
-  --profile-on-surface: #161d1c;
-  --profile-on-surface-variant: #3f4947;
-  --profile-outline: #6f7977;
-  --profile-primary: #006a60;
-  --profile-surface-container-low: #eff5f2;
-  --profile-secondary-container: #cce8e2;
+  --profile-ink: #18181b;
+  --profile-text: #52525b;
+  --profile-muted: #6b6b74;
+  --profile-line: #d4d4d8;
+  /* A card under the pointer, a tag's ground, and the light that follows the pointer. */
+  --profile-hover: rgb(244 244 245 / 0.8);
+  --profile-tag: rgb(22 163 74 / 0.1);
+  --profile-spot: rgb(22 163 74 / 0.07);
+  --profile-on-primary: #ffffff;
+  /* The CV page's ground around its sheet: Colors.black12 over the scheme's surface. */
+  --profile-rail: #d9ddd4;
+  /* The scheme's roles, by their M3 names: SchemeTonalSpot from Colors.green (#4caf50). */
+  --profile-surface: #f7fbf1;
+  --profile-on-surface: #191d17;
+  --profile-on-surface-variant: #424940;
+  /* Green-700: the names in the text, links, focus (5:1 on white). */
+  --profile-primary: #15803d;
+  --profile-secondary-container: #dcfce7;
   /* fluttertoast's web default: toastify with this gradient. */
   --profile-toast-from: #00b09b;
   --profile-toast-to: #96c93d;
 }
 
 /*
-  The profile in dark mode. The roles are the dark scheme's own; the rest take the role that
-  stands in the same place: the page is the scheme's surface, the rail a raised container
-  (lighter than the page, as the light rail is darker), the cards and the side panel the
-  primary hue's dark containers, so the teal identity survives without a bright slab of it.
+  The profile in dark mode. The roles are the dark scheme's own, on the command line's
+  near-black ground; the CV page's rail is a raised container, lighter than the page as the
+  light rail is darker.
 */
 .dark {
-  --profile-panel: #005048;
-  --profile-card: #003731;
-  --profile-page: #0e1513;
-  --profile-ink: #dde4e1;
-  --profile-rail: #252b2a;
-  --profile-surface: #0e1513;
-  --profile-on-surface: #dde4e1;
-  --profile-on-surface-variant: #bec9c6;
-  --profile-outline: #899390;
-  --profile-primary: #82d5c8;
-  --profile-surface-container-low: #161d1c;
-  --profile-secondary-container: #334b47;
+  /* The header's green itself: the accent and the names in the text. The secondary container
+     is that green's own dark tone (HCT hue 153.8, tone 30). The ground is the command line's
+     neutral near-black. */
+  --profile-tint: #4ade80;
+  --profile-page: #09090b;
+  --profile-ink: #f4f4f5;
+  --profile-text: #a1a1aa;
+  --profile-muted: #85858e;
+  --profile-line: #3f3f46;
+  --profile-hover: rgb(39 39 42 / 0.5);
+  --profile-tag: rgb(74 222 128 / 0.1);
+  --profile-spot: rgb(74 222 128 / 0.06);
+  --profile-on-primary: #09090b;
+  --profile-rail: #272b25;
+  --profile-surface: #10140f;
+  --profile-on-surface: #e0e4db;
+  --profile-on-surface-variant: #c2c9bd;
+  --profile-primary: #4ade80;
+  --profile-secondary-container: #005227;
 }
 
 /*
@@ -408,18 +418,21 @@ html.dark:has([data-shell='console']),
   --color-skeleton: var(--skeleton, color-mix(in oklab, currentColor 10%, transparent));
   --color-skeleton-highlight: var(--skeleton-highlight, transparent);
 
-  --color-profile-teal: var(--profile-teal);
-  --color-profile-panel: var(--profile-panel);
-  --color-profile-card: var(--profile-card);
+  --color-profile-tint: var(--profile-tint);
+  --color-profile-text: var(--profile-text);
+  --color-profile-muted: var(--profile-muted);
+  --color-profile-line: var(--profile-line);
+  --color-profile-hover: var(--profile-hover);
+  --color-profile-tag: var(--profile-tag);
+  --color-profile-spot: var(--profile-spot);
+  --color-profile-on-primary: var(--profile-on-primary);
   --color-profile-page: var(--profile-page);
   --color-profile-ink: var(--profile-ink);
   --color-profile-rail: var(--profile-rail);
   --color-profile-surface: var(--profile-surface);
   --color-profile-on-surface: var(--profile-on-surface);
   --color-profile-on-surface-variant: var(--profile-on-surface-variant);
-  --color-profile-outline: var(--profile-outline);
   --color-profile-primary: var(--profile-primary);
-  --color-profile-surface-container-low: var(--profile-surface-container-low);
   --color-profile-secondary-container: var(--profile-secondary-container);
   --color-profile-toast-from: var(--profile-toast-from);
   --color-profile-toast-to: var(--profile-toast-to);
@@ -440,27 +453,17 @@ html.dark:has([data-shell='console']),
   --radius-lg: var(--radius);
   --radius-xl: 12px;
 
-  /* All three legacy files declare this identical five-font stack. One definition now. */
-  --font-sans:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, ui-sans-serif, system-ui,
-    sans-serif;
+  /*
+    The site's one face, on every page (the index included) and in whatever is portalled to
+    <body>: Geist, shadcn/ui's own, self-hosted via @fontsource so no page makes a
+    third-party request (it covers Vietnamese). <html> and <body> take it as `font-sans`;
+    `font-console` is the name the pages ask for it by.
+  */
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-console: var(--font-sans);
   --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
-  /*
-    The index's one face. The reference sets everything in PP Neue Montreal, a commercial
-    font; Inter Tight at weight 500 was the closest free match when the candidates were
-    rendered side by side (same width to within 0.5%, same colour, single-storey g).
-    Self-hosted via @fontsource, so the index makes no third-party request.
-  */
-  --font-display: 'Inter Tight Variable', 'Inter Tight', ui-sans-serif, system-ui, sans-serif;
-  /*
-    The profile's face: Flutter web renders in Roboto. Only 400 and 700 are loaded, which is
-    what the Flutter build drew with — so the weights its source asks for resolve the way
-    they did there (500 renders as 400, 600 and 900 as 700) under the browser's own
-    font-matching rules.
-  */
-  --font-profile: Roboto, ui-sans-serif, system-ui, sans-serif;
-  /* The console's face: Geist, shadcn/ui's own, self-hosted (it covers Vietnamese). */
-  --font-console: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  /* The site header's command-line row: Geist's monospace twin, self-hosted too. */
+  --font-terminal: 'Geist Mono Variable', ui-monospace, 'SF Mono', monospace;
 
   /*
     Load-bearing geometry, promoted to tokens so `theme.test.ts` can assert it.
@@ -484,8 +487,7 @@ html.dark:has([data-shell='console']),
   --shadow-card-lift: 0 8px 24px color-mix(in srgb, var(--accent) 15%, transparent);
   --color-card-sheen: color-mix(in srgb, var(--accent) 6%, transparent);
 
-  /* Material 3 elevation levels 1 and 2: an elevated button at rest and under the pointer. */
-  --shadow-profile-1: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px 1px rgb(0 0 0 / 0.15);
+  /* Material 3 elevation level 2: the CV's sheet on its grey ground (cv-page.tsx). */
   --shadow-profile-2: 0 1px 2px rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15);
   /* toastify's own shadow, which fluttertoast's web toasts wear. */
   --shadow-profile-toast: 0 3px 6px -1px rgb(0 0 0 / 0.12), 0 10px 36px -4px rgb(77 96 232 / 0.3);

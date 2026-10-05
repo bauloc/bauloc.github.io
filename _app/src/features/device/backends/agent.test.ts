@@ -80,6 +80,7 @@ function fakeConnection(opts: { phase?: HelperPhase; devices?: HelperDevice[] } 
     pairNetwork: vi.fn(() => Promise.reject(new Error('unset'))),
     disconnectNetwork: vi.fn(() => Promise.reject(new Error('unset'))),
     nearby: vi.fn(() => Promise.reject(new Error('unset'))),
+    lanDevices: vi.fn(() => Promise.reject(new Error('unset'))),
     api: {
       detail: vi.fn<HelperConnection['api']['detail']>(() => Promise.reject(new Error('unset'))),
       screenshot: vi.fn<HelperConnection['api']['screenshot']>(() =>

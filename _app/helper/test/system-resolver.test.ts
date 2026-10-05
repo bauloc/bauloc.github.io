@@ -29,11 +29,16 @@ import {
   parseDnsSdReached,
   parseDnsSdTxt,
   presentationLabels,
+  reverseName,
+  reverseNames,
+  reverseTools,
   systemBrowse,
+  systemBrowseAll,
   systemMdnsTools,
   type SystemBrowseOptions,
   type SystemBrowseResult,
 } from '../src/mdns'
+import { LAN_STATIC_TYPES } from '../src/constants'
 import type { AndroidNearbyDevice, AndroidNearbyResult, Timeouts } from '../src/types'
 import { alive, createFakeBin, type FakeBin } from './fakes/bin'
 import {
@@ -45,13 +50,25 @@ import {
   TV_REMOTE,
   browseOutput,
   fakeAvahiBrowse,
+  fakeAvahiResolve,
   fakeDnsSd,
   lookupOutput,
+  queryOutput,
   resolveOutput,
+  typesOutput,
+  zoneOutput,
   type FakeDnsSd,
 } from './fakes/dns-sd'
 import { braviaTv, errno, fakeMdnsNetwork, pixel9, silentMdns } from './fakes/mdns'
-import { freePort, isolation, onCleanup, request, tempDir, toolbox } from './harness'
+import {
+  freePort,
+  isolation,
+  listenerWarnings,
+  onCleanup,
+  request,
+  tempDir,
+  toolbox,
+} from './harness'
 
 const SERVICES = [
   '_adb._tcp.local',
@@ -295,6 +312,19 @@ describe('avahi-browse’s output', () => {
     ]) {
       expect(parseAvahiLine(junk, '_adb._tcp')).toBeNull()
     }
+  })
+
+  it('finds the type as text: `(`, `[` or `+` in it neither throws nor matches another type', () => {
+    expect(parseAvahiLine('+;eth0;IPv4;x;_a(b._tcp;local', '_a(b._tcp')).toEqual({
+      op: '+',
+      protocol: 'IPv4',
+      instance: 'x',
+      type: '_a(b._tcp',
+    })
+    expect(parseAvahiLine('+;eth0;IPv4;x;_A[B._TCP;LOCAL', '_a[b._tcp')).toMatchObject({
+      instance: 'x',
+    })
+    expect(parseAvahiLine('+;eth0;IPv4;x;_aaa._tcp;local', '_a+._tcp')).toBeNull()
   })
 
   it('TXT: escaped quotes and backslashes, \\DDD bytes, an unterminated string ends it', () => {
@@ -680,6 +710,17 @@ describe('browsing with dns-sd (macOS)', () => {
     expect(Date.now() - started).toBeLessThan(2_500)
     await allGone(b)
   })
+
+  it('no listener warning on Node 18 or 20: every process of a run listens to its deadline', async () => {
+    const b = bin()
+    const dnsSd = fakeDnsSd(b, OWNER)
+    const warnings = await listenerWarnings(async () => {
+      const result = await browseWith({ dnsSd, avahiBrowse: null })
+      expect(result.instances.map((i) => i.instance)).toContain(REAL_PIXEL.instance)
+    })
+    expect(warnings).toEqual([])
+    await allGone(b)
+  })
 })
 
 /* ------------------------------------------------------------------- avahi --- */
@@ -764,6 +805,16 @@ describe('browsing with avahi-browse (Linux)', () => {
       },
     })
     expect((await browseWith({ dnsSd: null, avahiBrowse })).instances).toEqual([])
+  })
+
+  it('no listener warning on Node 18 or 20 either', async () => {
+    const b = bin()
+    const avahiBrowse = fakeAvahiBrowse(b, { types: { '_adb-tls-connect._tcp': AVAHI_PIXEL } })
+    const warnings = await listenerWarnings(async () => {
+      const result = await browseWith({ dnsSd: null, avahiBrowse })
+      expect(result.instances.map((i) => i.instance)).toEqual([REAL_PIXEL.instance])
+    })
+    expect(warnings).toEqual([])
   })
 })
 
@@ -1211,7 +1262,7 @@ describe('GET /api/android/nearby and --doctor with dns-sd', () => {
     await allGone(iso.bin)
   })
 
-  it('--doctor names the Pixel by its own name, with its Android version', async () => {
+  it('--doctor names the Pixel by its model, never its own name, with its Android version', async () => {
     const iso = await isolation({
       adbPort: await freePort(),
       timeouts: FAST,
@@ -1227,9 +1278,320 @@ describe('GET /api/android/nearby and --doctor with dns-sd', () => {
     await bridge.lanes.android?.probeForDoctor?.((line) => lines.push(line))
     expect(lines.slice(1)).toEqual([
       'Wi-Fi: 2 Android devices on this network (1 TV, 1 with Wireless debugging)',
-      '  SONY KD-43X8050H · 192.168.68.101:5555 · Network debugging · not connected',
-      '  BAULOC Pixel 9 · 192.168.68.114:43141 · Wireless debugging · Android 17 · not connected',
+      `  ${TV_ADB.instance} · 192.168.68.101:5555 · Network debugging · not connected`,
+      '  Pixel 9 · 192.168.68.114:43141 · Wireless debugging · Android 17 · not connected',
     ])
+    /** T18: the output is pasted into PRs. */
+    expect(lines.join('\n')).not.toContain('BAULOC Pixel 9')
     await allGone(iso.bin)
+  })
+})
+
+/* -------------------------------------------- every service on the network (§4.9) --- */
+
+/** The owner's printer and iPhone as dns-sd's zone listing showed them (ids made up). */
+const PRINTER_ZONE = zoneOutput(
+  '_ipp._tcp',
+  [
+    {
+      instance: 'HP Neverstop Laser MFP 1200w (AABBCC)',
+      host: 'NPIAABBCC.local.',
+      port: 631,
+      txt: ['txtvers=1', 'ty=HP Neverstop Laser MFP 120x', 'usb_MFG=HP', 'mac=6c:02:e0:aa:bb:cc'],
+    },
+  ],
+  { twice: true },
+)
+const IPHONE_ZONE = zoneOutput('_apple-mobdev2._tcp', [
+  {
+    instance: '36:a1:b2:c3:d4:e5@fe80::34a1:b2ff:fec3:d4e5-supportsRP-26',
+    host: 'Baus-iPhone-12-Pro.local.',
+    port: 32498,
+    txt: ['identifier=00000000-0000-4000-8000-000000000002', 'authTag=AAAAAAAA'],
+  },
+])
+
+describe('every service on the network through dns-sd (§4.9)', () => {
+  const ALL: FakeDnsSd = {
+    browse: {
+      '_services._dns-sd._udp': typesOutput([
+        { type: '_airplay._tcp', if: 1 },
+        { type: '_ipp._tcp' },
+        { type: '_FC9F5ED42C8A._tcp' },
+        { type: '_ipp._tcp', if: 1 },
+      ]),
+    },
+    zone: {
+      '_ipp._tcp': PRINTER_ZONE,
+      '_apple-mobdev2._tcp': IPHONE_ZONE,
+      '_adb-tls-connect._tcp': zoneOutput('_adb-tls-connect._tcp', [
+        {
+          instance: REAL_PIXEL.instance,
+          host: REAL_PIXEL.host,
+          port: REAL_PIXEL.port,
+          txt: [
+            'given_name=BAULOC Pixel 9',
+            'serial=55090DLAQ0026D',
+            'v=2.1',
+            'api=37.1',
+            'name=Pixel 9',
+          ],
+        },
+      ]),
+    },
+    lookup: {
+      'NPIAABBCC.local.': lookupOutput('NPIAABBCC.local.', ['192.168.68.125']),
+      'Baus-iPhone-12-Pro.local.': lookupOutput('Baus-iPhone-12-Pro.local.', ['192.168.68.110']),
+      [REAL_PIXEL.host]: REAL_PIXEL.lookup,
+    },
+  }
+
+  it('lists the types, asks each one’s zone once, looks each host up once, and every process ends', async () => {
+    const b = bin()
+    const dnsSd = fakeDnsSd(b, ALL)
+    const started = Date.now()
+    const result = await systemBrowseAll({
+      services: LAN_STATIC_TYPES,
+      tools: { dnsSd, avahiBrowse: null },
+      streamTool,
+      browseMs: 600,
+      resolveMs: 1_200,
+    })
+    expect(result.tool).toBe('dns-sd')
+    expect(result.looked).toBe(true)
+    const byType = (type: string) => result.instances.filter((i) => i.service === `${type}.local`)
+    expect(byType('_ipp._tcp')).toEqual([
+      {
+        service: '_ipp._tcp.local',
+        instance: 'HP Neverstop Laser MFP 1200w (AABBCC)',
+        target: 'NPIAABBCC.local',
+        port: 631,
+        addresses: ['192.168.68.125'],
+        txt: ['txtvers=1', 'ty=HP Neverstop Laser MFP 120x', 'usb_MFG=HP', 'mac=6c:02:e0:aa:bb:cc'],
+      },
+    ])
+    expect(byType('_apple-mobdev2._tcp')[0]).toMatchObject({
+      target: 'Baus-iPhone-12-Pro.local',
+      addresses: ['192.168.68.110'],
+    })
+    expect(byType('_adb-tls-connect._tcp')[0]).toMatchObject({
+      instance: REAL_PIXEL.instance,
+      addresses: [REAL_PIXEL.address],
+    })
+    const argv = b.calls().map((c) => c.argv.join(' '))
+    expect(argv.filter((a) => a.startsWith('-B'))).toEqual(['-B _services._dns-sd._udp local.'])
+    expect(argv.filter((a) => a.startsWith('-Z')).sort()).toEqual(
+      [...LAN_STATIC_TYPES, '_airplay._tcp', '_ipp._tcp'].map((t) => `-Z ${t} local.`).sort(),
+    )
+    expect(argv.filter((a) => a.includes('FC9F5ED42C8A'))).toEqual([])
+    expect(argv.filter((a) => a.startsWith('-G')).sort()).toEqual(
+      [
+        '-G v4 Baus-iPhone-12-Pro.local.',
+        '-G v4 NPIAABBCC.local.',
+        `-G v4 ${REAL_PIXEL.host}`,
+      ].sort(),
+    )
+    /** Types that never answer hold a slot until their deadline; the run still ends by browse + 2 × resolve. */
+    expect(Date.now() - started).toBeLessThan(600 + 2 * 1_200 + 1_000)
+    await allGone(b)
+  })
+
+  it('a type or a host that could be an option never reaches dns-sd', async () => {
+    const b = bin()
+    const dnsSd = fakeDnsSd(b, {
+      browse: {
+        '_services._dns-sd._udp':
+          typesOutput([{ type: '_ipp._tcp' }]) +
+          '22:56:04.523  Add        3  14 .                    _tcp.local.          -rf\n' +
+          '22:56:04.523  Add        3  14 .                    _tcp.local.          _x;rm\n',
+      },
+      zone: {
+        '_ipp._tcp': zoneOutput('_ipp._tcp', [
+          { instance: 'Bad host', host: '-oProxyCommand.local.', port: 631, txt: [] },
+          { instance: '-rf', host: 'ok.local.', port: 631, txt: [] },
+        ]),
+      },
+    })
+    const result = await systemBrowseAll({
+      services: [],
+      tools: { dnsSd, avahiBrowse: null },
+      streamTool,
+      browseMs: 500,
+      resolveMs: 800,
+    })
+    expect(result.instances).toEqual([])
+    expect(b.calls().map((c) => c.argv.join(' '))).toEqual(
+      expect.not.arrayContaining([expect.stringMatching(/-rf|-oProxy|rm/)]),
+    )
+    await allGone(b)
+  })
+
+  it('a daemon that is not there: not looked, and why', async () => {
+    const b = bin()
+    const dnsSd = fakeDnsSd(b, {
+      otherwise: { out: '', exit: 1, stderr: 'DNSServiceBrowse failed -65563\n' },
+    })
+    const result = await systemBrowseAll({
+      services: ['_adb._tcp'],
+      tools: { dnsSd, avahiBrowse: null },
+      streamTool,
+      browseMs: 500,
+      resolveMs: 800,
+    })
+    expect(result).toEqual({
+      tool: 'dns-sd',
+      looked: false,
+      instances: [],
+      detail: 'dns-sd exited with code 1: DNSServiceBrowse failed -65563',
+    })
+    await allGone(b)
+  })
+
+  it('avahi: one browse of every type, types learnt from its own lines, IPv4 only', async () => {
+    const b = bin()
+    const avahi = fakeAvahiBrowse(b, {
+      types: {
+        '-k':
+          '+;eth0;IPv4;HP\\032Printer;_ipp._tcp;local\n' +
+          '+;eth0;IPv4;pi\\032\\091b8:27:eb:aa:bb:cc\\093;_workstation._tcp;local\n' +
+          '=;eth0;IPv6;HP\\032Printer;_ipp._tcp;local;NPIAABBCC.local;fe80::1;631;"ty=HP"\n' +
+          '=;eth0;IPv4;HP\\032Printer;_ipp._tcp;local;NPIAABBCC.local;192.168.1.30;631;"ty=HP"\n' +
+          '=;eth0;IPv4;pi\\032\\091b8:27:eb:aa:bb:cc\\093;_workstation._tcp;local;pi.local;192.168.1.31;9;""\n' +
+          '=;eth0;IPv4;ghost;_never._tcp;local;g.local;192.168.1.32;1;""\n',
+      },
+    })
+    const result = await systemBrowseAll({
+      services: [],
+      tools: { dnsSd: null, avahiBrowse: avahi },
+      streamTool,
+      browseMs: 500,
+      resolveMs: 800,
+    })
+    expect(result.tool).toBe('avahi-browse')
+    expect(result.looked).toBe(true)
+    expect(result.instances).toEqual([
+      {
+        service: '_ipp._tcp.local',
+        instance: 'HP Printer',
+        target: 'NPIAABBCC.local',
+        port: 631,
+        addresses: ['192.168.1.30'],
+        txt: ['ty=HP'],
+      },
+      {
+        service: '_workstation._tcp.local',
+        instance: 'pi [b8:27:eb:aa:bb:cc]',
+        target: 'pi.local',
+        port: 9,
+        addresses: ['192.168.1.31'],
+        txt: [''],
+      },
+    ])
+    expect(b.calls().map((c) => c.argv)).toEqual([['-a', '-r', '-p', '-t', '-k']])
+    await allGone(b)
+  })
+})
+
+describe('reverse names through the system’s resolver (§4.9)', () => {
+  it('dns-sd -fmc -q for each address, 8 at a time; a `.local` answer names it, No Such Record does not', async () => {
+    const b = bin()
+    const asked = (address: string) => `${reverseName(address)}.`
+    const dnsSd = fakeDnsSd(b, {
+      query: {
+        [asked('192.168.68.109')]: queryOutput(asked('192.168.68.109'), 'BAUs-iPhone.local.'),
+        [asked('192.168.68.114')]: queryOutput(asked('192.168.68.114'), 'Android_GWZJSA15.local.'),
+        [asked('192.168.68.200')]: queryOutput(asked('192.168.68.200'), null),
+        [asked('192.168.68.7')]: queryOutput(asked('192.168.68.7'), 'router.example.'),
+      },
+    })
+    const names = await reverseNames({
+      addresses: [
+        '192.168.68.109',
+        '192.168.68.114',
+        '192.168.68.200',
+        '192.168.68.7',
+        'not-an-address',
+      ],
+      tools: { dnsSd, avahiResolve: null },
+      streamTool,
+      open: silentMdns(),
+      timeoutMs: 1_200,
+    })
+    expect([...names].sort()).toEqual([
+      ['192.168.68.109', 'BAUs-iPhone.local'],
+      ['192.168.68.114', 'Android_GWZJSA15.local'],
+    ])
+    expect(
+      b
+        .calls()
+        .map((c) => c.argv)
+        .sort(),
+    ).toEqual(
+      ['192.168.68.109', '192.168.68.114', '192.168.68.200', '192.168.68.7']
+        .map((a) => ['-fmc', '-q', asked(a), 'PTR'])
+        .sort(),
+    )
+    await allGone(b)
+  })
+
+  it('a lookup that never answers is cut at its deadline, the whole step at twice it', async () => {
+    const b = bin()
+    const dnsSd = fakeDnsSd(b, {})
+    const started = Date.now()
+    const names = await reverseNames({
+      addresses: Array.from({ length: 20 }, (_, i) => `192.168.68.${String(i + 1)}`),
+      tools: { dnsSd, avahiResolve: null },
+      streamTool,
+      open: silentMdns(),
+      timeoutMs: 1_000,
+    })
+    expect(names.size).toBe(0)
+    expect(Date.now() - started).toBeLessThan(2 * 1_000 + 800)
+    await allGone(b)
+  })
+
+  it('avahi-resolve -a on Linux', async () => {
+    const b = bin()
+    const avahiResolve = fakeAvahiResolve(b, { '192.168.1.31': 'pi.local' })
+    const names = await reverseNames({
+      addresses: ['192.168.1.31', '192.168.1.40'],
+      tools: { dnsSd: null, avahiResolve },
+      streamTool,
+      open: silentMdns(),
+      timeoutMs: 1_500,
+    })
+    expect([...names]).toEqual([['192.168.1.31', 'pi.local']])
+    expect(
+      b
+        .calls()
+        .map((c) => c.argv)
+        .sort(),
+    ).toEqual([
+      ['-a', '192.168.1.31'],
+      ['-a', '192.168.1.40'],
+    ])
+    await allGone(b)
+  })
+
+  it('which tool: dns-sd on macOS, avahi-resolve on Linux by path or PATH, none elsewhere', () => {
+    const b = bin()
+    const dnsSd = b.simple('dns-sd')
+    const avahi = b.simple('avahi-resolve')
+    const base = { dnsSdPath: dnsSd, avahiResolvePath: undefined, searchPath: b.dir, extraDirs: [] }
+    expect(reverseTools({ ...base, platform: 'darwin' })).toEqual({ dnsSd, avahiResolve: null })
+    expect(reverseTools({ ...base, platform: 'linux' })).toEqual({
+      dnsSd: null,
+      avahiResolve: avahi,
+    })
+    expect(
+      reverseTools({ ...base, platform: 'linux', avahiResolvePath: '/nowhere/avahi-resolve' }),
+    ).toEqual({
+      dnsSd: null,
+      avahiResolve: null,
+    })
+    expect(reverseTools({ ...base, platform: 'win32' })).toEqual({
+      dnsSd: null,
+      avahiResolve: null,
+    })
   })
 })

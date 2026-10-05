@@ -20,6 +20,8 @@ import {
 import { DEFAULT_PORT, LIMITS, NAME, PROTOCOL, SITE, TIMEOUTS, VERSION } from './constants'
 import { bugText, createApi } from './http'
 import { createIosLane } from './ios-lane'
+import { createLanScanner, scanLan } from './lan'
+import { fetchDescription, presenceTransport, ssdpTransport, systemInterfaces } from './lan-net'
 import { createLocalMode } from './local-mode'
 import { udpTransport } from './mdns'
 import { collectPreflight, doctorReport, printDoctor } from './preflight'
@@ -79,9 +81,15 @@ function adbPortFrom(env: NodeJS.ProcessEnv): number {
   return Number.isInteger(port) && port > 0 && port < 65536 ? port : 5037
 }
 
+/** `%SystemRoot%\System32\<file>`: where Windows keeps ARP.EXE and ROUTE.EXE. */
+function system32(env: NodeJS.ProcessEnv, file: string): string {
+  return path.win32.join(env.SystemRoot ?? env.SYSTEMROOT ?? 'C:\\Windows', 'System32', file)
+}
+
 /** §1.6: every option filled. Tests replace the paths and ports so no real tool leaks in. */
 export function resolveOptions(input: BridgeInput = {}): BridgeOptions {
   const env = input.env ?? process.env
+  const platform = input.platform ?? process.platform
   return {
     port: input.port ?? DEFAULT_PORT,
     token: input.token,
@@ -90,7 +98,7 @@ export function resolveOptions(input: BridgeInput = {}): BridgeOptions {
     home: input.home ?? os.homedir(),
     searchPath: input.searchPath ?? env.PATH ?? '',
     extraDirs: input.extraDirs,
-    platform: input.platform ?? process.platform,
+    platform,
     arch: input.arch ?? process.arch,
     nodeVersion: input.nodeVersion ?? process.versions.node,
     opensslVersion: input.opensslVersion ?? process.versions.openssl,
@@ -136,6 +144,17 @@ export function resolveOptions(input: BridgeInput = {}): BridgeOptions {
     mdns: input.mdns ?? udpTransport(),
     dnsSdPath: input.dnsSdPath ?? '/usr/bin/dns-sd',
     avahiBrowsePath: input.avahiBrowsePath,
+    lanInterfaces: input.lanInterfaces ?? systemInterfaces,
+    lanPresence: input.lanPresence ?? presenceTransport(),
+    lanSsdp: input.lanSsdp ?? ssdpTransport(),
+    lanDescription: input.lanDescription ?? fetchDescription,
+    arpPath: input.arpPath ?? (platform === 'win32' ? system32(env, 'ARP.EXE') : '/usr/sbin/arp'),
+    procNetArpPath: input.procNetArpPath ?? '/proc/net/arp',
+    procNetRoutePath: input.procNetRoutePath ?? '/proc/net/route',
+    routePath:
+      input.routePath ?? (platform === 'win32' ? system32(env, 'ROUTE.EXE') : '/sbin/route'),
+    avahiResolvePath: input.avahiResolvePath,
+    lanScan: input.lanScan ?? scanLan,
   }
 }
 
@@ -331,6 +350,17 @@ export function createBridge(input: BridgeInput = {}): Bridge {
     childEnv: (extra) => childEnv(extra, options.env),
   }
 
+  /** Every device on this network (§4.9): the bridge's own, whichever lanes run. */
+  const lan = createLanScanner({
+    options,
+    timeouts,
+    runTool: boundRunTool,
+    streamTool: boundStreamTool,
+    signal: shutdown.signal,
+    now: options.now,
+    log: logLine,
+  })
+
   const lanes: LaneSet = {}
   if (factories.ios) lanes.ios = factories.ios(laneContext)
   if (factories.android) lanes.android = factories.android(laneContext)
@@ -376,6 +406,7 @@ export function createBridge(input: BridgeInput = {}): Bridge {
       options.local ? 'local' : null,
       lanes.simulators ? 'simulators' : null,
       options.wifi ? 'wifi' : null,
+      'lan.discover',
     ].filter((feature): feature is string => feature !== null)
     return {
       name: NAME,
@@ -410,6 +441,7 @@ export function createBridge(input: BridgeInput = {}): Bridge {
     signal: shutdown.signal,
     now: options.now,
     about,
+    lan,
   }
 
   let preflightPromise: Promise<PreflightItem[]> | null = null
@@ -462,6 +494,7 @@ export function createBridge(input: BridgeInput = {}): Bridge {
     log: logLine,
     bug,
     signal: shutdown.signal,
+    lan,
   })
 
   async function listen(): Promise<{ port: number }> {
@@ -513,6 +546,7 @@ export function createBridge(input: BridgeInput = {}): Bridge {
       server?.close()
       api.endStreams('shutdown')
       shutdown.abort()
+      lan.stop()
       await Promise.race([
         Promise.allSettled(laneList().map((lane) => Promise.resolve().then(() => lane.stop()))),
         sleep(timeouts.killGrace),

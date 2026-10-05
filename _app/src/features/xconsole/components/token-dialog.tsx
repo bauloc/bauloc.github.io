@@ -22,9 +22,10 @@ const NEW_TOKEN_URL =
   'https://github.com/settings/personal-access-tokens/new?description=XConsole%20for%20bauloc.github.io'
 
 /**
- * The GitHub token, asked for in two situations: `connect` when there is none — the console
- * can do nothing without one, so this cannot be dismissed — and `settings`, to replace it or
- * log out.
+ * The GitHub token, asked for in two situations: `connect` when there is none, and `settings`,
+ * to replace it or log out. Both close the usual ways — Cancel, Esc, the close button, a click
+ * outside — so a visitor without a token is never stuck: the console then says it isn't
+ * connected and offers this dialog again.
  */
 export function TokenDialog({
   mode,
@@ -55,18 +56,10 @@ export function TokenDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!next && !connect) onClose()
+        if (!next) onClose()
       }}
     >
-      <DialogContent
-        showCloseButton={!connect}
-        onEscapeKeyDown={(event) => {
-          if (connect) event.preventDefault()
-        }}
-        onInteractOutside={(event) => {
-          if (connect) event.preventDefault()
-        }}
-      >
+      <DialogContent>
         <form onSubmit={submit} className="grid gap-5">
           <DialogHeader>
             <div className="bg-primary/10 text-primary mb-2 grid size-10 place-items-center rounded-lg">
@@ -129,11 +122,9 @@ export function TokenDialog({
               </Button>
             )}
             <div className="flex gap-2">
-              {!connect && (
-                <Button type="button" variant="outline" onClick={onClose}>
-                  {all.cancel}
-                </Button>
-              )}
+              <Button type="button" variant="outline" onClick={onClose}>
+                {all.cancel}
+              </Button>
               <Button type="submit">{connect ? t.connect : t.save}</Button>
             </div>
           </DialogFooter>
