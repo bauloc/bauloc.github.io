@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from 'react'
 
 import type { HomeLink, SheetArt as SheetArtSpec } from '../home-links'
+import { pixelDrawing, type PixelDrawing as PixelDrawingSpec } from '../pixels'
 
 /*
   Everything here is drawn in DESIGN units on a 1200 × 720 sheet; the camera scales it.
@@ -104,39 +105,260 @@ function Monogram({ letters }: { letters: string }) {
 }
 
 /*
-  A phone on a 14 × 30 pixel grid at 20 design px a cell: the body (rows 0–23) is 280 × 480,
-  and its cable (rows 24–29) runs off the bottom edge of the sheet — a device that is plugged
-  in, which is what Device Lab is about.
+  The pixel drawings: the reference's pixel hand is the model, a flat outline on a grid of
+  20 design px cells, in the blue, with the statement's yellow where a drawing needs a second
+  colour. Each is written out cell by cell (pixels.ts reads the rows), and a part of it that
+  comes alive while its sheet is the one in front of the camera (or hovered) is a mark of its
+  own.
 */
-const PHONE_CELLS: readonly (readonly [x: number, y: number, w: number, h: number])[] = [
-  [2, 0, 10, 1], // top edge
-  [1, 1, 1, 1],
-  [12, 1, 1, 1],
-  [0, 2, 1, 20], // left edge
-  [13, 2, 1, 20], // right edge
-  [1, 22, 1, 1],
-  [12, 22, 1, 1],
-  [2, 23, 10, 1], // bottom edge
-  [5, 2, 4, 1], // earpiece
-  [5, 20, 4, 1], // home indicator
-  [5, 24, 4, 2], // plug
-  [6, 26, 2, 4], // cable
-]
+const CELL = 20
 
-function PixelPhone() {
+function Pixels({
+  drawing,
+  layers,
+  className,
+}: {
+  drawing: PixelDrawingSpec
+  /** Each mark's classes: its colour, and what it does while the sheet is in front. */
+  layers: Readonly<Record<string, string>>
+  className: string
+}) {
   return (
     <svg
       aria-hidden="true"
-      viewBox="0 0 14 30"
-      width={280}
-      height={600}
+      viewBox={`0 0 ${String(drawing.width)} ${String(drawing.height)}`}
+      width={drawing.width * CELL}
+      height={drawing.height * CELL}
       shapeRendering="crispEdges"
-      className="text-index-blue absolute top-[120px] left-1/2 -translate-x-1/2"
-      fill="currentColor"
+      className={className}
     >
-      {PHONE_CELLS.map(([x, y, w, h]) => (
-        <rect key={`${String(x)}-${String(y)}`} x={x} y={y} width={w} height={h} />
+      {Object.entries(layers).map(([mark, classes]) => (
+        <path key={mark} d={drawing.layers.get(mark)} className={classes} />
       ))}
+    </svg>
+  )
+}
+
+/*
+  A phone, 280 × 480, and its cable (the last six rows) running off the bottom edge of the
+  sheet: a device that is plugged in, which is what Device Lab is about. Its home screen is a
+  grid of apps. In front of the camera the screen (`s`) lights up yellow, and the apps, the
+  earpiece and the home indicator (`o`) go dark on it.
+*/
+const PHONE = pixelDrawing([
+  '..##########..',
+  '.#ssssssssss#.',
+  '#ssssoooossss#',
+  '#ssssssssssss#',
+  '#ssssssssssss#',
+  '#ssoosoosooss#',
+  '#ssoosoosooss#',
+  '#ssssssssssss#',
+  '#ssoosoosooss#',
+  '#ssoosoosooss#',
+  '#ssssssssssss#',
+  '#ssoosoosooss#',
+  '#ssoosoosooss#',
+  '#ssssssssssss#',
+  '#ssoosoosooss#',
+  '#ssoosoosooss#',
+  '#ssssssssssss#',
+  '#ssssssssssss#',
+  '#ssssssssssss#',
+  '#ssssssssssss#',
+  '#ssssoooossss#',
+  '#ssssssssssss#',
+  '.#ssssssssss#.',
+  '..##########..',
+  '.....####.....',
+  '.....####.....',
+  '......##......',
+  '......##......',
+  '......##......',
+  '......##......',
+])
+
+function PixelPhone() {
+  return (
+    <Pixels
+      drawing={PHONE}
+      layers={{
+        s: 'fill-transparent transition-[fill] duration-500 group-hover:fill-index-yellow group-data-[active=true]:fill-index-yellow',
+        '#': 'fill-index-blue',
+        o: 'fill-index-blue transition-[fill] duration-500 group-hover:fill-index-on-yellow group-data-[active=true]:fill-index-on-yellow',
+      }}
+      className="absolute top-[120px] left-1/2 -translate-x-1/2"
+    />
+  )
+}
+
+/*
+  A console window, 560 × 380: a title bar with its three buttons, and a prompt whose caret
+  blinks while the sheet is in front of the camera — the site header's own caret, writ large.
+*/
+const TERMINAL = pixelDrawing([
+  '..########################..',
+  '.#........................#.',
+  '#..##.##.##................#',
+  '#..##.##.##................#',
+  '#..........................#',
+  '############################',
+  '#..........................#',
+  '#..........................#',
+  '#.......##.................#',
+  '#........##................#',
+  '#.........##...............#',
+  '#..........##..............#',
+  '#.........##...............#',
+  '#........##...._____.......#',
+  '#.......##....._____.......#',
+  '#..........................#',
+  '#..........................#',
+  '.#........................#.',
+  '..########################..',
+])
+
+function Terminal() {
+  return (
+    <Pixels
+      drawing={TERMINAL}
+      layers={{
+        '#': 'fill-index-blue',
+        _: 'fill-index-blue group-hover:animate-blink group-data-[active=true]:animate-blink',
+      }}
+      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+    />
+  )
+}
+
+/*
+  A name badge, 600 × 400: the slot for its lanyard, a portrait — a bust on yellow that warms
+  to orange in front of the camera, as the monogram's circle does — and the lines of a CV
+  beside it. The yellow goes all the way round the bust: the bust is near-black
+  in both modes, and on the dark sheet it would melt into the sheet wherever it touched it.
+*/
+const BADGE = pixelDrawing([
+  '..##########################..',
+  '.#..........................#.',
+  '#............####............#',
+  '#............................#',
+  '#............................#',
+  '#..oooooooooo................#',
+  '#..oooxxxxooo..############..#',
+  '#..ooxxxxxxoo..############..#',
+  '#..ooxxxxxxoo................#',
+  '#..ooxxxxxxoo................#',
+  '#..ooxxxxxxoo..##########....#',
+  '#..oooxxxxooo................#',
+  '#..oooooooooo..#######.......#',
+  '#..ooxxxxxxoo................#',
+  '#..oxxxxxxxxo..###########...#',
+  '#..oxxxxxxxxo................#',
+  '#..oooooooooo................#',
+  '#............................#',
+  '.#..........................#.',
+  '..##########################..',
+])
+
+function Badge() {
+  return (
+    <Pixels
+      drawing={BADGE}
+      layers={{
+        '#': 'fill-index-blue',
+        o: 'fill-index-yellow transition-[fill] duration-500 group-hover:fill-index-orange group-data-[active=true]:fill-index-orange',
+        x: 'fill-index-on-yellow',
+      }}
+      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+    />
+  )
+}
+
+/*
+  A contribution graph, GitHub's calendar of squares, seven days a column, with a word
+  written into it in a 5 × 7 type: the squares of the letters are the busy days. In front of
+  the camera the letters fill to the darkest green, a column at a time from the left.
+
+  The squares are 24 design px with 6 px between them: 39 columns, the word and two empty
+  weeks either side, run nearly edge to edge, a band as bold as the other sheets' drawings.
+*/
+const GLYPHS: Readonly<Record<string, readonly string[]>> = {
+  A: ['.###.', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
+  B: ['####.', '#...#', '#...#', '####.', '#...#', '#...#', '####.'],
+  C: ['.###.', '#...#', '#....', '#....', '#....', '#...#', '.###.'],
+  L: ['#....', '#....', '#....', '#....', '#....', '#....', '#####'],
+  O: ['.###.', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+  U: ['#...#', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+}
+const DAY = 24
+const DAY_PITCH = 30
+const MARGIN_WEEKS = 2
+/** Full class names, so Tailwind sees them: an empty day, then the four greens. */
+const DAY_FILLS = [
+  'fill-index-day',
+  'fill-index-day-1',
+  'fill-index-day-2',
+  'fill-index-day-3',
+  'fill-index-day-4',
+] as const
+
+/** A fixed scatter in [0, 1) for a square, so the graph looks lived-in and never changes. */
+function scatter(x: number, y: number): number {
+  let h = Math.imul(x + 1, 374761393) + Math.imul(y + 1, 668265263)
+  h = Math.imul(h ^ (h >>> 13), 1274126177)
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296
+}
+
+/** The graph's columns: each a week of seven days, true where a letter fills the day. */
+function weeksOf(text: string): boolean[][] {
+  const empty = () => Array.from({ length: 7 }, () => false)
+  const weeks: boolean[][] = Array.from({ length: MARGIN_WEEKS }, empty)
+  Array.from(text.toUpperCase()).forEach((letter, index) => {
+    if (index > 0) weeks.push(empty())
+    const glyph = GLYPHS[letter] ?? []
+    for (let x = 0; x < 5; x++)
+      weeks.push(Array.from({ length: 7 }, (_, y) => glyph[y]?.[x] === '#'))
+  })
+  for (let i = 0; i < MARGIN_WEEKS; i++) weeks.push(empty())
+  return weeks
+}
+
+function Contributions({ text }: { text: string }) {
+  const weeks = weeksOf(text)
+  const width = weeks.length * DAY_PITCH - (DAY_PITCH - DAY)
+  const height = 7 * DAY_PITCH - (DAY_PITCH - DAY)
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox={`0 0 ${String(width)} ${String(height)}`}
+      width={width}
+      height={height}
+      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+    >
+      {weeks.map((days, x) =>
+        days.map((busy, y) => {
+          const chance = scatter(x, y)
+          // A letter's days are busy, a few of them less so; around them, a quiet scatter
+          // of light days that never reads as part of a letter.
+          const level = busy ? (chance < 0.12 ? 3 : 4) : chance < 0.86 ? 0 : 1
+          return (
+            <rect
+              key={`${String(x)}-${String(y)}`}
+              x={x * DAY_PITCH}
+              y={y * DAY_PITCH}
+              width={DAY}
+              height={DAY}
+              rx={5}
+              className={
+                busy
+                  ? `${DAY_FILLS[level]} group-hover:fill-index-day-4 group-data-[active=true]:fill-index-day-4 transition-[fill] duration-300`
+                  : DAY_FILLS[level]
+              }
+              style={busy ? { transitionDelay: `${String(x * 20)}ms` } : undefined}
+            />
+          )
+        }),
+      )}
     </svg>
   )
 }
@@ -170,6 +392,12 @@ export function SheetArt({ link }: { link: HomeLink }) {
       return <Monogram letters={art.letters} />
     case 'pixelPhone':
       return <PixelPhone />
+    case 'terminal':
+      return <Terminal />
+    case 'badge':
+      return <Badge />
+    case 'contributions':
+      return <Contributions text={art.text} />
     case 'testCard':
       return <TestCard />
   }

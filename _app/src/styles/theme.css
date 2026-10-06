@@ -146,6 +146,16 @@
   --index-azure: #056ff7;
   /* Ink on the yellow circle — near-black in BOTH modes, because the circle stays yellow. */
   --index-on-yellow: #171717;
+  /*
+    The GitHub sheet's contribution graph, after GitHub's own: a day with nothing in it one
+    step off the sheet, then four steps of the reference's green. Every step is mixed into
+    the sheet, so in dark mode the ramp falls away toward the dark sheet, as GitHub's does.
+  */
+  --index-day: color-mix(in oklab, var(--index-ink) 7%, var(--index-sheet));
+  --index-day-1: color-mix(in oklab, var(--index-green) 28%, var(--index-sheet));
+  --index-day-2: color-mix(in oklab, var(--index-green) 52%, var(--index-sheet));
+  --index-day-3: color-mix(in oklab, var(--index-green) 76%, var(--index-sheet));
+  --index-day-4: var(--index-green);
 }
 
 /*
@@ -329,8 +339,8 @@ html.dark:has([data-shell='console']),
 /*
   ---- DARK ----
 
-  `.dark` sits on <html>, set by src/lib/theme.ts (the index has a Light / Dark switch and
-  otherwise follows the system). The values here are the old dark landing page's, kept as a
+  `.dark` sits on <html>, set by src/lib/theme.ts (the site header's toggle chooses, and
+  otherwise the system does). The values here are the old dark landing page's, kept as a
   full set so a console or Device Lab dark mode later is a flip rather than a rewrite; the
   index's own dark values are in section (d).
 */
@@ -402,6 +412,11 @@ html.dark:has([data-shell='console']),
   --color-index-red: var(--index-red);
   --color-index-azure: var(--index-azure);
   --color-index-on-yellow: var(--index-on-yellow);
+  --color-index-day: var(--index-day);
+  --color-index-day-1: var(--index-day-1);
+  --color-index-day-2: var(--index-day-2);
+  --color-index-day-3: var(--index-day-3);
+  --color-index-day-4: var(--index-day-4);
 
   /* shadcn roles only the console defines (section f). */
   --color-secondary: var(--secondary);

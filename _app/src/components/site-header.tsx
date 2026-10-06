@@ -12,6 +12,12 @@ import { ThemeToggle } from './theme-toggle'
 /** Where the site lives, for a page that is not served from the site itself. */
 export const SITE_URL = 'https://bauloc.github.io/'
 
+/**
+ * How tall the header is without a row of the page's own, in px: the command line's 40 (its
+ * `h-10`) and the 1 px edge below it. The home page's camera stage starts this far down.
+ */
+export const SITE_HEADER_HEIGHT = 41
+
 export type SiteSection = 'home' | 'profile' | 'xconsole' | 'device'
 
 /** The site's sections, in the header's order; each path is relative to the site's root. */
@@ -27,7 +33,7 @@ const SECTIONS: readonly {
 ]
 
 /**
- * The header every page under the home page shares, in two rows.
+ * The header every page shares, the home page included, in two rows.
  *
  * The first is the site's, the same on every page and in both themes: a command line, dark and
  * monospaced, so it reads as the site's own frame and not as part of the page below it. It
@@ -36,7 +42,7 @@ const SECTIONS: readonly {
  *
  * The second is the page's own, on the page's ground (`--site-header-bg`): what it is (`title`,
  * a PageTitle), what it reports (`status`, from lg up) and what it offers (`actions`). A page
- * with nothing of its own (the 404) has no second row.
+ * with nothing of its own (the home page, the profile) has no second row.
  *
  * The rows are 40 and 48 px, so what sticks below a two-row header starts at `top-22`; the
  * header's bottom edge covers the pixel left over. Every link is a full page load, as between

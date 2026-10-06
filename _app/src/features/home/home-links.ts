@@ -28,18 +28,26 @@ export type LinkGroup = (typeof LINK_GROUPS)[number]
 export type LinkStatus = 'live' | 'wip' | 'internal'
 
 /**
- * What a sheet shows. A small closed vocabulary, all of it type, flat shapes and one colour —
- * there are no illustrations to lean on, and the reference shows none are needed.
+ * What a sheet shows. A small closed vocabulary, all of it type, flat shapes and pixel
+ * drawings in the reference's few colours — no photographs or illustrations to lean on, and
+ * the reference shows none are needed. Each comes alive a little while its sheet is in front
+ * of the camera, or hovered.
  *
- *   word       — the title (or `text`), as large as fits the sheet whole. The default.
- *   monogram   — two letters with a flat circle behind the second, which warms on focus.
- *   pixelPhone — a phone outline drawn on a pixel grid.
- *   testCard   — television colour bars.
+ *   word          — the title (or `text`), as large as fits the sheet whole. The default.
+ *   monogram      — two letters with a flat circle behind the second, which warms on focus.
+ *   badge         — a name badge: a portrait on yellow that warms on focus, and a CV's lines.
+ *   terminal      — a console window whose prompt's caret blinks on focus.
+ *   pixelPhone    — a phone, plugged in, whose screen lights up on focus.
+ *   contributions — GitHub's graph of squares with `text` written in its busy days.
+ *   testCard      — television colour bars.
  */
 export type SheetArt =
   | { readonly kind: 'word'; readonly text?: string }
   | { readonly kind: 'monogram'; readonly letters: string }
+  | { readonly kind: 'badge' }
+  | { readonly kind: 'terminal' }
   | { readonly kind: 'pixelPhone' }
+  | { readonly kind: 'contributions'; readonly text: string }
   | { readonly kind: 'testCard' }
 
 /** A link as a sheet shows it: its words in the language on screen. */
@@ -76,7 +84,7 @@ const SOURCES: readonly HomeLinkSource[] = [
     },
     group: 'Site',
     status: 'live',
-    art: { kind: 'monogram', letters: 'BL' },
+    art: { kind: 'badge' },
     keywords: [
       'profile',
       'about',
@@ -101,6 +109,7 @@ const SOURCES: readonly HomeLinkSource[] = [
     },
     group: 'Tools',
     status: 'internal',
+    art: { kind: 'terminal' },
     keywords: ['terms', 'privacy', 'legal', 'github', 'admin', 'iptv sync', 'dieu khoan'],
   },
   {
@@ -135,6 +144,7 @@ const SOURCES: readonly HomeLinkSource[] = [
     },
     group: 'Site',
     status: 'live',
+    art: { kind: 'contributions', text: 'BAULOC' },
     external: true,
     keywords: ['source', 'code', 'repo', 'git', 'ma nguon'],
   },

@@ -40,9 +40,10 @@ export function rulerLayout(stops: number): { gap: number; tracker: number; widt
  * Driven imperatively: it moves on every animation frame, and re-rendering React that often
  * would cost more than the whole camera.
  *
- * On a short screen — a phone on its side — the sheet reaches up under the ruler, which then
+ * It hangs below the site header (`--site-header`), halfway down to the opening sheet. On a
+ * short screen — a phone on its side — the sheet reaches up under the ruler, which then
  * drew across the art and took taps meant for the sheet; there it sits at the bottom instead,
- * between the corner switches.
+ * clear of the layout switch in the corner.
  */
 export function Minimap({
   ticks,
@@ -95,7 +96,7 @@ export function Minimap({
     <div
       aria-hidden="true"
       onPointerDown={seek}
-      className={`short-screen:top-auto short-screen:bottom-6 short-screen:py-1 fixed top-12 left-1/2 z-10 -translate-x-1/2 cursor-pointer py-4 ${entrance ? 'motion-safe:animate-sheet-fade' : ''}`}
+      className={`short-screen:top-auto short-screen:bottom-6 short-screen:py-1 fixed top-[calc(var(--site-header,0px)_+_2rem)] left-1/2 z-10 -translate-x-1/2 cursor-pointer py-4 ${entrance ? 'motion-safe:animate-sheet-fade' : ''}`}
     >
       <span className="relative block h-[18px]" style={{ width: width + trackerWidth }}>
         <span ref={ruler} className="absolute inset-y-0 flex" style={{ left: inset, gap: gap - 1 }}>
