@@ -47,8 +47,12 @@ export function bootScript(apiBase: string): string {
   return `<script>window.DVC_BOOT=${boot.replace(/</g, '\\u003c')}</script>`
 }
 
-/** The page's CSP: scripts from this origin plus the hash of every inline script in `html`. */
-export function cspFor(html: string): string {
+/**
+ * The page's CSP: scripts from this origin plus the hash of every inline script in `html`.
+ * `apiBase` (`http://127.0.0.1:8787`) adds its WebSocket address to connect-src, for the adb
+ * tunnel (§4.10): older Safari doesn't count `ws:` as 'self'.
+ */
+export function cspFor(html: string, apiBase?: string): string {
   const hashes = [...html.matchAll(INLINE_SCRIPT)].map(
     (match) =>
       `'sha256-${createHash('sha256')
@@ -61,7 +65,7 @@ export function cspFor(html: string): string {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' blob: data:",
     "font-src 'self'",
-    "connect-src 'self'",
+    ["connect-src 'self'", ...(apiBase ? [apiBase.replace(/^http/, 'ws')] : [])].join(' '),
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",
@@ -80,7 +84,7 @@ export function bootHtml(html: string | Buffer, apiBase: string): { body: Buffer
   if (at < 0)
     throw new HelperError('UPSTREAM_STATUS', 502, 'The Device Lab page has no script to start.')
   const out = text.slice(0, at) + bootScript(apiBase) + '\n    ' + text.slice(at)
-  return { body: Buffer.from(out, 'utf8'), csp: cspFor(out) }
+  return { body: Buffer.from(out, 'utf8'), csp: cspFor(out, apiBase) }
 }
 
 interface Entry {

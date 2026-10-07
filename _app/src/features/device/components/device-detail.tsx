@@ -8,7 +8,6 @@ import {
   RotateCcw,
   TriangleAlert,
   Unplug,
-  Wifi,
 } from 'lucide-react'
 import { Component, Suspense, type ReactNode } from 'react'
 import { toast } from 'sonner'
@@ -33,10 +32,12 @@ import {
 import { COPY } from '../preflight/copy'
 import { isStaleBuildError } from '../preflight/env'
 import type { Lanes } from '../helper/protocol'
+import type { FeatureSupport } from '../helper/update'
 import type { CheckItem } from '../preflight/types'
 import type { DetailState, Shot } from '../store'
 import { InlineChecklist, type FixWiring } from './checklist'
 import { HintCard } from './hint-card'
+import { OlderHelper } from './older-helper'
 import { Screenshots } from './screenshots'
 import { PlatformBadge, StateDot } from './status'
 
@@ -196,27 +197,26 @@ export function screenshotTitle(
 }
 
 /**
- * Over Wi‑Fi, an Android device gets details, screenshots and its log through the helper; Apps,
- * Images and installs run over WebUSB, so they come later. Said plainly, so the missing tabs
+ * An Android device the helper reaches (over Wi‑Fi, or a phone the adb server holds) gets its
+ * Apps and Images tabs and installs through the helper's adb tunnel (feature `android.adb`).
+ * A helper from before it says so here, with the command that updates it, so the missing tabs
  * and Install button don't read as broken.
  */
-export function WifiNote({
+export function AdbNote({
   device,
+  support,
+  port,
 }: {
-  device: Pick<Device, 'platform' | 'connection' | 'backend'>
+  device: Pick<Device, 'platform' | 'backend' | 'state'>
+  /** featureSupport(status, 'android.adb'). */
+  support: FeatureSupport
+  /** The port this page talks to, for the update command. */
+  port: number
 }) {
-  if (
-    device.platform !== 'android' ||
-    device.connection !== 'network' ||
-    device.backend !== 'agent'
-  )
+  if (device.platform !== 'android' || device.backend !== 'agent' || device.state !== 'ready')
     return null
-  return (
-    <p className="text-muted-foreground flex items-start gap-2 rounded-xl border px-3 py-2.5 text-sm leading-relaxed">
-      <Wifi aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-      <span>{COPY.wifi.later}</span>
-    </p>
-  )
+  if (support !== 'older') return null
+  return <OlderHelper feature="android.adb" port={port} />
 }
 
 /** The detail pane's tabs. Files joins them in P2. */
@@ -388,7 +388,7 @@ export function DeviceDetailPane({
   actions?: ReactNode
   /** The jobs strip, under the header. */
   jobs?: ReactNode
-  /** A quiet note under the jobs: what this connection offers (WifiNote). */
+  /** A note under the jobs: what this connection can't offer yet (AdbNote). */
   note?: ReactNode
   /** The log console, at the end of Overview. */
   log?: ReactNode
@@ -499,7 +499,8 @@ export function DeviceDetailPane({
   return (
     <section aria-label={t.region} className="flex min-w-0 flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+        {/* At least 20rem for the name before the buttons wrap below it: a Wi‑Fi device has four. */}
+        <div className="flex min-w-[min(100%,20rem)] flex-1 items-center gap-2.5">
           <StateDot tone={meta.tone} className="size-2.5" />
           <h2 className="truncate text-xl font-semibold tracking-tight">{device.name}</h2>
           <PlatformBadge platform={device.platform} version={device.osVersion} />

@@ -52,6 +52,8 @@ const android = (ctx) => ({
   pairNetwork: () => Promise.reject(new Error('not in this test')),
   disconnectNetwork: () => Promise.reject(new Error('not in this test')),
   nearby: () => Promise.resolve({ devices: [], scannedAt: Date.now() }),
+  adbInfo: () => Promise.reject(new Error('not in this test')),
+  openTunnel: () => Promise.reject(new Error('not in this test')),
   /** @param {string} _id @param {import('../../src/types').LogSink} sink @param {AbortSignal} signal */
   async logs(_id, sink, signal) {
     const tool = ctx.streamTool(logTool, [], { signal, onLines: (lines) => void sink.push(lines) })

@@ -71,6 +71,8 @@ import {
  * The host services the client may send, besides `host:transport:<serial>`. All read-only
  * except `host:reconnect-offline`, which resets transports the server already has.
  * `host:mdns:services` is the server's own mDNS list (`adb mdns services`), read for §4.8.
+ * `host:features` is sent only after `host:transport:<serial>`, which makes it that device's
+ * feature list (§4.10).
  */
 export const ADB_HOST_SERVICES = [
   'host:version',
@@ -78,6 +80,7 @@ export const ADB_HOST_SERVICES = [
   'host:devices-l',
   'host:reconnect-offline',
   'host:mdns:services',
+  'host:features',
 ] as const
 
 /**
@@ -103,6 +106,57 @@ export function assertAdbService(service: string): void {
   if (service.startsWith(TRANSPORT) && ID.android.test(service.slice(TRANSPORT.length))) return
   if (service.startsWith(EXEC) && ADB_EXEC.includes(service.slice(EXEC.length))) return
   throw new HelperError('INTERNAL', 500, `Refusing to send "${service}" to the adb server.`)
+}
+
+/* ------------------------------------------------------- the adb tunnel (§4.10) --- */
+
+/**
+ * The device services the page's adb tunnel may open, by prefix: exactly what Device Lab's
+ * Android operations use over WebUSB (installs, apps, images), so they run unchanged over
+ * the adb server. `shell,v2,raw:` and `exec:` run a command without a terminal, `abb_exec:`
+ * is the package manager's binder shell (Android 10+), and `sync:` reads files and lists
+ * folders. Each command is the page's, as over WebUSB: the tunnel exists to carry them.
+ *
+ * Nothing else passes, so a tunnel never reaches a socket: no `reverse:` (the device would
+ * reach this Mac's loopback), no `tcp:` or `local*:` (a socket on the device), no `jdwp:`, no
+ * terminal (`shell:`, `shell,v2,pty`), and no service that restarts adbd or the device
+ * (`root:`, `remount:`, `reboot:`, `tcpip:`, `usb:`). Host services never reach a tunnel at
+ * all: the helper sends `host:transport:` itself, with the serial of a listed device.
+ */
+export const ADB_TUNNEL_SERVICES = ['shell,v2,raw:', 'exec:', 'abb_exec:', 'sync:'] as const
+
+/** Refused by assertTunnelService, each asserted by a test. */
+export const ADB_TUNNEL_NEVER = [
+  'shell:',
+  'shell,v2,pty:',
+  'shell,v2:',
+  'abb:',
+  'reverse:forward:tcp:8787;tcp:8787',
+  'tcp:5037',
+  'localabstract:chrome_devtools_remote',
+  'localfilesystem:/dev/socket/adbd',
+  'jdwp:1234',
+  'track-jdwp',
+  'framebuffer:',
+  'root:',
+  'unroot:',
+  'remount:',
+  'reboot:',
+  'tcpip:5555',
+  'usb:',
+  'host:kill',
+  'host:transport:emulator-5554',
+] as const
+
+/** Throws BAD_REQUEST unless `service` may open through the tunnel. */
+export function assertTunnelService(service: string): void {
+  if (service.length <= LIMITS.tunnelService) {
+    if (service === 'sync:') return
+    for (const prefix of ADB_TUNNEL_SERVICES) {
+      if (prefix !== 'sync:' && service.startsWith(prefix) && service.length > prefix.length) return
+    }
+  }
+  throw new HelperError('BAD_REQUEST', 400, 'The helper doesn’t open that adb service.')
 }
 
 /* ---------------------------------------------------------------- wire and errors --- */
@@ -667,6 +721,13 @@ export interface AdbClient {
    */
   readonly execStream: (serial: string, cmd: string, signal: AbortSignal) => Promise<Socket>
   readonly reconnectOffline: (signal?: AbortSignal) => Promise<void>
+  /**
+   * The adb tunnel (§4.10): `host:transport:<serial>`, then `service` (assertTunnelService),
+   * then the socket itself, paused, for the tunnel to pipe. The abort signal destroys it.
+   */
+  readonly tunnel: (serial: string, service: string, signal: AbortSignal) => Promise<Socket>
+  /** `host:transport:<serial>` then `host:features`: what the device's adbd supports. */
+  readonly features: (serial: string, signal?: AbortSignal) => Promise<string[]>
   /** `host:mdns:services`: the server's own mDNS list, as text (§4.8). */
   readonly mdnsServices: (signal?: AbortSignal) => Promise<string>
   /**
@@ -937,6 +998,56 @@ export function createAdbClient(opts: AdbClientOptions): AdbClient {
         async (socket, reader) => {
           send(socket, 'host:reconnect-offline')
           await readStatus(reader)
+        },
+        { signal, timeoutMs: timeouts.adbRequest },
+      )
+    },
+
+    tunnel(serial, service, signal) {
+      try {
+        assertAdbService(TRANSPORT + serial)
+        assertTunnelService(service)
+      } catch (error) {
+        return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+      }
+      return exchange(
+        async (socket, reader, keep) => {
+          send(socket, TRANSPORT + serial)
+          await readStatus(reader)
+          /** Checked by assertTunnelService above, not by send()'s host allowlist. */
+          socket.write(encodeAdbRequest(service))
+          await readStatus(reader)
+          const rest = reader.detach()
+          if (rest.length) socket.unshift(rest)
+          /** Until the tunnel listens, an error must not become an uncaught exception. */
+          socket.on('error', () => undefined)
+          keep()
+          if (signal.aborted) socket.destroy()
+          else signal.addEventListener('abort', () => socket.destroy(), { once: true })
+          return socket
+        },
+        { signal, timeoutMs: timeouts.adbRequest },
+      )
+    },
+
+    features(serial, signal) {
+      try {
+        assertAdbService(TRANSPORT + serial)
+      } catch (error) {
+        return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+      }
+      return exchange(
+        async (socket, reader) => {
+          send(socket, TRANSPORT + serial)
+          await readStatus(reader)
+          send(socket, 'host:features')
+          await readStatus(reader)
+          const text = (await reader.read(await readLength(reader))).toString('utf8')
+          return text
+            .split(',')
+            .map((f) => clean(f.trim(), LIMITS.field))
+            .filter(Boolean)
+            .slice(0, LIMITS.adbFeatures)
         },
         { signal, timeoutMs: timeouts.adbRequest },
       )
@@ -2304,6 +2415,17 @@ export function createAndroidLane(ctx: LaneContext, options: AndroidLaneOptions 
             : 'The phone stopped answering.',
         )
       }
+    },
+
+    async adbInfo(id, signal) {
+      entryOf(id)
+      const features = await client.features(id, signal).catch(noticeServer)
+      return { serial: id, features }
+    },
+
+    async openTunnel(id, service, signal) {
+      entryOf(id)
+      return client.tunnel(id, service, signal).catch(noticeServer)
     },
 
     async retry(id, signal) {

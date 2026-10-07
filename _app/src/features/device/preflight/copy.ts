@@ -433,12 +433,14 @@ const OLDER_CAN = localized<Readonly<Record<GatedFeature, string>>>({
     'android.connect': 'connect to devices over Wi‑Fi',
     'android.start-server': 'start Google’s adb server',
     'lan.discover': 'list every device on this network',
+    'android.adb': 'list apps, show images or install apps on this device',
   },
   vi: {
     'android.discover': 'tìm thiết bị trên mạng này',
     'android.connect': 'kết nối với thiết bị qua Wi‑Fi',
     'android.start-server': 'khởi động adb server của Google',
     'lan.discover': 'liệt kê mọi thiết bị trên mạng này',
+    'android.adb': 'liệt kê ứng dụng, xem ảnh hay cài ứng dụng trên thiết bị này',
   },
 })
 
@@ -758,7 +760,8 @@ export const COPY = localized({
       authUnchecked: 'Checked once the device answers.',
       authWaiting: (name: string) =>
         `${name} is waiting for you to choose Allow on “Allow debugging?”.`,
-      authOk: (name: string) => `${name} allows this computer. Detail, screenshots and logs work.`,
+      authOk: (name: string) =>
+        `${name} allows this computer. Details, screenshots, logs, apps, images and installs all work.`,
       offline: (name: string) => `${name} stopped answering over Wi‑Fi.`,
       offlineStep: 'Wake the device, check it is still on the same Wi‑Fi, then connect again.',
       allowStep:
@@ -776,11 +779,6 @@ export const COPY = localized({
       portEmpty: 'Enter the port the Wireless debugging screen shows.',
       codeEmpty: 'Enter the six-digit code the device shows.',
       codeInvalid: 'The pairing code is six digits.',
-      laterInstall:
-        'Installing over Wi‑Fi comes in a later version. For now, connect the device with a USB cable in Chrome or Edge.',
-      /** The detail pane, for a Wi‑Fi device: what isn't offered over Wi‑Fi yet. */
-      later:
-        'Over Wi‑Fi: details, screenshots and the log. Apps, Images and installing come in a later version; for them now, connect a USB cable in Chrome or Edge.',
     },
     /**
      * "On this network": the Android devices the helper heard advertising debugging over mDNS.
@@ -1143,7 +1141,7 @@ export const COPY = localized({
       authWaiting: (name: string) =>
         `${name} đang chờ bạn chọn Cho phép trong hộp thoại “Cho phép gỡ lỗi?”.`,
       authOk: (name: string) =>
-        `${name} đã cho phép máy tính này. Thông tin chi tiết, ảnh chụp màn hình và log đều dùng được.`,
+        `${name} đã cho phép máy tính này. Thông tin chi tiết, ảnh chụp màn hình, log, ứng dụng, ảnh và cài đặt đều dùng được.`,
       offline: (name: string) => `${name} không còn phản hồi qua Wi‑Fi.`,
       offlineStep:
         'Đánh thức thiết bị, kiểm tra thiết bị vẫn dùng cùng mạng Wi‑Fi, rồi kết nối lại.',
@@ -1161,10 +1159,6 @@ export const COPY = localized({
       portEmpty: 'Hãy nhập cổng hiển thị trên màn hình Gỡ lỗi qua Wi‑Fi.',
       codeEmpty: 'Hãy nhập mã gồm sáu chữ số hiển thị trên thiết bị.',
       codeInvalid: 'Mã ghép nối gồm sáu chữ số.',
-      laterInstall:
-        'Cài ứng dụng qua Wi‑Fi sẽ có ở phiên bản sau. Hiện tại, hãy kết nối thiết bị bằng cáp USB trong Chrome hoặc Edge.',
-      later:
-        'Qua Wi‑Fi: thông tin chi tiết, ảnh chụp màn hình và log. Ứng dụng, Ảnh và việc cài đặt sẽ có ở phiên bản sau; hiện tại, để dùng các tính năng này, hãy kết nối bằng cáp USB trong Chrome hoặc Edge.',
     },
     nearby: {
       helperOff:

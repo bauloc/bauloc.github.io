@@ -49,7 +49,7 @@ describe('GET /device/ (§2.9)', () => {
     expect(reply.headers['content-encoding']).toBeUndefined()
     expect(Number(reply.headers['content-length'])).toBe(reply.body.length)
     expect(reply.text).toContain(
-      `<script>window.DVC_BOOT={"mode":"local","apiBase":"http://127.0.0.1:${String(s.port)}","protocol":1,"version":"1.2.0"}</script>`,
+      `<script>window.DVC_BOOT={"mode":"local","apiBase":"http://127.0.0.1:${String(s.port)}","protocol":1,"version":"1.3.0"}</script>`,
     )
     expect(reply.text).not.toContain(s.token)
     expect(reply.text).not.toContain(s.bridge.tokenId)
@@ -57,11 +57,16 @@ describe('GET /device/ (§2.9)', () => {
     for (const m of reply.text.matchAll(INLINE)) expect(csp).toContain(hashOf(m[1] ?? ''))
     expect(csp).toContain("frame-ancestors 'none'")
     expect(csp).toContain("connect-src 'self'")
+    /** The adb tunnel's WebSocket (§4.10), which older Safari doesn't count as 'self'. */
+    expect(csp).toContain(`connect-src 'self' ws://127.0.0.1:${String(s.port)};`)
   })
   it('builds apiBase from the allowlisted Host, so localhost stays same-origin', async () => {
     const { s } = await local()
     const reply = await request(s.port, { path: '/device/', host: `localhost:${String(s.port)}` })
     expect(reply.text).toContain(`"apiBase":"http://localhost:${String(s.port)}"`)
+    expect(String(reply.headers['content-security-policy'])).toContain(
+      `ws://localhost:${String(s.port)}`,
+    )
   })
   it('answers HEAD with the headers only', async () => {
     const { s } = await local()

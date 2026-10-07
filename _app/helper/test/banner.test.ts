@@ -30,7 +30,7 @@ function lanes(patch: Partial<{ [K in keyof Lanes]: Partial<Lanes[K]> }> = {}): 
 
 function input(patch: Partial<BannerInput> = {}): BannerInput {
   return {
-    version: '1.2.0',
+    version: '1.3.0',
     port: 8787,
     token: T,
     tokenId: '4d1566a1',
@@ -50,7 +50,7 @@ function input(patch: Partial<BannerInput> = {}): BannerInput {
 describe('the banner (§1.10)', () => {
   it('is exactly the spec’s text in the common case', () => {
     expect(bannerText(input()))
-      .toBe(`Device Lab helper 1.2.0 · http://127.0.0.1:8787 (this Mac only)
+      .toBe(`Device Lab helper 1.3.0 · http://127.0.0.1:8787 (this Mac only)
 
 Opening Device Lab in your browser. If nothing opens, use the link for your browser:
   Chrome, Edge, Firefox   https://bauloc.github.io/device/#pair=${T}

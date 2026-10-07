@@ -3,7 +3,7 @@ import type { Timeouts } from './types'
 /** What answers on 127.0.0.1: the page checks `health.name` before it trusts anything else. */
 export const NAME = 'bauloc-device-bridge'
 /** Semver of this file. The page shows it and compares it with the published file. */
-export const VERSION = '1.2.0'
+export const VERSION = '1.3.0'
 /**
  * The wire protocol's integer major. Within a major only additions are allowed (fields,
  * codes, endpoints, `features`); the page accepts DVC_MIN_AGENT ≤ PROTOCOL ≤ DVC_MAX_AGENT.
@@ -72,6 +72,20 @@ export const LIMITS = {
   lanTargets: 512,
   /** Presence sockets open at once (§4.9): a /24 in one go, far below Node's file limit. */
   lanSockets: 256,
+  /**
+   * adb tunnels open at once (§4.10), in all and per device. The page reads at most three
+   * previews and two app icons at a time, beside a listing and an install; these leave room
+   * for two tabs, and for the HTTP requests that share `maxConnections`.
+   */
+  tunnels: 32,
+  tunnelsPerDevice: 16,
+  /** One frame from the page: it sends at most 256 KiB at a time. */
+  tunnelFrame: 4 * MiB,
+  /** The tunnel's opening message, and the service it names (a command line). */
+  tunnelHello: 64 * KiB,
+  tunnelService: 32 * KiB,
+  /** Features one `host:features` answer may list. */
+  adbFeatures: 64,
 } as const
 
 /** §1.12 timeouts in milliseconds. Tests pass shorter ones through createBridge(). */
@@ -100,6 +114,7 @@ export const TIMEOUTS: Timeouts = {
   adbExec: 10_000,
   adbScreencap: 20_000,
   adbStartPoll: 8_000,
+  tunnelHello: 10_000,
   adbNetworkConnect: 20_000,
   adbPair: 15_000,
   mdnsWindow: 2_000,

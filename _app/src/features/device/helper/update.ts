@@ -6,7 +6,7 @@ import type { Health, HelperFeature } from './protocol'
   Is the running helper behind this page? Two questions, both pure:
 
   - featureSupport: the page is about to use a feature (android.discover, android.connect,
-    android.start-server, lan.discover) and the helper doesn't list it. A helper downloaded
+    android.start-server, android.adb, lan.discover) and the helper doesn't list it. A helper downloaded
     before the feature shipped keeps running for weeks, so the place that would use the
     feature says "Your helper is older than this page" with the command that updates it,
     instead of hiding. Every Android feature is also missing when the helper runs with
@@ -23,7 +23,7 @@ import type { Health, HelperFeature } from './protocol'
 /** The features the page gates something on, which an older helper may lack. */
 export type GatedFeature = Extract<
   HelperFeature,
-  'android.discover' | 'android.connect' | 'android.start-server' | 'lan.discover'
+  'android.discover' | 'android.connect' | 'android.start-server' | 'android.adb' | 'lan.discover'
 >
 
 /** The features --no-android leaves out. */
@@ -31,6 +31,7 @@ const ANDROID_FEATURES: ReadonlySet<GatedFeature> = new Set([
   'android.discover',
   'android.connect',
   'android.start-server',
+  'android.adb',
 ])
 
 export type FeatureSupport =

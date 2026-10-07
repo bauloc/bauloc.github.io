@@ -19,6 +19,10 @@ What it does
   - Android: shares Google's adb server when one is running. It starts one only when you
     click "Start adb server" on the page, and never stops it. It looks for Android TVs and
     phones on the Wi-Fi with read-only mDNS questions, and never connects one by itself.
+  - Android, when the page asks: carries the page's own adb commands to a device the adb
+    server lists (installs, the Apps and Images tabs), one WebSocket per command, so a TV on
+    the Wi-Fi gets what a phone on a cable gets in Chrome. Only the kinds of command those
+    need get through: never a port forward, a reverse tunnel, or a restart of adbd.
   - On this network: when you open the list or press Refresh, it lists every device on this
     computer's own network so you can pick one to work with. It only reads what devices
     announce about themselves (mDNS, SSDP), the names this computer already knows, the
@@ -31,7 +35,8 @@ What it does
 What it never does
   - Listen on anything but 127.0.0.1, or send telemetry.
   - Run sudo, pair or unpair a device, show a Trust prompt itself, change a device
-    setting, mount or download a developer disk image, install apps, or kill adb.
+    setting, mount or download a developer disk image, install an app by itself, or kill
+    adb.
   - Return the pair record, IMEI, phone numbers, MAC addresses (for a network device: only
     whether its address is private, and its maker's 3-byte prefix) or any key not on its
     allowlists.
@@ -49,6 +54,8 @@ Every request meets these checks, in this order
   6. A device id must have a strict shape AND be in the live device list. Tools run as
      spawn(file, argv), never through a shell, with timeouts, output caps and their whole
      process group killed when the page stops waiting.
+  7. The one WebSocket, the adb tunnel, needs an allowed Origin and the token too (sent as
+     a subprotocol); every other upgrade is refused.
 
 The source is TypeScript in _app/helper/src, bundled into this file by rolldown; each
 "//#region" below is one of those modules. A "§" in the comments is a section of the design,

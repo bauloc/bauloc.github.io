@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Device Lab helper 1.2.0 (bauloc-device-bridge)
+ * Device Lab helper 1.3.0 (bauloc-device-bridge)
  *
  * Device Lab (https://bauloc.github.io/device/) shows identifiers, screenshots and logs for
  * the phones plugged into this Mac. Android works straight from Chrome over WebUSB. macOS
@@ -21,6 +21,10 @@
  *   - Android: shares Google's adb server when one is running. It starts one only when you
  *     click "Start adb server" on the page, and never stops it. It looks for Android TVs and
  *     phones on the Wi-Fi with read-only mDNS questions, and never connects one by itself.
+ *   - Android, when the page asks: carries the page's own adb commands to a device the adb
+ *     server lists (installs, the Apps and Images tabs), one WebSocket per command, so a TV on
+ *     the Wi-Fi gets what a phone on a cable gets in Chrome. Only the kinds of command those
+ *     need get through: never a port forward, a reverse tunnel, or a restart of adbd.
  *   - On this network: when you open the list or press Refresh, it lists every device on this
  *     computer's own network so you can pick one to work with. It only reads what devices
  *     announce about themselves (mDNS, SSDP), the names this computer already knows, the
@@ -33,7 +37,8 @@
  * What it never does
  *   - Listen on anything but 127.0.0.1, or send telemetry.
  *   - Run sudo, pair or unpair a device, show a Trust prompt itself, change a device
- *     setting, mount or download a developer disk image, install apps, or kill adb.
+ *     setting, mount or download a developer disk image, install an app by itself, or kill
+ *     adb.
  *   - Return the pair record, IMEI, phone numbers, MAC addresses (for a network device: only
  *     whether its address is private, and its maker's 3-byte prefix) or any key not on its
  *     allowlists.
@@ -51,6 +56,8 @@
  *   6. A device id must have a strict shape AND be in the live device list. Tools run as
  *      spawn(file, argv), never through a shell, with timeouts, output caps and their whole
  *      process group killed when the page stops waiting.
+ *   7. The one WebSocket, the adb tunnel, needs an allowed Origin and the token too (sent as
+ *      a subprotocol); every other upgrade is refused.
  *
  * The source is TypeScript in _app/helper/src, bundled into this file by rolldown; each
  * "//#region" below is one of those modules. A "§" in the comments is a section of the design,
@@ -61,29 +68,31 @@
  *   This file          https://github.com/bauloc/bauloc.github.io/blob/master/device/agent/device-bridge.mjs
  *
  * Contents (line numbers in this file)
- *     103  Node version guard                   src/guard.ts
- *     125  §1 Constants, limits and allowlists  src/constants.ts
- *     372  §1 Command line                      src/cli.ts
- *     502  §2 Utilities                         src/util.ts
- *     756  §3 Property lists                    src/plist.ts
- *     880  §4a Running tools                    src/process.ts
- *    1199  §4b Finding tools                    src/tools.ts
- *    1873  §5 usbmuxd client                    src/usbmuxd.ts
- *    2218  §6 Lockdown client                   src/lockdown.ts
- *    2526  §7 iOS lane                          src/ios-lane.ts
- *    4221  §8 Simulator lane                    src/simulator-lane.ts
- *    4637  §9 mDNS browser                      src/mdns.ts
- *    6376  §9 Android lane                      src/android-lane.ts
- *    8349  §10 Device registry                  src/registry.ts
- *    8640  §11 Token, proof and pairing         src/auth.ts
- *    8814  §12 Doctor and preflight             src/preflight.ts
- *    9527  §13 HTTP API                         src/http.ts
- *   10239  §14 Local mode                       src/local-mode.ts
- *   10502  §15 LAN sources                      src/lan-net.ts
- *   11220  §16 Every device on this network     src/lan.ts
- *   11963  §17 Bridge lifecycle                 src/bridge.ts
- *   12415  §17 Banner                           src/banner.ts
- *   12497  §17 Startup, signals and exports     src/main.ts
+ *     112  Node version guard                   src/guard.ts
+ *     134  §1 Constants, limits and allowlists  src/constants.ts
+ *     396  §1 Command line                      src/cli.ts
+ *     526  §2 Utilities                         src/util.ts
+ *     780  §3 Property lists                    src/plist.ts
+ *     904  §4a Running tools                    src/process.ts
+ *    1223  §4b Finding tools                    src/tools.ts
+ *    1897  §5 usbmuxd client                    src/usbmuxd.ts
+ *    2242  §6 Lockdown client                   src/lockdown.ts
+ *    2550  §7 iOS lane                          src/ios-lane.ts
+ *    4245  §8 Simulator lane                    src/simulator-lane.ts
+ *    4661  §9 mDNS browser                      src/mdns.ts
+ *    6400  §9 Android lane                      src/android-lane.ts
+ *    8457  §10 Device registry                  src/registry.ts
+ *    8748  §11 Token, proof and pairing         src/auth.ts
+ *    8922  §12 Doctor and preflight             src/preflight.ts
+ *    9635  §13a WebSocket frames                src/websocket.ts
+ *    9799  §13b adb tunnel                      src/adb-tunnel.ts
+ *    9970  §13 HTTP API                         src/http.ts
+ *   10803  §14 Local mode                       src/local-mode.ts
+ *   11070  §15 LAN sources                      src/lan-net.ts
+ *   11788  §16 Every device on this network     src/lan.ts
+ *   12531  §17 Bridge lifecycle                 src/bridge.ts
+ *   12987  §17 Banner                           src/banner.ts
+ *   13069  §17 Startup, signals and exports     src/main.ts
  */
 import path from "node:path";
 import { setMaxListeners } from "node:events";
@@ -92,12 +101,12 @@ import { spawn } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeSync } from "node:fs";
 import os from "node:os";
 import { lstat, mkdtemp, open, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
-import net from "node:net";
+import net, { Socket } from "node:net";
 import { X509Certificate, constants as constants$1, createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import tls from "node:tls";
 import dgram from "node:dgram";
 import dns from "node:dns/promises";
-import http from "node:http";
+import http, { STATUS_CODES } from "node:http";
 import { fileURLToPath } from "node:url";
 
 //#region src/guard.ts
@@ -126,7 +135,7 @@ if (tooOld) {
 /** What answers on 127.0.0.1: the page checks `health.name` before it trusts anything else. */
 const NAME = "bauloc-device-bridge";
 /** Semver of this file. The page shows it and compares it with the published file. */
-const VERSION = "1.2.0";
+const VERSION = "1.3.0";
 /**
  * The wire protocol's integer major. Within a major only additions are allowed (fields,
  * codes, endpoints, `features`); the page accepts DVC_MIN_AGENT ≤ PROTOCOL ≤ DVC_MAX_AGENT.
@@ -188,7 +197,21 @@ const LIMITS = {
 	/** Addresses one presence check covers: two /24 networks (§4.9). */
 	lanTargets: 512,
 	/** Presence sockets open at once (§4.9): a /24 in one go, far below Node's file limit. */
-	lanSockets: 256
+	lanSockets: 256,
+	/**
+	 * adb tunnels open at once (§4.10), in all and per device. The page reads at most three
+	 * previews and two app icons at a time, beside a listing and an install; these leave room
+	 * for two tabs, and for the HTTP requests that share `maxConnections`.
+	 */
+	tunnels: 32,
+	tunnelsPerDevice: 16,
+	/** One frame from the page: it sends at most 256 KiB at a time. */
+	tunnelFrame: 4 * MiB,
+	/** The tunnel's opening message, and the service it names (a command line). */
+	tunnelHello: 64 * KiB,
+	tunnelService: 32 * KiB,
+	/** Features one `host:features` answer may list. */
+	adbFeatures: 64
 };
 /** §1.12 timeouts in milliseconds. Tests pass shorter ones through createBridge(). */
 const TIMEOUTS = {
@@ -216,6 +239,7 @@ const TIMEOUTS = {
 	adbExec: 1e4,
 	adbScreencap: 2e4,
 	adbStartPoll: 8e3,
+	tunnelHello: 1e4,
 	adbNetworkConnect: 2e4,
 	adbPair: 15e3,
 	mdnsWindow: 2e3,
@@ -6403,13 +6427,16 @@ async function ownReverse(o, addresses, names, signal) {
  * The host services the client may send, besides `host:transport:<serial>`. All read-only
  * except `host:reconnect-offline`, which resets transports the server already has.
  * `host:mdns:services` is the server's own mDNS list (`adb mdns services`), read for §4.8.
+ * `host:features` is sent only after `host:transport:<serial>`, which makes it that device's
+ * feature list (§4.10).
  */
 const ADB_HOST_SERVICES = [
 	"host:version",
 	"host:track-devices-l",
 	"host:devices-l",
 	"host:reconnect-offline",
-	"host:mdns:services"
+	"host:mdns:services",
+	"host:features"
 ];
 const TRANSPORT = "host:transport:";
 const EXEC = "exec:";
@@ -6419,6 +6446,33 @@ function assertAdbService(service) {
 	if (service.startsWith(TRANSPORT) && ID.android.test(service.slice(15))) return;
 	if (service.startsWith(EXEC) && ADB_EXEC.includes(service.slice(5))) return;
 	throw new HelperError("INTERNAL", 500, `Refusing to send "${service}" to the adb server.`);
+}
+/**
+ * The device services the page's adb tunnel may open, by prefix: exactly what Device Lab's
+ * Android operations use over WebUSB (installs, apps, images), so they run unchanged over
+ * the adb server. `shell,v2,raw:` and `exec:` run a command without a terminal, `abb_exec:`
+ * is the package manager's binder shell (Android 10+), and `sync:` reads files and lists
+ * folders. Each command is the page's, as over WebUSB: the tunnel exists to carry them.
+ *
+ * Nothing else passes, so a tunnel never reaches a socket: no `reverse:` (the device would
+ * reach this Mac's loopback), no `tcp:` or `local*:` (a socket on the device), no `jdwp:`, no
+ * terminal (`shell:`, `shell,v2,pty`), and no service that restarts adbd or the device
+ * (`root:`, `remount:`, `reboot:`, `tcpip:`, `usb:`). Host services never reach a tunnel at
+ * all: the helper sends `host:transport:` itself, with the serial of a listed device.
+ */
+const ADB_TUNNEL_SERVICES = [
+	"shell,v2,raw:",
+	"exec:",
+	"abb_exec:",
+	"sync:"
+];
+/** Throws BAD_REQUEST unless `service` may open through the tunnel. */
+function assertTunnelService(service) {
+	if (service.length <= LIMITS.tunnelService) {
+		if (service === "sync:") return;
+		for (const prefix of ADB_TUNNEL_SERVICES) if (prefix !== "sync:" && service.startsWith(prefix) && service.length > prefix.length) return;
+	}
+	throw new HelperError("BAD_REQUEST", 400, "The helper doesn’t open that adb service.");
 }
 /** A request: four lowercase hex digits of length, then the ASCII payload. */
 function encodeAdbRequest(service) {
@@ -7018,6 +7072,49 @@ function createAdbClient(opts) {
 			return exchange(async (socket, reader) => {
 				send(socket, "host:reconnect-offline");
 				await readStatus(reader);
+			}, {
+				signal,
+				timeoutMs: timeouts.adbRequest
+			});
+		},
+		tunnel(serial, service, signal) {
+			try {
+				assertAdbService(TRANSPORT + serial);
+				assertTunnelService(service);
+			} catch (error) {
+				return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+			}
+			return exchange(async (socket, reader, keep) => {
+				send(socket, TRANSPORT + serial);
+				await readStatus(reader);
+				/** Checked by assertTunnelService above, not by send()'s host allowlist. */
+				socket.write(encodeAdbRequest(service));
+				await readStatus(reader);
+				const rest = reader.detach();
+				if (rest.length) socket.unshift(rest);
+				/** Until the tunnel listens, an error must not become an uncaught exception. */
+				socket.on("error", () => void 0);
+				keep();
+				if (signal.aborted) socket.destroy();
+				else signal.addEventListener("abort", () => socket.destroy(), { once: true });
+				return socket;
+			}, {
+				signal,
+				timeoutMs: timeouts.adbRequest
+			});
+		},
+		features(serial, signal) {
+			try {
+				assertAdbService(TRANSPORT + serial);
+			} catch (error) {
+				return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+			}
+			return exchange(async (socket, reader) => {
+				send(socket, TRANSPORT + serial);
+				await readStatus(reader);
+				send(socket, "host:features");
+				await readStatus(reader);
+				return (await reader.read(await readLength(reader))).toString("utf8").split(",").map((f) => clean(f.trim(), LIMITS.field)).filter(Boolean).slice(0, LIMITS.adbFeatures);
 			}, {
 				signal,
 				timeoutMs: timeouts.adbRequest
@@ -8134,6 +8231,17 @@ function createAndroidLane(ctx, options = {}) {
 			 * the page words it as one, not as a log that simply ended.
 			 */
 			if (now && now.state !== "device" && !leaving.has(id) && !signal.aborted) throw new HelperError("DEVICE_DROPPED", 503, adbConnection(id) === "network" ? "The device dropped off the network." : "The phone stopped answering.");
+		},
+		async adbInfo(id, signal) {
+			entryOf(id);
+			return {
+				serial: id,
+				features: await client.features(id, signal).catch(noticeServer)
+			};
+		},
+		async openTunnel(id, service, signal) {
+			entryOf(id);
+			return client.tunnel(id, service, signal).catch(noticeServer);
 		},
 		async retry(id, signal) {
 			const entry = entries.find((e) => e.serial === id);
@@ -9524,7 +9632,346 @@ async function printDoctor(ctx, write) {
 }
 
 //#endregion
+//#region src/websocket.ts
+/**
+ * §13a WebSocket frames (RFC 6455), the server's half, and only as much of it as the adb
+ * tunnel needs (§4.10): the opening handshake's accept key, frames written unmasked and
+ * unfragmented, and a decoder for what a browser sends (masked frames, possibly fragmented,
+ * pings and a close). No extensions: `permessage-deflate` is never negotiated, so a frame
+ * with an RSV bit set is a protocol error.
+ *
+ * Node has no WebSocket server built in, and the helper has no dependencies, hence this
+ * module. A browser cannot open TCP, and fetch() cannot stream a request body over HTTP/1.1,
+ * so a WebSocket is the one way a page gets a two-way byte stream to the helper.
+ */
+/** RFC 6455 §1.3: appended to the client's key before hashing. */
+const GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+/** A client key is 16 random bytes in base64. */
+const WS_KEY = /^[A-Za-z0-9+/]{22}==$/;
+/** `Sec-WebSocket-Accept` for a client's `Sec-WebSocket-Key`. */
+function acceptKey(key) {
+	return createHash("sha1").update(key + GUID, "latin1").digest("base64");
+}
+const OPCODE = {
+	continuation: 0,
+	text: 1,
+	binary: 2,
+	close: 8,
+	ping: 9,
+	pong: 10
+};
+/** Close codes the helper sends (RFC 6455 §7.4.1). */
+const CLOSE = {
+	normal: 1e3,
+	goingAway: 1001,
+	protocolError: 1002,
+	unsupportedData: 1003,
+	policyViolation: 1008,
+	tooBig: 1009,
+	internalError: 1011
+};
+/** One frame from server to client: never masked (§5.1), always final. */
+function encodeFrame(opcode, payload = Buffer.alloc(0)) {
+	const length = payload.length;
+	let header;
+	if (length < 126) {
+		header = Buffer.alloc(2);
+		header[1] = length;
+	} else if (length < 65536) {
+		header = Buffer.alloc(4);
+		header[1] = 126;
+		header.writeUInt16BE(length, 2);
+	} else {
+		header = Buffer.alloc(10);
+		header[1] = 127;
+		header.writeUInt32BE(Math.floor(length / 4294967296), 2);
+		header.writeUInt32BE(length >>> 0, 6);
+	}
+	header[0] = 128 | opcode;
+	return Buffer.concat([header, payload]);
+}
+/** A close frame: the code, then a reason of at most 123 bytes. */
+function encodeClose(code, reason = "") {
+	const text = Buffer.from(reason, "utf8").subarray(0, 123);
+	const payload = Buffer.alloc(2 + text.length);
+	payload.writeUInt16BE(code, 0);
+	text.copy(payload, 2);
+	return encodeFrame(OPCODE.close, payload);
+}
+/** A frame the decoder refused: the connection closes with `code`. */
+var WsProtocolError = class extends Error {
+	code;
+	constructor(code, message) {
+		super(message);
+		this.name = "WsProtocolError";
+		this.code = code;
+	}
+};
+/**
+ * Frames from a client, as they complete. `maxPayload` caps one frame (a browser sends a
+ * message as one frame, and the page sends at most 256 KiB at a time); larger ones close
+ * the connection with 1009 before their payload is buffered.
+ */
+function createFrameDecoder(maxPayload) {
+	let buffered = Buffer.alloc(0);
+	/** The opcode of a fragmented message in progress, or null. */
+	let message = null;
+	/** One frame from the front of `buffered`, or null until it has all arrived. */
+	const next = () => {
+		if (buffered.length < 2) return null;
+		const b0 = buffered[0] ?? 0;
+		const b1 = buffered[1] ?? 0;
+		const fin = (b0 & 128) !== 0;
+		if ((b0 & 112) !== 0) throw new WsProtocolError(CLOSE.protocolError, "No extension was agreed.");
+		const opcode = b0 & 15;
+		/** §5.1: every frame a client sends is masked. */
+		if ((b1 & 128) === 0) throw new WsProtocolError(CLOSE.protocolError, "Client frames are masked.");
+		let length = b1 & 127;
+		let offset = 2;
+		if (length === 126) {
+			if (buffered.length < 4) return null;
+			length = buffered.readUInt16BE(2);
+			offset = 4;
+		} else if (length === 127) {
+			if (buffered.length < 10) return null;
+			if (buffered.readUInt32BE(2) !== 0) throw new WsProtocolError(CLOSE.tooBig, "Frame too large.");
+			length = buffered.readUInt32BE(6);
+			offset = 10;
+		}
+		if (opcode >= 8 && (!fin || length > 125)) throw new WsProtocolError(CLOSE.protocolError, "A control frame is short and unfragmented.");
+		if (length > maxPayload) throw new WsProtocolError(CLOSE.tooBig, "Frame too large.");
+		if (buffered.length < offset + 4 + length) return null;
+		const mask = buffered.subarray(offset, offset + 4);
+		const payload = Buffer.from(buffered.subarray(offset + 4, offset + 4 + length));
+		for (let i = 0; i < payload.length; i++) payload[i] = (payload[i] ?? 0) ^ (mask[i & 3] ?? 0);
+		buffered = buffered.subarray(offset + 4 + length);
+		switch (opcode) {
+			case OPCODE.text:
+			case OPCODE.binary:
+				if (message !== null) throw new WsProtocolError(CLOSE.protocolError, "A new message began inside another.");
+				if (!fin) message = opcode;
+				return {
+					kind: "data",
+					opcode,
+					fin,
+					payload
+				};
+			case OPCODE.continuation: {
+				if (message === null) throw new WsProtocolError(CLOSE.protocolError, "Nothing to continue.");
+				const of = message;
+				if (fin) message = null;
+				return {
+					kind: "data",
+					opcode: of,
+					fin,
+					payload
+				};
+			}
+			case OPCODE.close: return {
+				kind: "close",
+				code: payload.length >= 2 ? payload.readUInt16BE(0) : null
+			};
+			case OPCODE.ping: return {
+				kind: "ping",
+				payload
+			};
+			case OPCODE.pong: return { kind: "pong" };
+			default: throw new WsProtocolError(CLOSE.protocolError, "Unknown opcode.");
+		}
+	};
+	return { push(chunk) {
+		buffered = buffered.length ? Buffer.concat([buffered, chunk]) : chunk;
+		const frames = [];
+		for (let frame = next(); frame; frame = next()) frames.push(frame);
+		return frames;
+	} };
+}
+/**
+ * The client's `Sec-WebSocket-Protocol` offers, in order. A browser cannot set headers on a
+ * WebSocket, so the page sends its token as one of these (`bearer.<token>`, as Kubernetes
+ * does); the helper answers with the tunnel's own protocol name only, never the token.
+ */
+function offeredProtocols(header) {
+	return (header ?? "").split(",").map((p) => p.trim()).filter(Boolean);
+}
+
+//#endregion
+//#region src/adb-tunnel.ts
+/** The opening message: `{"service": "<an adb service>"}`. */
+function parseHello(text) {
+	try {
+		const value = JSON.parse(text);
+		if (typeof value !== "object" || value === null) return null;
+		const service = value.service;
+		return typeof service === "string" && service.length > 0 ? service : null;
+	} catch {
+		return null;
+	}
+}
+/**
+ * Serves one upgraded socket. `head` is whatever arrived with the upgrade request after its
+ * headers: the start of the page's first frame, possibly.
+ */
+function serveTunnel(ws, head, o) {
+	const decoder = createFrameDecoder(LIMITS.tunnelFrame);
+	const life = linkSignals([o.signal]);
+	let phase = "hello";
+	let hello = [];
+	let helloBytes = 0;
+	let adb = null;
+	let resolveDone = () => void 0;
+	const done = new Promise((resolve) => {
+		resolveDone = resolve;
+	});
+	const send = (frame) => ws.writable ? ws.write(frame) : false;
+	const sendText = (reply) => {
+		send(encodeFrame(OPCODE.text, Buffer.from(JSON.stringify(reply), "utf8")));
+	};
+	/** Close frame, then the TCP connection; the device's socket goes with it. */
+	const close = (code, reason = "") => {
+		if (phase === "closed") return;
+		phase = "closed";
+		clearTimeout(helloTimer);
+		life.abort();
+		life.dispose();
+		if (ws.writable) {
+			ws.end(encodeClose(code, reason));
+			/** A page that never answers the close frame doesn't keep the socket. */
+			setTimeout(() => ws.destroy(), 1e3).unref();
+		} else ws.destroy();
+		adb?.destroy();
+	};
+	const helloTimer = setTimeout(() => {
+		close(CLOSE.policyViolation, "No service was named.");
+	}, o.helloMs);
+	helloTimer.unref();
+	/** Whether a side waits for the other's 'drain': one listener at a time, however many writes. */
+	let pageFull = false;
+	let deviceFull = false;
+	/** The device's bytes go to the page as binary frames, paused while the page lags. */
+	const pipeFromDevice = (device) => {
+		device.on("data", (chunk) => {
+			if (phase !== "open") return;
+			if (!send(encodeFrame(OPCODE.binary, chunk)) && !pageFull) {
+				pageFull = true;
+				device.pause();
+				ws.once("drain", () => {
+					pageFull = false;
+					if (phase === "open") device.resume();
+				});
+			}
+		});
+		/** The service ended (a command finished, a file was read): the tunnel ends with it. */
+		device.on("end", () => close(CLOSE.normal));
+		device.on("close", () => close(CLOSE.normal));
+		device.on("error", () => close(CLOSE.normal));
+		device.resume();
+	};
+	const opening = (service) => {
+		phase = "opening";
+		clearTimeout(helloTimer);
+		/** A refusal thrown before any promise exists still becomes the error message. */
+		Promise.resolve().then(() => o.open(service, life.signal)).then((device) => {
+			if (phase !== "opening") {
+				device.destroy();
+				return;
+			}
+			adb = device;
+			sendText({ t: "ok" });
+			phase = "open";
+			pipeFromDevice(device);
+		}, (error) => {
+			if (phase !== "opening") return;
+			const said = o.describe(error);
+			if (said) sendText({
+				t: "error",
+				code: said.code,
+				message: said.message
+			});
+			close(CLOSE.normal);
+		});
+	};
+	const onFrames = (chunk) => {
+		let frames;
+		try {
+			frames = decoder.push(chunk);
+		} catch (error) {
+			close(error instanceof WsProtocolError ? error.code : CLOSE.protocolError);
+			return;
+		}
+		for (const frame of frames) {
+			if (phase === "closed") return;
+			switch (frame.kind) {
+				case "ping":
+					send(encodeFrame(OPCODE.pong, frame.payload));
+					break;
+				case "pong": break;
+				case "close":
+					/** Echo the page's code, as RFC 6455 §5.5.1 asks; none means a normal close. */
+					close(frame.code !== null && frame.code >= 1e3 && frame.code < 5e3 ? frame.code : 1e3);
+					return;
+				case "data": if (phase === "hello") {
+					if (frame.opcode !== OPCODE.text) {
+						close(CLOSE.unsupportedData, "Name the service first.");
+						return;
+					}
+					helloBytes += frame.payload.length;
+					if (helloBytes > LIMITS.tunnelHello) {
+						close(CLOSE.tooBig);
+						return;
+					}
+					hello.push(frame.payload);
+					if (!frame.fin) break;
+					const service = parseHello(Buffer.concat(hello).toString("utf8"));
+					hello = [];
+					if (service === null) {
+						close(CLOSE.unsupportedData, "Name the service first.");
+						return;
+					}
+					opening(service);
+				} else if (phase === "opening" || frame.opcode !== OPCODE.binary) {
+					/** The page waits for "ok" before it writes, and writes bytes only. */
+					close(CLOSE.protocolError);
+					return;
+				} else if (adb && frame.payload.length > 0 && !adb.write(frame.payload) && !deviceFull) {
+					deviceFull = true;
+					ws.pause();
+					adb.once("drain", () => {
+						deviceFull = false;
+						if (phase === "open") ws.resume();
+					});
+				}
+			}
+		}
+	};
+	ws.on("data", onFrames);
+	ws.on("error", () => void 0);
+	/** The HTTP server's sockets are half-open: a page that went away only ends its side. */
+	ws.on("end", () => close(CLOSE.normal));
+	ws.on("close", () => {
+		if (phase !== "closed") {
+			phase = "closed";
+			clearTimeout(helloTimer);
+			life.abort();
+			life.dispose();
+			adb?.destroy();
+		}
+		resolveDone();
+	});
+	if (head.length) onFrames(head);
+	if (o.signal.aborted) close(CLOSE.goingAway);
+	return {
+		close,
+		done
+	};
+}
+
+//#endregion
 //#region src/http.ts
+/** The adb tunnel's WebSocket subprotocol (§4.10); the helper answers with this one only. */
+const TUNNEL_PROTOCOL = "device-bridge.adb.v1";
+/** The page's token, offered as a second subprotocol: `bearer.<token>`. */
+const BEARER_PROTOCOL = "bearer.";
 /** ECIDs and other identifiers can exceed 2^53; a stray BigInt must never crash a reply. */
 function bigintReplacer(_key, value) {
 	return typeof value === "bigint" ? value.toString() : value;
@@ -9645,13 +10092,16 @@ const ROUTES = {
 	"/api/android/nearby": "GET",
 	"/api/lan/devices": "GET"
 };
-const DEVICE_ROUTE = /^\/api\/devices\/([^/]*)\/(detail|screenshot|retry|logs)$/;
+const DEVICE_ROUTE = /^\/api\/devices\/([^/]*)\/(detail|screenshot|retry|logs|adb)$/;
 const DEVICE_ACTIONS = {
 	detail: "GET",
 	screenshot: "POST",
 	retry: "POST",
-	logs: "GET"
+	logs: "GET",
+	adb: "GET"
 };
+/** The adb tunnel's WebSocket (§4.10): the same path as its GET, upgraded. */
+const TUNNEL_ROUTE = /^\/api\/devices\/([^/]*)\/adb$/;
 /** A log stream that ends before hello answers with an ordinary JSON error (§2.5). */
 const OPENING_ERRORS = {
 	"device-gone": () => new HelperError("DEVICE_NOT_FOUND", 404, "The device is no longer connected."),
@@ -9671,6 +10121,9 @@ function createApi(deps) {
 	const { options, registry, lanes } = deps;
 	const shots = new Set();
 	const streams = new Map();
+	const tunnels = new Set();
+	/** Open adb tunnels per device id (§4.10). */
+	const tunnelsOf = new Map();
 	let hostsFor = -1;
 	let hosts = new Set();
 	let origins = new Set();
@@ -9831,10 +10284,16 @@ function createApi(deps) {
 		if (method !== DEVICE_ACTIONS[action]) return methodNotAllowed(res, DEVICE_ACTIONS[action], headers);
 		const { id, lane, row } = resolveDevice(match[1] ?? "");
 		if (action === "retry") return retry(res, headers, id, lane);
-		if (row.state !== "ready") throw new HelperError("DEVICE_NOT_READY", 409, "The device is not ready yet.", {
-			state: row.state,
-			blockers: row.blockers
-		});
+		assertReady(row);
+		if (action === "adb") {
+			const android = tunnelLane(id);
+			const op = operation(res);
+			try {
+				return sendJson(res, 200, await android.adbInfo(id, op.signal), headers);
+			} finally {
+				op.dispose();
+			}
+		}
 		if (action === "detail") {
 			const op = operation(res);
 			try {
@@ -9845,6 +10304,108 @@ function createApi(deps) {
 		}
 		if (action === "screenshot") return screenshot(res, headers, id, lane);
 		return openLogStream(res, headers, id, lane);
+	}
+	function assertReady(row) {
+		if (row.state !== "ready") throw new HelperError("DEVICE_NOT_READY", 409, "The device is not ready yet.", {
+			state: row.state,
+			blockers: row.blockers
+		});
+	}
+	/** §4.10: only the Android lane's devices have an adb tunnel. */
+	function tunnelLane(id) {
+		if (registry.owner(id) !== "android") throw new HelperError("BAD_REQUEST", 400, "Only an Android device has an adb tunnel.");
+		return androidLane();
+	}
+	/**
+	 * §4.10, the adb tunnel's WebSocket. The gate of §2.1, stricter where a WebSocket differs:
+	 * CORS never applies to one, so an allowed Origin is required (a browser always sends it),
+	 * and the token comes as a subprotocol, `bearer.<token>`, since a page can't set headers on
+	 * a WebSocket. Refusals until then are bare HTTP replies, which a page can't read. Once the
+	 * token is right the WebSocket opens, and a tunnel that can't open says why in its first
+	 * message, which the page can read.
+	 */
+	function upgrade(req, socket, head) {
+		socket.on("error", () => void 0);
+		const started = Date.now();
+		const { pathname } = splitTarget(req.url ?? "/");
+		const refuse = (status, code, message, extra = {}) => {
+			const body = toJson(errorBody(code, message));
+			const lines = [
+				`HTTP/1.1 ${String(status)} ${STATUS_CODES[status] ?? "Error"}`,
+				"Connection: close",
+				"Content-Type: application/json; charset=utf-8",
+				`Content-Length: ${String(Buffer.byteLength(body))}`,
+				...Object.entries({
+					...BARE,
+					...extra
+				}).map(([name, value]) => `${name}: ${value}`)
+			];
+			socket.end(`${lines.join("\r\n")}\r\n\r\n${body}`);
+			if (options.verbose) deps.log(`WS ${pathname} ${String(status)}`);
+		};
+		const { hosts, origins } = allowlists();
+		const host = (req.headers.host ?? "").toLowerCase();
+		if (!hosts.has(host)) return refuse(421, "BAD_HOST", "This helper answers only to 127.0.0.1 and localhost.");
+		const origin = req.headers.origin;
+		if (origin === void 0 || !origins.has(origin)) return refuse(403, "BAD_ORIGIN", "This page may not use the helper.");
+		const match = TUNNEL_ROUTE.exec(pathname);
+		if (!match || req.method !== "GET") return refuse(404, "NOT_FOUND", "No such endpoint.");
+		const key = req.headers["sec-websocket-key"];
+		if ((req.headers.upgrade ?? "").toLowerCase() !== "websocket" || typeof key !== "string" || !WS_KEY.test(key)) return refuse(400, "BAD_REQUEST", "Not a WebSocket handshake.");
+		if (req.headers["sec-websocket-version"] !== "13") return refuse(426, "BAD_REQUEST", "WebSocket version 13 only.", { "Sec-WebSocket-Version": "13" });
+		const offered = offeredProtocols(req.headers["sec-websocket-protocol"]);
+		const bearer = offered.find((p) => p.startsWith(BEARER_PROTOCOL));
+		if (!offered.includes("device-bridge.adb.v1") || !deps.bearer(bearer ? `Bearer ${bearer.slice(7)}` : void 0)) return refuse(401, "UNAUTHORIZED", "Missing or wrong token. Open the link the helper printed.", { "WWW-Authenticate": "Bearer realm=\"device-bridge\"" });
+		registry.touch();
+		deps.pageConnected(origin, host, req.headers["user-agent"]);
+		socket.write([
+			"HTTP/1.1 101 Switching Protocols",
+			"Upgrade: websocket",
+			"Connection: Upgrade",
+			`Sec-WebSocket-Accept: ${acceptKey(key)}`,
+			`Sec-WebSocket-Protocol: ${TUNNEL_PROTOCOL}`,
+			"",
+			""
+		].join("\r\n"));
+		if (socket instanceof Socket) socket.setNoDelay(true);
+		let counted = null;
+		const tunnel = serveTunnel(socket, head, {
+			open: (service, signal) => {
+				const { id, row } = resolveDevice(match[1] ?? "");
+				const android = tunnelLane(id);
+				assertReady(row);
+				/** Refused here with a clear answer; the adb client checks it again before sending. */
+				assertTunnelService(service);
+				const mine = tunnelsOf.get(id) ?? 0;
+				if (tunnels.size > LIMITS.tunnels || mine >= LIMITS.tunnelsPerDevice) throw new HelperError("TUNNEL_LIMIT", 429, "Too many operations are open on the helper at once. Try again in a moment.");
+				counted = id;
+				tunnelsOf.set(id, mine + 1);
+				return android.openTunnel(id, service, signal);
+			},
+			describe(error) {
+				const described = describeError(error);
+				if (!described) return null;
+				if (described.status >= 500 && described.body.error.code === "INTERNAL") deps.bug(error);
+				return {
+					code: described.body.error.code,
+					message: described.body.error.message
+				};
+			},
+			helloMs: options.timeouts.tunnelHello,
+			signal: deps.signal,
+			bug: deps.bug
+		});
+		tunnels.add(tunnel);
+		tunnel.done.then(() => {
+			tunnels.delete(tunnel);
+			if (counted !== null) {
+				const left = (tunnelsOf.get(counted) ?? 1) - 1;
+				if (left > 0) tunnelsOf.set(counted, left);
+				else tunnelsOf.delete(counted);
+			}
+			/** The path only: never the service, which is a command line. */
+			if (options.verbose) deps.log(`WS ${pathname} ${String(Date.now() - started)} ms`);
+		});
 	}
 	/** §2.2 `:id`: decoded, shape-checked, and listed right now; its lane comes from the registry. */
 	function resolveDevice(raw) {
@@ -10224,10 +10785,13 @@ function createApi(deps) {
 	}
 	return {
 		handle,
+		upgrade,
 		endStreams(reason) {
 			for (const stream of [...streams.values()]) stream.end(reason);
+			for (const tunnel of [...tunnels]) tunnel.close(CLOSE.goingAway, "The helper is stopping.");
 		},
-		openStreams: () => streams.size
+		openStreams: () => streams.size,
+		openTunnels: () => tunnels.size
 	};
 }
 /** For INTERNAL errors: the stack on stderr, never in a reply. */
@@ -10282,15 +10846,19 @@ function bootScript(apiBase) {
 		version: VERSION
 	}).replace(/</g, "\\u003c")}<\/script>`;
 }
-/** The page's CSP: scripts from this origin plus the hash of every inline script in `html`. */
-function cspFor(html) {
+/**
+ * The page's CSP: scripts from this origin plus the hash of every inline script in `html`.
+ * `apiBase` (`http://127.0.0.1:8787`) adds its WebSocket address to connect-src, for the adb
+ * tunnel (§4.10): older Safari doesn't count `ws:` as 'self'.
+ */
+function cspFor(html, apiBase) {
 	return [
 		"default-src 'self'",
 		["script-src 'self'", ...[...html.matchAll(INLINE_SCRIPT)].map((match) => `'sha256-${createHash("sha256").update(match[1] ?? "", "utf8").digest("base64")}'`)].join(" "),
 		"style-src 'self' 'unsafe-inline'",
 		"img-src 'self' blob: data:",
 		"font-src 'self'",
-		"connect-src 'self'",
+		["connect-src 'self'", ...apiBase ? [apiBase.replace(/^http/, "ws")] : []].join(" "),
 		"object-src 'none'",
 		"base-uri 'none'",
 		"form-action 'none'",
@@ -10309,7 +10877,7 @@ function bootHtml(html, apiBase) {
 	const out = text.slice(0, at) + bootScript(apiBase) + "\n    " + text.slice(at);
 	return {
 		body: Buffer.from(out, "utf8"),
-		csp: cspFor(out)
+		csp: cspFor(out, apiBase)
 	};
 }
 function sendPlain(res, status, text, extra = {}) {
@@ -12236,6 +12804,7 @@ function createBridge(input = {}) {
 			lanes.android ? "android.start-server" : null,
 			lanes.android ? "android.connect" : null,
 			lanes.android ? "android.discover" : null,
+			lanes.android ? "android.adb" : null,
 			options.local ? "local" : null,
 			lanes.simulators ? "simulators" : null,
 			options.wifi ? "wifi" : null,
@@ -12323,8 +12892,11 @@ function createBridge(input = {}) {
 		s.requestTimeout = timeouts.requestTimeout;
 		s.headersTimeout = timeouts.headersTimeout;
 		s.maxConnections = LIMITS.maxConnections;
-		/** No WebSocket, no CONNECT tunnel: an upgrade could otherwise outlive every check above. */
-		s.on("upgrade", (_req, socket) => socket.destroy());
+		/**
+		 * One WebSocket only, the adb tunnel (§4.10), behind the same checks as every request;
+		 * any other upgrade, and every CONNECT, is refused by the API or destroyed here.
+		 */
+		s.on("upgrade", (req, socket, head) => api.upgrade(req, socket, head));
 		s.on("connect", (_req, socket) => socket.destroy());
 		s.on("clientError", (_error, socket) => {
 			if (socket.writable) socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");

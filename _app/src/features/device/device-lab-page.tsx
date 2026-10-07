@@ -26,7 +26,7 @@ import { BLACK_SHOT } from './black-shot'
 import type { FixWiring } from './components/checklist'
 import {
   DeviceDetailPane,
-  WifiNote,
+  AdbNote,
   screenshotVia,
   type DetailTab,
 } from './components/device-detail'
@@ -62,7 +62,7 @@ import { readPendingPair, takePairFragment } from './helper/pair-fragment'
 import type { DoctorReport } from './helper/protocol'
 import { helperAnnouncement, pairError, rememberNote } from './helper/status'
 import { readStoredPort, readStoredToken } from './helper/token'
-import { helperUpdate } from './helper/update'
+import { featureSupport, helperUpdate, type FeatureSupport } from './helper/update'
 import { createLogSessions, RESUME_WINDOW_MS, spanText, type LogEvent } from './log-sessions'
 import { installPhoneOf, type Device } from './model'
 import {
@@ -337,15 +337,23 @@ function logEventText(event: LogEvent): string | null {
   }
 }
 
-/** Why a drop or Install app can't go to this device, or null when it can. */
-export function installRefusal(device: Device | null, backend: Backend | undefined): string | null {
+/**
+ * Why a drop or Install app can't go to this device, or null when it can. `adb`: whether the
+ * helper has the adb tunnel (featureSupport 'android.adb'), which a device it reaches installs
+ * through.
+ */
+export function installRefusal(
+  device: Device | null,
+  backend: Backend | undefined,
+  adb: FeatureSupport = 'ready',
+): string | null {
   if (!device) return PAGE_TEXT.selectThenDrop
   if (device.platform === 'ios') return PAGE_TEXT.noIosInstall
-  if (device.platform === 'android' && device.connection === 'network') {
-    return COPY.wifi.laterInstall
-  }
   if (!backend?.install) return PAGE_TEXT.noInstall
+  if (device.backend === 'agent' && adb === 'older') return DEVICE_ERRORS.ADB_UNSUPPORTED
   if (device.state !== 'ready') return PAGE_TEXT.notReady(device.name)
+  // Ready, but its API level isn't read yet (the helper's tunnel is still opening).
+  if (!device.capabilities.install && !device.android) return PAGE_TEXT.notReady(device.name)
   if (!device.capabilities.install) return DEVICE_ERRORS.INSTALL_UNSUPPORTED
   return null
 }
@@ -998,7 +1006,8 @@ export function DeviceLabPage({
       ? t.lane.idle
       : t.lane.ready(usbReady, usbDevices.length)
 
-  const refusal = installRefusal(selected, selectedBackend)
+  const adbSupport = featureSupport(status, 'android.adb')
+  const refusal = installRefusal(selected, selectedBackend, adbSupport)
   const selectedJobs = selected ? snap.jobs.filter((j) => j.deviceId === selected.id) : []
 
   // Where a drop goes, from the drop zone or from anywhere else on the page.
@@ -1310,37 +1319,43 @@ export function DeviceLabPage({
                   onTab={setTab}
                   onStale={markStale}
                   actions={
-                    selected && canDisconnect(selected) ? (
-                      <Button
-                        variant="outline"
-                        aria-disabled={wifiSnap.disconnecting !== null || undefined}
-                        className="aria-disabled:opacity-50"
-                        title={t.disconnectTitle}
-                        onClick={() => {
-                          if (wifiSnap.disconnecting === null) disconnectWifi(selected.id)
-                        }}
-                      >
-                        {wifiSnap.disconnecting === selected.id ? (
-                          <Loader2 className="animate-spin" />
-                        ) : (
-                          <Unplug />
+                    selected && (
+                      <>
+                        {selected.platform === 'android' && selectedBackend?.install && (
+                          <InstallButton
+                            disabled={refusal !== null}
+                            title={refusal ?? t.installTitle}
+                            onFiles={(files) => {
+                              showInstall(selected.id, files)
+                            }}
+                          />
                         )}
-                        {t.disconnect}
-                      </Button>
-                    ) : (
-                      selected?.platform === 'android' &&
-                      selectedBackend?.install && (
-                        <InstallButton
-                          disabled={refusal !== null}
-                          title={refusal ?? t.installTitle}
-                          onFiles={(files) => {
-                            showInstall(selected.id, files)
-                          }}
-                        />
-                      )
+                        {canDisconnect(selected) && (
+                          <Button
+                            variant="outline"
+                            aria-disabled={wifiSnap.disconnecting !== null || undefined}
+                            className="aria-disabled:opacity-50"
+                            title={t.disconnectTitle}
+                            onClick={() => {
+                              if (wifiSnap.disconnecting === null) disconnectWifi(selected.id)
+                            }}
+                          >
+                            {wifiSnap.disconnecting === selected.id ? (
+                              <Loader2 className="animate-spin" />
+                            ) : (
+                              <Unplug />
+                            )}
+                            {t.disconnect}
+                          </Button>
+                        )}
+                      </>
                     )
                   }
-                  note={selected && <WifiNote device={selected} />}
+                  note={
+                    selected && (
+                      <AdbNote device={selected} support={adbSupport} port={status.env.port} />
+                    )
+                  }
                   jobs={
                     <JobsStrip
                       jobs={selectedJobs}

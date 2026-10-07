@@ -313,6 +313,11 @@ const DEVICE_ERRORS_EN = {
     'This helper can’t look for devices on the network. Download it again; the command replaces it.',
   LAN_UNSUPPORTED:
     'This helper can’t list every device on this network. Download it again; the command replaces it.',
+  ADB_UNSUPPORTED:
+    'This helper can’t open apps, images or installs on this device. Download it again; the command replaces it.',
+  TUNNEL_LIMIT: 'Too many operations are open on the helper at once. Try again in a moment.',
+  ADB_TUNNEL_FAILED:
+    'The helper didn’t open a connection to the device. Try again; if it keeps failing, reload the page.',
   HELPER_TIMEOUT: 'The helper took too long to answer. Try again.',
   // The helper's router: a page newer than the helper, or a bug. Updating the helper is the fix.
   BAD_ID: 'The helper can’t use this device’s id. Refresh the list.',
@@ -426,6 +431,11 @@ export const DEVICE_ERRORS = localized<Readonly<Record<DeviceErrorCode, string>>
       'Helper này không hỗ trợ tìm thiết bị trên mạng. Hãy tải lại tệp helper; lệnh tải sẽ thay bản cũ.',
     LAN_UNSUPPORTED:
       'Helper này không hỗ trợ liệt kê mọi thiết bị trên mạng này. Hãy tải lại tệp helper; lệnh tải sẽ thay bản cũ.',
+    ADB_UNSUPPORTED:
+      'Helper này chưa mở được ứng dụng, ảnh và cài đặt trên thiết bị này. Hãy tải lại tệp helper; lệnh tải sẽ thay bản cũ.',
+    TUNNEL_LIMIT: 'Helper đang mở quá nhiều thao tác cùng lúc. Hãy thử lại sau giây lát.',
+    ADB_TUNNEL_FAILED:
+      'Helper không mở được kết nối tới thiết bị. Hãy thử lại; nếu vẫn lỗi, hãy tải lại trang.',
     HELPER_TIMEOUT: 'Helper phản hồi quá lâu. Hãy thử lại.',
     BAD_ID: 'Helper không dùng được ID của thiết bị này. Hãy làm mới danh sách.',
     BAD_REQUEST: 'Helper đã từ chối yêu cầu. Hãy tải lại trang, hoặc cập nhật helper.',

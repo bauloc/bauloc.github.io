@@ -217,6 +217,8 @@ export interface RealHelper {
   readonly apiBase: string
   /** fetch with the hosted page's Origin, as a browser on bauloc.github.io sends it. */
   readonly fetch: typeof fetch
+  /** A WebSocket with that Origin too (Node's sends none unless told): the adb tunnel's. */
+  readonly webSocket: (url: string, protocols: string[]) => WebSocket
   /** Every request this fetch made: url and the Authorization header (null when absent). */
   readonly requests: Array<{ url: string; method: string; authorization: string | null }>
   /** Replace a lane's rows, as a hot-plug does; the helper bumps `rev`. */
@@ -296,12 +298,22 @@ export async function startRealHelper(opts: RealHelperOptions = {}): Promise<Rea
     return fake
   }
 
+  // Node's WebSocket (undici) takes its headers in a second-argument object, which the DOM's
+  // typing doesn't know.
+  const NodeWebSocket = WebSocket as unknown as new (
+    url: string,
+    init: { protocols: string[]; headers: Record<string, string> },
+  ) => WebSocket
+  const hostedWebSocket = (url: string, protocols: string[]) =>
+    new NodeWebSocket(url, { protocols, headers: { Origin: SITE_ORIGIN } })
+
   return {
     port,
     token: bridge.token,
     tokenId: bridge.tokenId,
     apiBase,
     fetch: hostedFetch,
+    webSocket: hostedWebSocket,
     requests,
     publish(name, next) {
       rows[name] = next

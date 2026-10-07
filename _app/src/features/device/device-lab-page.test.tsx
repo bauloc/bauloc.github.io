@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { HEALTH, IPHONE_ROW, REPORT, helperStatus } from './components/helper-status.fixture'
+import type { Backend } from './backends/backend'
 import { DeviceLabPage, installRefusal, keepListed, slowCapture, withOpen } from './device-lab-page'
 import type * as ConnectionModule from './helper/connection'
 import type * as EnvModule from './preflight/env'
@@ -95,6 +96,8 @@ function fakeConnection(): HelperConnection {
       capture: () => new Promise(() => undefined),
       retry: () => Promise.resolve(null),
       logs: () => Promise.resolve(),
+      adbInfo: () => new Promise(() => undefined),
+      openAdb: () => new Promise(() => undefined),
     },
   }
 }
@@ -136,17 +139,38 @@ describe('keepListed', () => {
 })
 
 describe('installRefusal', () => {
-  it('says plainly that installing over Wi‑Fi comes later', () => {
-    const tv = normalizeDevice({
-      id: '192.168.1.42:5555',
-      backend: 'agent',
-      platform: 'android',
-      connection: 'network',
-      state: 'ready',
-    })
-    expect(installRefusal(tv, undefined)).toBe(
-      'Installing over Wi‑Fi comes in a later version. For now, connect the device with a USB cable in Chrome or Edge.',
+  const tv = normalizeDevice({
+    id: '192.168.1.42:5555',
+    backend: 'agent',
+    platform: 'android',
+    connection: 'network',
+    state: 'ready',
+    name: 'BRAVIA 4K UR3',
+  })
+  const facts = { sdk: 29, release: '10', manufacturer: 'Sony', brand: 'Sony', abis: ['armeabi-v7a'] }
+  const lane = { install: () => Promise.reject(new Error('unused')) } as unknown as Backend
+
+  it('lets a Wi‑Fi device install through the helper’s adb tunnel', () => {
+    const ready = { ...tv, android: facts, capabilities: { install: true, apps: true } }
+    expect(installRefusal(ready, lane, 'ready')).toBeNull()
+  })
+
+  it('says a helper from before the tunnel needs updating', () => {
+    expect(installRefusal(tv, lane, 'older')).toBe(
+      'This helper can’t open apps, images or installs on this device. Download it again; the command replaces it.',
     )
+  })
+
+  it('waits for the device’s API level rather than calling it too old', () => {
+    expect(installRefusal(tv, lane, 'ready')).toBe(
+      'BRAVIA 4K UR3 isn’t ready. Fix what its card says, then try again.',
+    )
+    expect(installRefusal({ ...tv, android: { ...facts, sdk: 23 } }, lane, 'ready')).toBe(
+      'Installing needs Android 7.0 or newer.',
+    )
+  })
+
+  it('still refuses a lane that can’t install', () => {
     expect(installRefusal({ ...tv, connection: 'usb' }, undefined)).toBe(
       'This connection can’t install apps.',
     )
@@ -520,7 +544,7 @@ describe('DeviceLabPage, with the local helper', () => {
     expect(within(dialog).getByRole('button', { name: 'Connecting…' })).toBeInTheDocument()
   })
 
-  it('a Wi‑Fi TV: says what works over Wi‑Fi, offers Disconnect, and no Install', async () => {
+  it('a Wi‑Fi TV through a helper from before the adb tunnel: says to update it, offers Disconnect', async () => {
     await renderPage()
     setHelper(WIFI_HELPER, [TV_ROW])
     act(() => {
@@ -528,14 +552,43 @@ describe('DeviceLabPage, with the local helper', () => {
     })
     const pane = screen.getByRole('region', { name: 'Device detail' })
     expect(pane).toHaveTextContent(
-      'Over Wi‑Fi: details, screenshots and the log. Apps, Images and installing come in a later version',
+      'Your helper is older than this page: it can’t list apps, show images or install apps on this device yet.',
     )
-    expect(within(pane).queryByRole('button', { name: /Install app/ })).toBeNull()
+    expect(pane).toHaveTextContent('curl -fsSL')
     expect(within(pane).queryByRole('tab', { name: /Apps/ })).toBeNull()
+    const install = within(pane).getByRole('button', { name: /Install app/ })
+    expect(install).toBeDisabled()
+    expect(install).toHaveAttribute(
+      'title',
+      'This helper can’t open apps, images or installs on this device. Download it again; the command replaces it.',
+    )
     act(() => {
       within(pane).getByRole('button', { name: 'Disconnect' }).click()
     })
     expect(calls.disconnectNetwork).toHaveBeenCalledWith('192.168.1.42:5555')
+  })
+
+  it('a Wi‑Fi TV through a helper with the adb tunnel: Apps, Images and Install app', async () => {
+    await renderPage()
+    setHelper(
+      helperStatus('connected', {
+        health: { ...HEALTH, features: ['android.start-server', 'android.connect', 'android.adb'] },
+      }),
+      [TV_ROW],
+    )
+    act(() => {
+      screen.getByRole('button', { name: /Living Room TV/ }).click()
+    })
+    const pane = screen.getByRole('region', { name: 'Device detail' })
+    expect(within(pane).getByRole('tab', { name: /Apps/ })).toBeInTheDocument()
+    expect(within(pane).getByRole('tab', { name: /Images/ })).toBeInTheDocument()
+    expect(pane).not.toHaveTextContent('Your helper is older than this page')
+    expect(pane).not.toHaveTextContent('later version')
+    // Its API level is still being read through the tunnel, so not installable yet.
+    expect(within(pane).getByRole('button', { name: /Install app/ })).toHaveAttribute(
+      'title',
+      'Living Room TV isn’t ready. Fix what its card says, then try again.',
+    )
   })
 
   it('no Disconnect for a phone adb found by itself (mDNS): adb disconnect can’t drop it', async () => {
@@ -547,7 +600,7 @@ describe('DeviceLabPage, with the local helper', () => {
       screen.getByRole('button', { name: /Pixel 9/ }).click()
     })
     const pane = screen.getByRole('region', { name: 'Device detail' })
-    expect(pane).toHaveTextContent('Over Wi‑Fi: details, screenshots and the log.')
+    expect(within(pane).getByRole('button', { name: /Install app/ })).toBeInTheDocument()
     expect(within(pane).queryByRole('button', { name: 'Disconnect' })).toBeNull()
   })
 

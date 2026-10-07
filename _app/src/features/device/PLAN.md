@@ -866,7 +866,7 @@ If the helper skeleton is late, P1.6 ships last. Until then, an `.aab` shows the
 - **Old encrypted `.apkm`:** refused, with "download it again".
 - **Physics.** Device Lab and any adb tool (Android Studio, scrcpy, the Tango web app) can't hold the same phone over USB at once: a USB interface has one owner. The helper's way around it is to share Google's adb server instead of fighting it (SPEC §4.6).
 - **Not planned:**
-  - an adb-based Android lane in the helper for Firefox/Safari users (it would duplicate every feature server-side). As built, the helper does list, detail, screenshot and log Android devices through the adb server, Android TVs over Wi‑Fi included (SPEC §4); apps, images and installs stay WebUSB-only, and the page says they need a cable.
+  - an adb-based Android lane in the helper for Firefox/Safari users (it would duplicate every feature server-side). As built, the helper does list, detail, screenshot and log Android devices through the adb server, Android TVs over Wi‑Fi included (SPEC §4). Since helper 1.3.0 it also carries this plan's operations (installs, apps, images) unchanged, through an adb tunnel: the page runs the very code WebUSB runs, over a WebSocket per service (SPEC §4.10). Nothing is duplicated in the helper.
   - backup/restore
   - disabling system packages
   - EDL/fastboot reboots

@@ -19,7 +19,7 @@ describe('the built file', () => {
     const lines = code.split('\n')
     expect(lines[0]).toBe('#!/usr/bin/env node')
     expect(lines[1]).toBe('/*')
-    expect(lines[2]).toBe(' * Device Lab helper 1.2.0 (bauloc-device-bridge)')
+    expect(lines[2]).toBe(' * Device Lab helper 1.3.0 (bauloc-device-bridge)')
     expect(code).toContain(' * What it never does')
     expect(code).toContain('https://github.com/bauloc/bauloc.github.io/tree/master/_app/helper/src')
   })
@@ -84,14 +84,16 @@ describe('the built file', () => {
     const imports = [...code.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1])
     expect(imports.length).toBeGreaterThan(3)
     expect(imports.every((source) => source?.startsWith('node:'))).toBe(true)
-    expect(code.match(/^const VERSION = "1\.2\.0";$/gm)).toHaveLength(1)
+    expect(code.match(/^const VERSION = "1\.3\.0";$/gm)).toHaveLength(1)
   })
-  it('is 1.2.0, the first version with lan.discover, in the line the page reads', () => {
+  it('is 1.3.0, the first version with android.adb, in the line the page reads', () => {
     // A new feature bumps the minor version, a fix the patch (§2.8): the page tells a tester
-    // on 1.1.x that "Devices on this network" needs the newer helper, with its command.
-    // The page's own pattern (preflight/env.ts HELPER_VERSION_LINE), on the published file.
-    expect(/^const VERSION = "([^"]+)";$/m.exec(code)?.[1]).toBe('1.2.0')
+    // on 1.2.x that apps, images and installs over Wi‑Fi need the newer helper, with its
+    // command. The page's own pattern (preflight/env.ts HELPER_VERSION_LINE), on the published
+    // file.
+    expect(/^const VERSION = "([^"]+)";$/m.exec(code)?.[1]).toBe('1.3.0')
     expect(code).toContain('lanes.android ? "android.discover" : null')
+    expect(code).toContain('lanes.android ? "android.adb" : null')
     expect(code).toContain('"lan.discover"')
     expect(code).toContain('"/api/lan/devices": "GET"')
   })
@@ -186,7 +188,7 @@ describe('its exports and its first run', () => {
   })
   it('runs on this Node: --version, and a usage error exits 64', () => {
     expect(execFileSync(process.execPath, [file, '--version'], { encoding: 'utf8' })).toBe(
-      '1.2.0\n',
+      '1.3.0\n',
     )
     let status: number | null = null
     try {
