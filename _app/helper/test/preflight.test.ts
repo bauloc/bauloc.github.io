@@ -1169,7 +1169,7 @@ describe('24. --doctor output', () => {
     const text = await doctorText(await bareMac())
     expect(text).toBe(
       [
-        'bauloc-device-bridge 1.3.0 · doctor',
+        'bauloc-device-bridge 1.4.0 · doctor',
         'Node 24.12.0 (OpenSSL 3.6.1) · darwin-arm64 · macOS 27.0.1 · --no-open',
         '',
         'This Mac',

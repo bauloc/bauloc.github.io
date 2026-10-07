@@ -19,7 +19,7 @@ describe('the built file', () => {
     const lines = code.split('\n')
     expect(lines[0]).toBe('#!/usr/bin/env node')
     expect(lines[1]).toBe('/*')
-    expect(lines[2]).toBe(' * Device Lab helper 1.3.0 (bauloc-device-bridge)')
+    expect(lines[2]).toBe(' * Device Lab helper 1.4.0 (bauloc-device-bridge)')
     expect(code).toContain(' * What it never does')
     expect(code).toContain('https://github.com/bauloc/bauloc.github.io/tree/master/_app/helper/src')
   })
@@ -58,6 +58,20 @@ describe('the built file', () => {
       ].join('\n'),
     )
   })
+  it('says what it uploads for XConsole, where to, and what it does with the token (§2.10)', () => {
+    expect(code).toContain(
+      [
+        ' *   - XConsole, only when you publish a build of 100 MB or more there: streams that one',
+        " *     file to a release of this site's own GitHub repository (uploads.github.com), with the",
+        ' *     GitHub token XConsole sends for that one request. Nothing else is uploaded, and to',
+        ' *     nowhere else.',
+      ].join('\n'),
+    )
+    expect(code).toContain(' *   - Keep, log or show a GitHub token.')
+    expect(code).toContain(
+      ' *   4. A request body is at most 1 KiB, sent with its length (413 otherwise). The one',
+    )
+  })
   it('lays the modules out in the order of the spec’s sections (§1.2)', () => {
     const regions = [...code.matchAll(/^\/\/#region (\S+)$/gm)].map((m) => m[1])
     const order = [
@@ -84,18 +98,20 @@ describe('the built file', () => {
     const imports = [...code.matchAll(/^import .* from "([^"]+)";$/gm)].map((m) => m[1])
     expect(imports.length).toBeGreaterThan(3)
     expect(imports.every((source) => source?.startsWith('node:'))).toBe(true)
-    expect(code.match(/^const VERSION = "1\.3\.0";$/gm)).toHaveLength(1)
+    expect(code.match(/^const VERSION = "1\.4\.0";$/gm)).toHaveLength(1)
   })
-  it('is 1.3.0, the first version with android.adb, in the line the page reads', () => {
-    // A new feature bumps the minor version, a fix the patch (§2.8): the page tells a tester
-    // on 1.2.x that apps, images and installs over Wi‑Fi need the newer helper, with its
-    // command. The page's own pattern (preflight/env.ts HELPER_VERSION_LINE), on the published
-    // file.
-    expect(/^const VERSION = "([^"]+)";$/m.exec(code)?.[1]).toBe('1.3.0')
+  it('is 1.4.0, the first version with github.upload, in the line the page reads', () => {
+    // A new feature bumps the minor version, a fix the patch (§2.8): XConsole tells the owner
+    // on 1.3.x that a build of 100 MB or more needs the newer helper, with its command. The
+    // page's own pattern (preflight/env.ts HELPER_VERSION_LINE), on the published file.
+    expect(/^const VERSION = "([^"]+)";$/m.exec(code)?.[1]).toBe('1.4.0')
     expect(code).toContain('lanes.android ? "android.discover" : null')
     expect(code).toContain('lanes.android ? "android.adb" : null')
     expect(code).toContain('"lan.discover"')
+    expect(code).toContain('"github.upload"')
     expect(code).toContain('"/api/lan/devices": "GET"')
+    expect(code).toContain('const RELEASE_ASSET_PATH = "/api/github/release-asset";')
+    expect(code).toContain('const GITHUB_UPLOADS = "https://uploads.github.com";')
   })
   it('keeps the doc comments a reader needs', () => {
     expect(code).toContain('* 1. Host: a DNS-rebound evil.example still says')
@@ -188,7 +204,7 @@ describe('its exports and its first run', () => {
   })
   it('runs on this Node: --version, and a usage error exits 64', () => {
     expect(execFileSync(process.execPath, [file, '--version'], { encoding: 'utf8' })).toBe(
-      '1.3.0\n',
+      '1.4.0\n',
     )
     let status: number | null = null
     try {

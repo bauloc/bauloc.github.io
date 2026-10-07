@@ -31,6 +31,10 @@ What it does
   - Devices on this network, only when the page asks: what devices on this computer's own
     network say about themselves (mDNS, SSDP), the names this computer already knows, and
     one UDP datagram to each address of its own subnet to see what answers. No port scan.
+  - XConsole, only when you publish a build of 100 MB or more there: streams that one
+    file to a release of this site's own GitHub repository (uploads.github.com), with the
+    GitHub token XConsole sends for that one request. Nothing else is uploaded, and to
+    nowhere else.
 
 What it never does
   - Listen on anything but 127.0.0.1, or send telemetry.
@@ -40,6 +44,7 @@ What it never does
   - Return the pair record, IMEI, phone numbers, MAC addresses (for a network device: only
     whether its address is private, and its maker's 3-byte prefix) or any key not on its
     allowlists.
+  - Keep, log or show a GitHub token.
 
 Every request meets these checks, in this order
   1. Host must be 127.0.0.1:<port> or localhost:<port>              (DNS rebinding: 421)
@@ -47,14 +52,17 @@ Every request meets these checks, in this order
      (or the dev servers with --dev)                                (other sites: 403)
   3. A cross-site request without Origin is refused, except a top-level navigation to
      /device/ (an <img> or a form from another site: 403)
-  4. OPTIONS answers the CORS preflight; GET /api/health is public and holds no secret
-  5. Every other /api/* needs "Authorization: Bearer <token>". The token is new on every
+  4. A request body is at most 1 KiB, sent with its length (413 otherwise). The one
+     exception is XConsole's upload (above): one file at a time, at most 2 GB, streamed
+     on to GitHub and never held, once the checks below have passed.
+  5. OPTIONS answers the CORS preflight; GET /api/health is public and holds no secret
+  6. Every other /api/* needs "Authorization: Bearer <token>". The token is new on every
      start (unless --keep-token), printed in the terminal only, and compared in constant
      time. Before sending it, the page makes the helper prove it holds the token.
-  6. A device id must have a strict shape AND be in the live device list. Tools run as
+  7. A device id must have a strict shape AND be in the live device list. Tools run as
      spawn(file, argv), never through a shell, with timeouts, output caps and their whole
      process group killed when the page stops waiting.
-  7. The one WebSocket, the adb tunnel, needs an allowed Origin and the token too (sent as
+  8. The one WebSocket, the adb tunnel, needs an allowed Origin and the token too (sent as
      a subprotocol); every other upgrade is refused.
 
 The source is TypeScript in _app/helper/src, bundled into this file by rolldown; each

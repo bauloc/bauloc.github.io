@@ -61,6 +61,18 @@ const NEVER_WORDED = new Set([
   'UPSTREAM_STATUS',
   'UPSTREAM_REDIRECT',
   'UPSTREAM_TOO_LARGE',
+  /*
+    Only the GitHub release-asset route answers these (helper SPEC §2.10), and only XConsole's
+    Builds sends that request, never Device Lab: XConsole words them (builds/helper.ts maps each
+    to its sentence in builds/messages.ts), and its helper.real.test.ts runs them against the
+    built helper.
+  */
+  'LENGTH_REQUIRED',
+  'UPLOAD_BUSY',
+  'GITHUB_UNAUTHORIZED',
+  'GITHUB_ASSET_EXISTS',
+  'GITHUB_UPLOAD_FAILED',
+  'GITHUB_UNREACHABLE',
 ])
 
 describe('the contract with the built helper', () => {

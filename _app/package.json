@@ -8,7 +8,7 @@
     "//build": "vite build only fills _app/dist. Nothing is published until `publish` syncs it out to the repo root, which is where GitHub Pages serves from.",
     "build": "vite build",
     "preview": "vite preview",
-    "//publish": "Copies dist/ to the repo-root paths this project owns (index.html, 404.html, assets/, and the section shells such as profile/index.html) and then ASSERTS the whole URL contract. It refuses to touch terms/, privacy/, iptv, data/ or device/agent/ — those are published directly by the browser console and must never depend on a build.",
+    "//publish": "Copies dist/ to the repo-root paths this project owns (index.html, 404.html, assets/, and the section shells such as profile/index.html) and then ASSERTS the whole URL contract. It refuses to touch terms/, privacy/, iptv, data/, build/, artifact/ or device/agent/ — those are published directly by the browser console (or by hand) and must never depend on a build.",
     "publish": "node scripts/publish.mjs",
     "check": "node scripts/publish.mjs --check-only",
     "//serve:site": "Serves the REPO ROOT, which is exactly what GitHub Pages serves: the published build output plus the static contract it must not touch. `npm run preview` only serves _app/dist, so it cannot show /terms/{slug}/ at all.",
@@ -54,6 +54,7 @@
     "react-hook-form": "7.85.0",
     "sonner": "2.0.8",
     "tailwind-merge": "3.6.0",
+    "uqr": "0.1.3",
     "zod": "4.4.3"
   },
   "devDependencies": {

@@ -99,7 +99,13 @@ export default tseslint.config(
       change /terms/{slug}/ for no benefit. Byte-identity is enforced by a golden-master test
       instead.
     */
-    files: ['src/features/xconsole/term-privacy/templates/**/*.ts'],
+    files: [
+      'src/features/xconsole/term-privacy/templates/**/*.ts',
+      // Likewise the install pages and artifact wrappers XConsole publishes: standalone pages
+      // whose CSS is their own, served long after the app that wrote them has changed.
+      'src/features/xconsole/builds/templates/**/*.ts',
+      'src/features/xconsole/artifacts/templates/**/*.ts',
+    ],
     rules: { 'no-restricted-syntax': 'off' },
   },
   {
@@ -127,8 +133,9 @@ export default tseslint.config(
     },
   },
   {
-    // vite.config.ts IS type-checked (it is in tsconfig's include), it just runs in Node.
-    files: ['vite.config.ts'],
+    // vite.config.ts and the dev server's helpers ARE type-checked (they are in tsconfig's
+    // include), they just run in Node.
+    files: ['vite.config.ts', 'dev/**/*.ts'],
     languageOptions: { globals: globals.node },
     rules: { 'no-restricted-syntax': 'off' },
   },

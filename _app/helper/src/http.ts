@@ -11,6 +11,7 @@ import {
   parsePairingCode,
 } from './android-lane'
 import { DEV_ORIGINS, LIMITS, SITE, isDeviceId } from './constants'
+import { RELEASE_ASSET_PATH, parseUpload, uploadReleaseAsset } from './github-upload'
 import type { LocalMode } from './local-mode'
 import { ToolError } from './process'
 import type { Registry } from './registry'
@@ -43,6 +44,7 @@ import {
   extractPng,
   isAbortError,
   linkSignals,
+  megabytes,
   seconds,
 } from './util'
 import { CLOSE, WS_KEY, acceptKey, offeredProtocols } from './websocket'
@@ -74,6 +76,12 @@ export interface ApiDeps {
   readonly signal: AbortSignal
   /** Every device on this network (§4.9): the bridge's, whichever lanes run. */
   readonly lan: LanScanner
+  /**
+   * Lifts the server's request deadline while a release upload streams its body (§2.10);
+   * returns what puts it back. Node counts that deadline to a request's last byte, so it
+   * would cut any upload longer than 30 s, and it has no per-request switch.
+   */
+  readonly liftRequestTimeout: () => () => void
 }
 
 export interface Api {
@@ -203,6 +211,11 @@ function bodyTooLarge(req: IncomingMessage): boolean {
   return req.headers['transfer-encoding'] !== undefined
 }
 
+/** XConsole's release upload (§2.10): the one request whose body is streamed, not capped. */
+function isReleaseUpload(req: IncomingMessage, pathname: string): boolean {
+  return req.method === 'POST' && pathname === RELEASE_ASSET_PATH
+}
+
 /** A top-level navigation to the local page: the one cross-site request without Origin let in. */
 function isPageNavigation(req: IncomingMessage, pathname: string): boolean {
   return (
@@ -223,6 +236,7 @@ const ROUTES: Readonly<Record<string, 'GET' | 'POST'>> = {
   '/api/android/disconnect': 'POST',
   '/api/android/nearby': 'GET',
   '/api/lan/devices': 'GET',
+  [RELEASE_ASSET_PATH]: 'POST',
 }
 
 const DEVICE_ROUTE = /^\/api\/devices\/([^/]*)\/(detail|screenshot|retry|logs|adb)$/
@@ -269,6 +283,8 @@ export function createApi(deps: ApiDeps): Api {
   const tunnels = new Set<Tunnel>()
   /** Open adb tunnels per device id (§4.10). */
   const tunnelsOf = new Map<string, number>()
+  /** A release upload is streaming to GitHub (§2.10): one at a time. */
+  let uploading = false
   let hostsFor = -1
   let hosts = new Set<string>()
   let origins = new Set<string>()
@@ -309,13 +325,21 @@ export function createApi(deps: ApiDeps): Api {
     const started = Date.now()
     const { pathname, search } = splitTarget(req.url ?? '/')
     if (options.verbose) {
-      /** Method, path and status only: never a header, a query string or a token. */
+      /**
+       * Method, path, status and time only: never a header, a query string or a token. A
+       * release upload adds its size, read from its length (§2.10), and nothing else about it.
+       */
+      const length = req.headers['content-length'] ?? ''
+      const size =
+        isReleaseUpload(req, pathname) && /^\d+$/.test(length)
+          ? ` · ${megabytes(Number(length))}`
+          : ''
       let logged = false
       const line = (): void => {
         if (logged) return
         logged = true
         deps.log(
-          `${req.method ?? '?'} ${pathname} ${String(res.statusCode)} ${String(Date.now() - started)} ms`,
+          `${req.method ?? '?'} ${pathname} ${String(res.statusCode)} ${String(Date.now() - started)} ms${size}`,
         )
       }
       res.on('finish', line)
@@ -365,14 +389,21 @@ export function createApi(deps: ApiDeps): Api {
       )
     }
     const isApi = pathname === '/api' || pathname.startsWith('/api/')
-    const headers = isApi
+    const headers: Headers = isApi
       ? apiHeaders(origin)
       : {
           'X-Content-Type-Options': 'nosniff',
           Vary: 'Origin',
           ...(origin ? { 'Access-Control-Allow-Origin': origin } : {}),
         }
-    if (bodyTooLarge(req)) {
+    /**
+     * 4. Bodies: at most 1 KiB, with a length, refused before anything is routed. XConsole's
+     * release upload alone streams its body on to GitHub (§2.10). Every answer to it closes the
+     * connection, so an upload refused before its body was read is not read to its end first.
+     */
+    const upload = isReleaseUpload(req, pathname)
+    if (upload) headers.Connection = 'close'
+    if (!upload && bodyTooLarge(req)) {
       return sendJson(
         res,
         413,
@@ -386,7 +417,10 @@ export function createApi(deps: ApiDeps): Api {
         },
       )
     }
-    /** 4. The CORS preflight: no token needed; Authorization is never covered by `*`. */
+    /**
+     * 5. The CORS preflight: no token needed; Authorization is never covered by `*`, and the
+     * release upload's X-GitHub-Token is named too (§2.10).
+     */
     if (req.method === 'OPTIONS') {
       if (!isApi) {
         return sendJson(res, 405, errorBody('METHOD_NOT_ALLOWED', 'GET only.'), {
@@ -397,7 +431,7 @@ export function createApi(deps: ApiDeps): Api {
       const preflight: Headers = {
         ...headers,
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-GitHub-Token',
         'Access-Control-Max-Age': '600',
         Vary: 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers, Access-Control-Request-Private-Network',
       }
@@ -413,13 +447,13 @@ export function createApi(deps: ApiDeps): Api {
       if (!deps.local) return sendJson(res, 404, errorBody('NOT_FOUND', 'Nothing here.'), headers)
       return deps.local.handle(req, res, pathname, search, host)
     }
-    /** 5. Health is public: it carries no device data and never the token. */
+    /** 6. Health is public: it carries no device data and never the token. */
     if (pathname === '/api/health') {
       if (req.method !== 'GET') return methodNotAllowed(res, 'GET', headers)
       const challenge = new URLSearchParams(search).get('challenge')
       return sendJson(res, 200, deps.health(challenge), headers)
     }
-    /** 6. Every other /api/* needs the bearer token. */
+    /** 7. Every other /api/* needs the bearer token. */
     if (!deps.bearer(req.headers.authorization)) {
       return sendJson(
         res,
@@ -432,7 +466,7 @@ export function createApi(deps: ApiDeps): Api {
     }
     registry.touch()
     deps.pageConnected(origin, host, req.headers['user-agent'])
-    /** 7. Route. */
+    /** 8. Route. */
     try {
       await route(req, res, pathname, search, headers)
     } catch (error) {
@@ -482,6 +516,7 @@ export function createApi(deps: ApiDeps): Api {
       if (pathname === '/api/android/disconnect') return disconnectNetwork(req, res, headers)
       if (pathname === '/api/android/nearby') return nearby(res, search, headers)
       if (pathname === '/api/lan/devices') return lanDevices(res, search, headers)
+      if (pathname === RELEASE_ASSET_PATH) return releaseAsset(req, res, search, headers)
       /** The last fixed route: every one above has its own line, or it would land here. */
       return startAdbServer(res, headers)
     }
@@ -867,6 +902,61 @@ export function createApi(deps: ApiDeps): Api {
       sendJson(res, 200, await deps.lan.devices(refresh, op.signal), headers)
     } finally {
       op.dispose()
+    }
+  }
+
+  /**
+   * POST /api/github/release-asset?release=<id>&name=<file> (§2.10): one build file of 100 MiB
+   * or more, streamed to a release of the site's own repository for XConsole, one at a time.
+   * The answer is 201 with what GitHub stored, or a code: GitHub's refusals are 502s, since the
+   * helper did its part. The terminal gets the size, the time and the outcome, never the query,
+   * a header or the token.
+   */
+  async function releaseAsset(
+    req: IncomingMessage,
+    res: ServerResponse,
+    search: string,
+    headers: Headers,
+  ): Promise<void> {
+    const upload = parseUpload(req.headers, search)
+    if (uploading) {
+      throw new HelperError(
+        'UPLOAD_BUSY',
+        409,
+        'Another file is being uploaded to GitHub through the helper. Try again once it is done.',
+      )
+    }
+    uploading = true
+    const restore = deps.liftRequestTimeout()
+    const op = operation(res)
+    const started = Date.now()
+    const size = megabytes(upload.size)
+    deps.log(`GitHub upload: sending ${size} to a release…`)
+    try {
+      const asset = await uploadReleaseAsset(req, upload, {
+        base: options.githubUploads,
+        idleMs: options.timeouts.githubIdle,
+        signal: op.signal,
+      })
+      sendJson(res, 201, asset, headers)
+      deps.log(`GitHub upload: done, ${size} in ${seconds(Date.now() - started)} s`)
+    } catch (error) {
+      const after = `after ${seconds(Date.now() - started)} s`
+      if (!isAbortError(error)) {
+        const code = error instanceof HelperError ? error.code : 'INTERNAL'
+        deps.log(`GitHub upload: failed ${after} (${code})`)
+        throw error
+      }
+      if (!deps.signal.aborted) {
+        deps.log(`GitHub upload: stopped ${after}: the page went away`)
+        throw error
+      }
+      deps.log(`GitHub upload: stopped ${after}: the helper is stopping`)
+      throw new HelperError('HELPER_STOPPING', 503, 'The helper is stopping.')
+    } finally {
+      op.dispose()
+      restore()
+      uploading = false
     }
   }
 

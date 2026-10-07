@@ -4,8 +4,9 @@
  *
  * GitHub Pages serves this repo from the `master` branch root, so "deploying" means writing
  * build output into the repo and committing it. That is a deliberate choice, not a shortcut:
- * `/terms/{slug}/`, `/privacy/{slug}/` and `/iptv` are committed directly by the in-browser
- * xconsole and served by Pages within ~60s with no build in the loop. Putting them behind a
+ * `/terms/{slug}/`, `/privacy/{slug}/`, `/iptv`, `/build/{id}/` and `/artifact/{id}.html` are
+ * committed directly by the in-browser xconsole and served by Pages within ~60s with no build
+ * in the loop. Putting them behind a
  * build would mean an app-store-facing legal page could not go live without CI, or without
  * someone opening a laptop.
  *
@@ -17,7 +18,16 @@
  *   node scripts/publish.mjs --check-only   # assert only, write nothing
  */
 
-import { readdirSync, statSync, existsSync, rmSync, mkdirSync, copyFileSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  readdirSync,
+  statSync,
+  existsSync,
+  rmSync,
+  mkdirSync,
+  copyFileSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -104,10 +114,26 @@ const PROTECTED = [
   // The Device Lab helper testers download (device/agent/device-bridge.mjs). Built from
   // _app/helper by `npm run helper:build` and committed by hand; never written by a publish.
   { path: path.join('device', 'agent'), required: true },
+  // XConsole's Builds and Artifacts: install pages with their APK/IPA, and hosted HTML pages,
+  // whose links testers and readers already hold. Not required: neither exists before its
+  // first upload, and an empty one is a fact, not a bug.
+  { path: 'build', required: false },
+  { path: 'artifact', required: false },
 ]
 
 /** A published page slug. Also the name of a directory under terms/ and privacy/. */
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/
+
+/**
+ * Whether Pages publishes an entry of the console's directories at all. These checks read the
+ * working tree, and Jekyll leaves out every name that starts with a dot: Finder's .DS_Store
+ * (gitignored, so it only ever exists here) is never served, and neither is a folder that holds
+ * nothing else — which is what `git pull` leaves of build/<id>/ after XConsole deleted the
+ * build, if Finder had been in it: git removes the tracked files and keeps the folder for the
+ * ignored one. Checking those would fail every publish over something the site never sees.
+ */
+const isPublished = (name) => !name.startsWith('.')
+const publishesAnything = (dir) => readdirSync(dir).some(isPublished)
 
 /* ------------------------------------------------------------------ *
  * Helpers
@@ -145,7 +171,11 @@ function fingerprint(rel) {
 
 /** Escape text for an HTML attribute value or element content. */
 function escapeHtml(text) {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 
 /**
@@ -331,10 +361,7 @@ check(
 // must never gain an extension.
 const iptv = path.join(ROOT, 'iptv')
 check(existsSync(iptv) && statSync(iptv).isFile(), '/iptv is a real file')
-check(
-  readFileSync(iptv, 'utf8').startsWith('#EXTM3U'),
-  '/iptv still starts with #EXTM3U',
-)
+check(readFileSync(iptv, 'utf8').startsWith('#EXTM3U'), '/iptv still starts with #EXTM3U')
 
 // Store-facing pages must be real static HTML, never SPA routes: a store reviewer's crawler
 // does not run JS.
@@ -342,11 +369,31 @@ for (const kind of ['terms', 'privacy']) {
   const dir = path.join(ROOT, kind)
   if (!existsSync(dir)) continue
   for (const slug of readdirSync(dir)) {
-    if (!statSync(path.join(dir, slug)).isDirectory()) continue
+    const page = path.join(dir, slug)
+    if (!isPublished(slug) || !statSync(page).isDirectory() || !publishesAnything(page)) continue
     check(SLUG.test(slug), `/${kind}/${slug}/ slug is well-formed`)
+    check(existsSync(path.join(page, 'index.html')), `/${kind}/${slug}/ has a real index.html`)
+  }
+}
+
+// Install pages and hosted artifacts, published straight from XConsole like the legal pages:
+// each build is a well-formed id with a real page, each artifact a well-formed id's .html.
+const buildRoot = path.join(ROOT, 'build')
+if (existsSync(buildRoot)) {
+  for (const id of readdirSync(buildRoot)) {
+    const build = path.join(buildRoot, id)
+    if (!isPublished(id) || !statSync(build).isDirectory() || !publishesAnything(build)) continue
+    check(SLUG.test(id), `/build/${id}/ id is well-formed`)
+    check(existsSync(path.join(build, 'index.html')), `/build/${id}/ has a real index.html`)
+  }
+}
+const artifactRoot = path.join(ROOT, 'artifact')
+if (existsSync(artifactRoot)) {
+  for (const name of readdirSync(artifactRoot)) {
+    if (!isPublished(name)) continue
     check(
-      existsSync(path.join(dir, slug, 'index.html')),
-      `/${kind}/${slug}/ has a real index.html`,
+      name.endsWith('.html') && SLUG.test(name.slice(0, -'.html'.length)),
+      `/artifact/${name} is a well-formed id's page`,
     )
   }
 }
@@ -356,7 +403,10 @@ for (const kind of ['terms', 'privacy']) {
   it turns Jekyll off, and Jekyll's underscore rule is the ONLY thing keeping `_app/`
   (including node_modules) and `_deprecated/` (148 MB) off the public internet.
 */
-check(!existsSync(path.join(ROOT, '.nojekyll')), 'no root .nojekyll (would publish _app/ and _deprecated/)')
+check(
+  !existsSync(path.join(ROOT, '.nojekyll')),
+  'no root .nojekyll (would publish _app/ and _deprecated/)',
+)
 
 // The old spa-github-pages encoder must be gone, not merely bypassed: it rewrites
 // location.pathname before the router can read it.
@@ -374,7 +424,9 @@ if (existsSync(path.join(ROOT, '404.html'))) {
 const verb = CHECK_ONLY ? 'check' : 'publish'
 
 if (failures.length > 0) {
-  console.error(`\n${verb}: FAILED ${failures.length} of ${failures.length + notes.length} checks\n`)
+  console.error(
+    `\n${verb}: FAILED ${failures.length} of ${failures.length + notes.length} checks\n`,
+  )
   for (const f of failures) console.error(`  FAIL  ${f}`)
   console.error(
     CHECK_ONLY
@@ -387,6 +439,8 @@ if (failures.length > 0) {
 console.log(`\n${verb}: all ${notes.length} checks passed`)
 console.log(notes.join('\n'))
 if (!CHECK_ONLY) {
-  console.log(`\nWrote: /index.html, /404.html, /assets/${SECTIONS.length ? `, ${SECTIONS.map((s) => `/${s.path}/index.html`).join(', ')}` : ''}`)
+  console.log(
+    `\nWrote: /index.html, /404.html, /assets/${SECTIONS.length ? `, ${SECTIONS.map((s) => `/${s.path}/index.html`).join(', ')}` : ''}`,
+  )
   console.log('Commit and push to deploy.\n')
 }

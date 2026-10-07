@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Device Lab helper 1.3.0 (bauloc-device-bridge)
+ * Device Lab helper 1.4.0 (bauloc-device-bridge)
  *
  * Device Lab (https://bauloc.github.io/device/) shows identifiers, screenshots and logs for
  * the phones plugged into this Mac. Android works straight from Chrome over WebUSB. macOS
@@ -33,6 +33,10 @@
  *   - Devices on this network, only when the page asks: what devices on this computer's own
  *     network say about themselves (mDNS, SSDP), the names this computer already knows, and
  *     one UDP datagram to each address of its own subnet to see what answers. No port scan.
+ *   - XConsole, only when you publish a build of 100 MB or more there: streams that one
+ *     file to a release of this site's own GitHub repository (uploads.github.com), with the
+ *     GitHub token XConsole sends for that one request. Nothing else is uploaded, and to
+ *     nowhere else.
  *
  * What it never does
  *   - Listen on anything but 127.0.0.1, or send telemetry.
@@ -42,6 +46,7 @@
  *   - Return the pair record, IMEI, phone numbers, MAC addresses (for a network device: only
  *     whether its address is private, and its maker's 3-byte prefix) or any key not on its
  *     allowlists.
+ *   - Keep, log or show a GitHub token.
  *
  * Every request meets these checks, in this order
  *   1. Host must be 127.0.0.1:<port> or localhost:<port>              (DNS rebinding: 421)
@@ -49,14 +54,17 @@
  *      (or the dev servers with --dev)                                (other sites: 403)
  *   3. A cross-site request without Origin is refused, except a top-level navigation to
  *      /device/ (an <img> or a form from another site: 403)
- *   4. OPTIONS answers the CORS preflight; GET /api/health is public and holds no secret
- *   5. Every other /api/* needs "Authorization: Bearer <token>". The token is new on every
+ *   4. A request body is at most 1 KiB, sent with its length (413 otherwise). The one
+ *      exception is XConsole's upload (above): one file at a time, at most 2 GB, streamed
+ *      on to GitHub and never held, once the checks below have passed.
+ *   5. OPTIONS answers the CORS preflight; GET /api/health is public and holds no secret
+ *   6. Every other /api/* needs "Authorization: Bearer <token>". The token is new on every
  *      start (unless --keep-token), printed in the terminal only, and compared in constant
  *      time. Before sending it, the page makes the helper prove it holds the token.
- *   6. A device id must have a strict shape AND be in the live device list. Tools run as
+ *   7. A device id must have a strict shape AND be in the live device list. Tools run as
  *      spawn(file, argv), never through a shell, with timeouts, output caps and their whole
  *      process group killed when the page stops waiting.
- *   7. The one WebSocket, the adb tunnel, needs an allowed Origin and the token too (sent as
+ *   8. The one WebSocket, the adb tunnel, needs an allowed Origin and the token too (sent as
  *      a subprotocol); every other upgrade is refused.
  *
  * The source is TypeScript in _app/helper/src, bundled into this file by rolldown; each
@@ -68,31 +76,32 @@
  *   This file          https://github.com/bauloc/bauloc.github.io/blob/master/device/agent/device-bridge.mjs
  *
  * Contents (line numbers in this file)
- *     112  Node version guard                   src/guard.ts
- *     134  §1 Constants, limits and allowlists  src/constants.ts
- *     396  §1 Command line                      src/cli.ts
- *     526  §2 Utilities                         src/util.ts
- *     780  §3 Property lists                    src/plist.ts
- *     904  §4a Running tools                    src/process.ts
- *    1223  §4b Finding tools                    src/tools.ts
- *    1897  §5 usbmuxd client                    src/usbmuxd.ts
- *    2242  §6 Lockdown client                   src/lockdown.ts
- *    2550  §7 iOS lane                          src/ios-lane.ts
- *    4245  §8 Simulator lane                    src/simulator-lane.ts
- *    4661  §9 mDNS browser                      src/mdns.ts
- *    6400  §9 Android lane                      src/android-lane.ts
- *    8457  §10 Device registry                  src/registry.ts
- *    8748  §11 Token, proof and pairing         src/auth.ts
- *    8922  §12 Doctor and preflight             src/preflight.ts
- *    9635  §13a WebSocket frames                src/websocket.ts
- *    9799  §13b adb tunnel                      src/adb-tunnel.ts
- *    9970  §13 HTTP API                         src/http.ts
- *   10803  §14 Local mode                       src/local-mode.ts
- *   11070  §15 LAN sources                      src/lan-net.ts
- *   11788  §16 Every device on this network     src/lan.ts
- *   12531  §17 Bridge lifecycle                 src/bridge.ts
- *   12987  §17 Banner                           src/banner.ts
- *   13069  §17 Startup, signals and exports     src/main.ts
+ *     122  Node version guard                   src/guard.ts
+ *     144  §1 Constants, limits and allowlists  src/constants.ts
+ *     431  §1 Command line                      src/cli.ts
+ *     561  §2 Utilities                         src/util.ts
+ *     819  §3 Property lists                    src/plist.ts
+ *     943  §4a Running tools                    src/process.ts
+ *    1262  §4b Finding tools                    src/tools.ts
+ *    1936  §5 usbmuxd client                    src/usbmuxd.ts
+ *    2281  §6 Lockdown client                   src/lockdown.ts
+ *    2589  §7 iOS lane                          src/ios-lane.ts
+ *    4284  §8 Simulator lane                    src/simulator-lane.ts
+ *    4700  §9 mDNS browser                      src/mdns.ts
+ *    6439  §9 Android lane                      src/android-lane.ts
+ *    8496  §10 Device registry                  src/registry.ts
+ *    8787  §11 Token, proof and pairing         src/auth.ts
+ *    8961  §12 Doctor and preflight             src/preflight.ts
+ *    9674  §13a WebSocket frames                src/websocket.ts
+ *    9838  §13b adb tunnel                      src/adb-tunnel.ts
+ *   10009  §13c GitHub release upload           src/github-upload.ts
+ *   10241  §13 HTTP API                         src/http.ts
+ *   11139  §14 Local mode                       src/local-mode.ts
+ *   11406  §15 LAN sources                      src/lan-net.ts
+ *   12124  §16 Every device on this network     src/lan.ts
+ *   12867  §17 Bridge lifecycle                 src/bridge.ts
+ *   13337  §17 Banner                           src/banner.ts
+ *   13419  §17 Startup, signals and exports     src/main.ts
  */
 import path from "node:path";
 import { setMaxListeners } from "node:events";
@@ -106,7 +115,8 @@ import { X509Certificate, constants as constants$1, createHash, createHmac, rand
 import tls from "node:tls";
 import dgram from "node:dgram";
 import dns from "node:dns/promises";
-import http, { STATUS_CODES } from "node:http";
+import http, { STATUS_CODES, request } from "node:http";
+import { request as request$1 } from "node:https";
 import { fileURLToPath } from "node:url";
 
 //#region src/guard.ts
@@ -135,7 +145,7 @@ if (tooOld) {
 /** What answers on 127.0.0.1: the page checks `health.name` before it trusts anything else. */
 const NAME = "bauloc-device-bridge";
 /** Semver of this file. The page shows it and compares it with the published file. */
-const VERSION = "1.3.0";
+const VERSION = "1.4.0";
 /**
  * The wire protocol's integer major. Within a major only additions are allowed (fields,
  * codes, endpoints, `features`); the page accepts DVC_MIN_AGENT ≤ PROTOCOL ≤ DVC_MAX_AGENT.
@@ -160,6 +170,7 @@ const DEV_ORIGINS = [
 const DOWNLOAD_URL = `${SITE}/device/agent/device-bridge.mjs`;
 const KiB = 1024;
 const MiB = 1024 * KiB;
+const GiB = 1024 * MiB;
 /** Caps (§1.12). Every one bounds something a device, a tool or a page could make unbounded. */
 const LIMITS = {
 	/** A tool's text output: devicectl JSON, getprop, simctl lists. */
@@ -170,8 +181,20 @@ const LIMITS = {
 	stderr: 64 * KiB,
 	/** One log line, after which ` [truncated]` is appended. */
 	line: 8 * KiB,
-	/** Request bodies: only the Wi-Fi routes read one, a small JSON object (§4.7). */
+	/**
+	 * Request bodies: only the Wi-Fi routes read one, a small JSON object (§4.7). The release
+	 * upload is the one exception: it streams its body to GitHub and never holds it (§2.10).
+	 */
 	body: KiB,
+	/**
+	 * A release asset (§2.10): GitHub takes files under 2 GiB, so 2 147 483 647 bytes at most,
+	 * the same number XConsole checks before it asks.
+	 */
+	releaseAsset: 2 * GiB - 1,
+	/** GitHub's answer to an upload: a few KiB of JSON. A longer one is not read on. */
+	githubAnswer: 64 * KiB,
+	/** GitHub's own words in an error, as passed on to the page. */
+	githubMessage: 300,
 	/** One upstream file in local mode. */
 	upstream: 16 * MiB,
 	/** usbmuxd and lockdown frames. */
@@ -217,6 +240,7 @@ const LIMITS = {
 const TIMEOUTS = {
 	requestTimeout: 3e4,
 	headersTimeout: 1e4,
+	requestCheck: 3e4,
 	muxRequest: 2e3,
 	muxConnectUsb: 3e3,
 	muxConnectNetwork: 6e3,
@@ -252,6 +276,7 @@ const TIMEOUTS = {
 	lanScan: 7e3,
 	lanCache: 3e4,
 	lanGap: 3e3,
+	githubIdle: 12e4,
 	doctorCheck: 5e3,
 	doctorSlowCheck: 1e4,
 	doctorTotal: 12e3,
@@ -391,6 +416,16 @@ const LAN_STATIC_TYPES = [
 	"_apple-mobdev2._tcp",
 	"_remotepairing._tcp"
 ];
+/** The only host that takes release assets. createBridge's `githubUploads` stands a fake in for tests. */
+const GITHUB_UPLOADS = "https://uploads.github.com";
+/** The site's own repository: the route has no way to name another. */
+const GITHUB_REPO = "bauloc/bauloc.github.io";
+/** Where every file GitHub stores in that repository's releases downloads from. */
+const RELEASE_DOWNLOAD_PREFIX = `https://github.com/${GITHUB_REPO}/releases/download/`;
+/** The REST API version the upload is written against, sent with it. */
+const GITHUB_API_VERSION = "2022-11-28";
+/** What a build may be sent as: an APK's own type, or plain bytes (what an IPA is served as). */
+const RELEASE_ASSET_TYPES = ["application/vnd.android.package-archive", "application/octet-stream"];
 
 //#endregion
 //#region src/cli.ts
@@ -771,6 +806,10 @@ function timeOfDay(epochMs) {
 /** `1.4` for 1 400 ms: how the terminal reports durations. */
 function seconds(ms) {
 	return (ms / 1e3).toFixed(1);
+}
+/** `456.7 MB` for 478 884 659 bytes: how the terminal reports sizes, 1024-based as XConsole does. */
+function megabytes(bytes) {
+	return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 function plural(n, one, many = one + "s") {
 	return `${String(n)} ${n === 1 ? one : many}`;
@@ -9967,6 +10006,238 @@ function serveTunnel(ws, head, o) {
 }
 
 //#endregion
+//#region src/github-upload.ts
+/**
+ * §13c Release assets for XConsole (§2.10): one build file, streamed to a GitHub release.
+ *
+ * XConsole publishes a build by committing it to the site's repository, and GitHub refuses a
+ * file of 100 MiB or more there. Such a file goes to a GitHub Release instead. The console can
+ * create the release itself (api.github.com allows CORS) but can't fill it: uploads.github.com
+ * answers no CORS preflight, so no page can send it a file. The console hands the file to this
+ * helper, on the owner's Mac, which sends it on:
+ *
+ * - to one place only: uploads.github.com, a release of the site's own repository, named by
+ *   its number, and a file named the way XConsole names builds;
+ * - streamed, with back-pressure, so nothing is held in memory whatever the size, and the
+ *   page's upload progress follows the real upload;
+ * - with the owner's GitHub token in the Authorization header of that one request, and
+ *   nowhere else: it is never kept, logged, echoed in an answer, or put in a URL.
+ *
+ * The HTTP layer has checked Host, Origin and the bearer token before this module sees the
+ * request, lets this route alone past the 1 KiB body cap, and runs one upload at a time.
+ */
+/** The route (§2.2): `POST /api/github/release-asset?release=<id>&name=<file>`. */
+const RELEASE_ASSET_PATH = "/api/github/release-asset";
+/** A GitHub token as XConsole keeps it: classic (`ghp_…`) or fine-grained (`github_pat_…`). */
+const GITHUB_TOKEN = /^[A-Za-z0-9_]{20,255}$/;
+/** A release id: GitHub's are integers, far below 15 digits. */
+const RELEASE_ID = /^\d{1,15}$/;
+/**
+ * A build's file name as XConsole writes one (FILE_NAME_PATTERN, builds/paths.ts): letters,
+ * digits, '.', '_' and '-', so it reads the same in the upload's URL, on GitHub, and in the
+ * download address testers get.
+ */
+const ASSET_NAME = /^[a-z0-9][a-z0-9._-]{0,78}\.(?:apk|ipa)$/;
+/**
+ * The page's request, checked before a byte of its body is read (§2.10): its framing first,
+ * a length GitHub can be told up front (411 without one, 413 past GitHub's limit), then the
+ * query and the headers (400). No answer repeats what the request said: the token least of all.
+ */
+function parseUpload(headers, search) {
+	const length = headers["content-length"];
+	if (headers["transfer-encoding"] !== void 0 || length === void 0) throw new HelperError("LENGTH_REQUIRED", 411, "Send the file with its Content-Length, not chunked.");
+	/** Node's parser lets only digits through; checked again, since the number reaches GitHub. */
+	if (!/^\d+$/.test(length)) throw new HelperError("BAD_REQUEST", 400, "The Content-Length is not a number.");
+	const size = Number(length);
+	if (size > LIMITS.releaseAsset) throw new HelperError("PAYLOAD_TOO_LARGE", 413, "GitHub takes release files smaller than 2 GB.");
+	if (size === 0) throw new HelperError("BAD_REQUEST", 400, "The file is empty.");
+	/** Exactly these two parameters, once each: anything else is a request this route never gets. */
+	const query = new URLSearchParams(search);
+	const release = query.get("release");
+	const name = query.get("name");
+	if ([...query.keys()].length !== 2 || release === null || name === null || !RELEASE_ID.test(release) || !ASSET_NAME.test(name)) throw new HelperError("BAD_REQUEST", 400, "Name the release (?release=<id>) and the file (&name=<file>.apk or .ipa).");
+	const type = (headers["content-type"] ?? "").trim().toLowerCase();
+	const contentType = RELEASE_ASSET_TYPES.find((allowed) => allowed === type);
+	if (!contentType) throw new HelperError("BAD_REQUEST", 400, "Send the file as application/vnd.android.package-archive or application/octet-stream.");
+	const token = headers["x-github-token"];
+	if (typeof token !== "string" || !GITHUB_TOKEN.test(token)) throw new HelperError("BAD_REQUEST", 400, "Send the GitHub token in X-GitHub-Token.");
+	return {
+		release,
+		name,
+		contentType,
+		size,
+		token
+	};
+}
+/**
+ * Where the file goes: a release of the site's own repository. `base` is uploads.github.com;
+ * a test's fake replaces only that, never the path.
+ */
+function uploadUrl(base, upload) {
+	return new URL(`/repos/${GITHUB_REPO}/releases/${upload.release}/assets?name=${encodeURIComponent(upload.name)}`, base);
+}
+/** The upload's headers: the token in Authorization, the file's type and length as the page sent them. */
+function uploadHeaders(upload) {
+	return {
+		Authorization: `token ${upload.token}`,
+		Accept: "application/vnd.github+json",
+		"X-GitHub-Api-Version": GITHUB_API_VERSION,
+		"Content-Type": upload.contentType,
+		"Content-Length": String(upload.size),
+		"User-Agent": `${NAME}/${VERSION}`
+	};
+}
+/**
+ * GitHub's own words in an error answer, for the page to show when it has none of its own:
+ * the `message`, then what its `errors` say ("Validation Failed: ReleaseAsset name
+ * already_exists"), control characters stripped, at most 300 characters.
+ */
+function githubMessage(body) {
+	if (typeof body !== "object" || body === null) return "";
+	const { message, errors } = body;
+	const details = (Array.isArray(errors) ? errors : []).slice(0, 4).map((item) => {
+		if (typeof item === "string") return item;
+		if (typeof item !== "object" || item === null) return "";
+		const { resource, field, code, message: said } = item;
+		return [
+			resource,
+			field,
+			code,
+			said
+		].filter((part) => typeof part === "string" && part !== "").join(" ");
+	}).filter((detail) => detail !== "");
+	const lead = typeof message === "string" ? message.trim() : "";
+	const text = details.length ? `${lead ? `${lead}: ` : ""}${details.join("; ")}` : lead;
+	return clean(text, LIMITS.githubMessage);
+}
+/** GitHub's answer as JSON, or null when it is none (a proxy's HTML page, say). */
+function jsonOf(bytes) {
+	try {
+		return JSON.parse(bytes.toString("utf8"));
+	} catch {
+		return null;
+	}
+}
+/** A 201's body, when it describes a file of the site's own repository; else null. */
+function storedAsset(body) {
+	if (typeof body !== "object" || body === null) return null;
+	const { id, name, size, browser_download_url: url } = body;
+	if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0) return null;
+	if (typeof name !== "string" || name === "" || name.length > 255) return null;
+	if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) return null;
+	if (typeof url !== "string" || url.length > 2048 || !url.startsWith(RELEASE_DOWNLOAD_PREFIX) || !/^[\x21-\x7e]+$/.test(url)) return null;
+	return {
+		id,
+		name,
+		size,
+		url
+	};
+}
+/**
+ * GitHub's answer as the helper passes it on (§2.10): the file it stored, or an error the page
+ * words by its code, each a 502 since the helper itself did its part. A 201 whose download
+ * address is not under the site's repository is not trusted: the page would hand that
+ * address to testers. GitHub answers an upload with 201 and nothing else, so any other status
+ * is a failure.
+ */
+function githubAnswer(status, body) {
+	if (status === 201) {
+		const asset = storedAsset(body);
+		if (asset) return asset;
+		throw new HelperError("GITHUB_UPLOAD_FAILED", 502, "GitHub answered without the address of the file it stored.", { status });
+	}
+	const said = githubMessage(body);
+	if (status === 401) throw new HelperError("GITHUB_UNAUTHORIZED", 502, "GitHub refused the token.");
+	if (status === 422) throw new HelperError("GITHUB_ASSET_EXISTS", 502, said || "The release already has a file with this name.");
+	throw new HelperError("GITHUB_UPLOAD_FAILED", 502, said || `GitHub answered ${String(status)}.`, { status });
+}
+/**
+ * Streams the page's request body to GitHub, and resolves with what GitHub stored
+ * (githubAnswer), or rejects with its error.
+ *
+ * `pipe` carries the back-pressure: while GitHub's socket is full the page's is not read, so
+ * memory stays flat and the page's progress is the real upload's. An answer GitHub sends
+ * before the body is all there (a refused token, say) is the answer: the rest is not sent,
+ * and the reset that usually follows doesn't turn it into "unreachable".
+ *
+ * Rejects with GITHUB_UNREACHABLE when GitHub can't be reached, the connection drops before
+ * its answer, or nothing moves for `idleMs`; with an AbortError when the signal aborts or the
+ * page's request ends short. Whichever way it ends, the request to GitHub is destroyed.
+ */
+function uploadReleaseAsset(source, upload, o) {
+	return new Promise((resolve, reject) => {
+		const url = uploadUrl(o.base, upload);
+		/** No agent: a connection of its own, closed with the upload, never kept for later. */
+		const sink = (url.protocol === "http:" ? request : request$1)(url, {
+			method: "POST",
+			headers: uploadHeaders(upload),
+			agent: false
+		});
+		let answered = false;
+		let settled = false;
+		const unreachable = () => new HelperError("GITHUB_UNREACHABLE", 502, "GitHub could not be reached, or stopped answering.");
+		const idle = setTimeout(() => settle(unreachable()), o.idleMs);
+		/** Every chunk either way, the page's to GitHub or GitHub's answer, restarts the deadline. */
+		const touch = () => {
+			if (!settled) idle.refresh();
+		};
+		const onAbort = () => settle(abortError());
+		function settle(outcome) {
+			if (settled) return;
+			settled = true;
+			clearTimeout(idle);
+			o.signal.removeEventListener("abort", onAbort);
+			source.off("data", touch);
+			source.unpipe(sink);
+			sink.destroy();
+			if (outcome instanceof Error) reject(outcome);
+			else resolve(outcome);
+		}
+		/** Once GitHub answered, an error on the connection is GitHub closing it, not a failure. */
+		sink.on("error", () => {
+			if (!answered) settle(unreachable());
+		});
+		sink.on("response", (answer) => {
+			answered = true;
+			touch();
+			/** An early answer: GitHub reads nothing more, so nothing more is sent. */
+			source.unpipe(sink);
+			source.off("data", touch);
+			const status = answer.statusCode ?? 0;
+			const conclude = (body) => {
+				try {
+					settle(githubAnswer(status, body));
+				} catch (error) {
+					settle(error instanceof Error ? error : new Error(String(error)));
+				}
+			};
+			const chunks = [];
+			let bytes = 0;
+			answer.on("data", (chunk) => {
+				touch();
+				bytes += chunk.length;
+				/** Past the cap the answer is judged by its status alone, and not read on. */
+				if (bytes > LIMITS.githubAnswer) conclude(null);
+				else chunks.push(chunk);
+			});
+			answer.on("end", () => conclude(jsonOf(Buffer.concat(chunks))));
+			answer.on("error", () => settle(unreachable()));
+			answer.on("close", () => {
+				if (!answer.complete) settle(unreachable());
+			});
+		});
+		/** The page's request ended short: it went away mid-file. */
+		source.on("close", () => {
+			if (!source.complete) settle(abortError());
+		});
+		source.pipe(sink);
+		source.on("data", touch);
+		if (o.signal.aborted) onAbort();
+		else o.signal.addEventListener("abort", onAbort, { once: true });
+	});
+}
+
+//#endregion
 //#region src/http.ts
 /** The adb tunnel's WebSocket subprotocol (§4.10); the helper answers with this one only. */
 const TUNNEL_PROTOCOL = "device-bridge.adb.v1";
@@ -10076,6 +10347,10 @@ function bodyTooLarge(req) {
 	/** A chunked body has no length to check; the Wi-Fi routes' JSON always comes with one. */
 	return req.headers["transfer-encoding"] !== void 0;
 }
+/** XConsole's release upload (§2.10): the one request whose body is streamed, not capped. */
+function isReleaseUpload(req, pathname) {
+	return req.method === "POST" && pathname === "/api/github/release-asset";
+}
 /** A top-level navigation to the local page: the one cross-site request without Origin let in. */
 function isPageNavigation(req, pathname) {
 	return req.headers["sec-fetch-mode"] === "navigate" && req.headers["sec-fetch-dest"] === "document" && PAGE_PATHS.has(pathname);
@@ -10090,7 +10365,8 @@ const ROUTES = {
 	"/api/android/pair": "POST",
 	"/api/android/disconnect": "POST",
 	"/api/android/nearby": "GET",
-	"/api/lan/devices": "GET"
+	"/api/lan/devices": "GET",
+	[RELEASE_ASSET_PATH]: "POST"
 };
 const DEVICE_ROUTE = /^\/api\/devices\/([^/]*)\/(detail|screenshot|retry|logs|adb)$/;
 const DEVICE_ACTIONS = {
@@ -10124,6 +10400,8 @@ function createApi(deps) {
 	const tunnels = new Set();
 	/** Open adb tunnels per device id (§4.10). */
 	const tunnelsOf = new Map();
+	/** A release upload is streaming to GitHub (§2.10): one at a time. */
+	let uploading = false;
 	let hostsFor = -1;
 	let hosts = new Set();
 	let origins = new Set();
@@ -10163,12 +10441,17 @@ function createApi(deps) {
 		const started = Date.now();
 		const { pathname, search } = splitTarget(req.url ?? "/");
 		if (options.verbose) {
-			/** Method, path and status only: never a header, a query string or a token. */
+			/**
+			 * Method, path, status and time only: never a header, a query string or a token. A
+			 * release upload adds its size, read from its length (§2.10), and nothing else about it.
+			 */
+			const length = req.headers["content-length"] ?? "";
+			const size = isReleaseUpload(req, pathname) && /^\d+$/.test(length) ? ` · ${megabytes(Number(length))}` : "";
 			let logged = false;
 			const line = () => {
 				if (logged) return;
 				logged = true;
-				deps.log(`${req.method ?? "?"} ${pathname} ${String(res.statusCode)} ${String(Date.now() - started)} ms`);
+				deps.log(`${req.method ?? "?"} ${pathname} ${String(res.statusCode)} ${String(Date.now() - started)} ms${size}`);
 			};
 			res.on("finish", line);
 			res.on("close", line);
@@ -10194,11 +10477,21 @@ function createApi(deps) {
 			Vary: "Origin",
 			...origin ? { "Access-Control-Allow-Origin": origin } : {}
 		};
-		if (bodyTooLarge(req)) return sendJson(res, 413, errorBody("PAYLOAD_TOO_LARGE", "Request bodies are at most 1 KiB, sent with a Content-Length."), {
+		/**
+		 * 4. Bodies: at most 1 KiB, with a length, refused before anything is routed. XConsole's
+		 * release upload alone streams its body on to GitHub (§2.10). Every answer to it closes the
+		 * connection, so an upload refused before its body was read is not read to its end first.
+		 */
+		const upload = isReleaseUpload(req, pathname);
+		if (upload) headers.Connection = "close";
+		if (!upload && bodyTooLarge(req)) return sendJson(res, 413, errorBody("PAYLOAD_TOO_LARGE", "Request bodies are at most 1 KiB, sent with a Content-Length."), {
 			...headers,
 			Connection: "close"
 		});
-		/** 4. The CORS preflight: no token needed; Authorization is never covered by `*`. */
+		/**
+		 * 5. The CORS preflight: no token needed; Authorization is never covered by `*`, and the
+		 * release upload's X-GitHub-Token is named too (§2.10).
+		 */
 		if (req.method === "OPTIONS") {
 			if (!isApi) return sendJson(res, 405, errorBody("METHOD_NOT_ALLOWED", "GET only."), {
 				...headers,
@@ -10207,7 +10500,7 @@ function createApi(deps) {
 			const preflight = {
 				...headers,
 				"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-				"Access-Control-Allow-Headers": "Authorization, Content-Type",
+				"Access-Control-Allow-Headers": "Authorization, Content-Type, X-GitHub-Token",
 				"Access-Control-Max-Age": "600",
 				Vary: "Origin, Access-Control-Request-Method, Access-Control-Request-Headers, Access-Control-Request-Private-Network"
 			};
@@ -10221,20 +10514,20 @@ function createApi(deps) {
 			if (!deps.local) return sendJson(res, 404, errorBody("NOT_FOUND", "Nothing here."), headers);
 			return deps.local.handle(req, res, pathname, search, host);
 		}
-		/** 5. Health is public: it carries no device data and never the token. */
+		/** 6. Health is public: it carries no device data and never the token. */
 		if (pathname === "/api/health") {
 			if (req.method !== "GET") return methodNotAllowed(res, "GET", headers);
 			const challenge = new URLSearchParams(search).get("challenge");
 			return sendJson(res, 200, deps.health(challenge), headers);
 		}
-		/** 6. Every other /api/* needs the bearer token. */
+		/** 7. Every other /api/* needs the bearer token. */
 		if (!deps.bearer(req.headers.authorization)) return sendJson(res, 401, errorBody("UNAUTHORIZED", "Missing or wrong token. Open the link the helper printed.", { tokenId: deps.tokenId }), {
 			...headers,
 			"WWW-Authenticate": "Bearer realm=\"device-bridge\""
 		});
 		registry.touch();
 		deps.pageConnected(origin, host, req.headers["user-agent"]);
-		/** 7. Route. */
+		/** 8. Route. */
 		try {
 			await route(req, res, pathname, search, headers);
 		} catch (error) {
@@ -10275,6 +10568,7 @@ function createApi(deps) {
 			if (pathname === "/api/android/disconnect") return disconnectNetwork(req, res, headers);
 			if (pathname === "/api/android/nearby") return nearby(res, search, headers);
 			if (pathname === "/api/lan/devices") return lanDevices(res, search, headers);
+			if (pathname === "/api/github/release-asset") return releaseAsset(req, res, search, headers);
 			/** The last fixed route: every one above has its own line, or it would land here. */
 			return startAdbServer(res, headers);
 		}
@@ -10592,6 +10886,48 @@ function createApi(deps) {
 			sendJson(res, 200, await deps.lan.devices(refresh, op.signal), headers);
 		} finally {
 			op.dispose();
+		}
+	}
+	/**
+	 * POST /api/github/release-asset?release=<id>&name=<file> (§2.10): one build file of 100 MiB
+	 * or more, streamed to a release of the site's own repository for XConsole, one at a time.
+	 * The answer is 201 with what GitHub stored, or a code: GitHub's refusals are 502s, since the
+	 * helper did its part. The terminal gets the size, the time and the outcome, never the query,
+	 * a header or the token.
+	 */
+	async function releaseAsset(req, res, search, headers) {
+		const upload = parseUpload(req.headers, search);
+		if (uploading) throw new HelperError("UPLOAD_BUSY", 409, "Another file is being uploaded to GitHub through the helper. Try again once it is done.");
+		uploading = true;
+		const restore = deps.liftRequestTimeout();
+		const op = operation(res);
+		const started = Date.now();
+		const size = megabytes(upload.size);
+		deps.log(`GitHub upload: sending ${size} to a release…`);
+		try {
+			sendJson(res, 201, await uploadReleaseAsset(req, upload, {
+				base: options.githubUploads,
+				idleMs: options.timeouts.githubIdle,
+				signal: op.signal
+			}), headers);
+			deps.log(`GitHub upload: done, ${size} in ${seconds(Date.now() - started)} s`);
+		} catch (error) {
+			const after = `after ${seconds(Date.now() - started)} s`;
+			if (!isAbortError(error)) {
+				const code = error instanceof HelperError ? error.code : "INTERNAL";
+				deps.log(`GitHub upload: failed ${after} (${code})`);
+				throw error;
+			}
+			if (!deps.signal.aborted) {
+				deps.log(`GitHub upload: stopped ${after}: the page went away`);
+				throw error;
+			}
+			deps.log(`GitHub upload: stopped ${after}: the helper is stopping`);
+			throw new HelperError("HELPER_STOPPING", 503, "The helper is stopping.");
+		} finally {
+			op.dispose();
+			restore();
+			uploading = false;
 		}
 	}
 	async function screenshot(res, headers, id, lane) {
@@ -12605,7 +12941,8 @@ function resolveOptions(input = {}) {
 		procNetRoutePath: input.procNetRoutePath ?? "/proc/net/route",
 		routePath: input.routePath ?? (platform === "win32" ? system32(env, "ROUTE.EXE") : "/sbin/route"),
 		avahiResolvePath: input.avahiResolvePath,
-		lanScan: input.lanScan ?? scanLan
+		lanScan: input.lanScan ?? scanLan,
+		githubUploads: input.githubUploads ?? "https://uploads.github.com"
 	};
 }
 /** The flags a run was started with, for the doctor report; never a token. */
@@ -12808,7 +13145,8 @@ function createBridge(input = {}) {
 			options.local ? "local" : null,
 			lanes.simulators ? "simulators" : null,
 			options.wifi ? "wifi" : null,
-			"lan.discover"
+			"lan.discover",
+			"github.upload"
 		].filter((feature) => feature !== null);
 		return {
 			name: NAME,
@@ -12883,12 +13221,24 @@ function createBridge(input = {}) {
 		log: logLine,
 		bug,
 		signal: shutdown.signal,
-		lan
+		lan,
+		/**
+		 * Node's requestTimeout runs from a request's first byte to its last [V], so it would cut a
+		 * release upload (§2.10) after 30 s, and there is no per-request switch. Uploads run one at
+		 * a time, so the server's deadline is lifted while one streams and put back after it; the
+		 * upload keeps a deadline of its own for when nothing moves (githubIdle).
+		 */
+		liftRequestTimeout: () => {
+			if (server) server.requestTimeout = 0;
+			return () => {
+				if (server) server.requestTimeout = timeouts.requestTimeout;
+			};
+		}
 	});
 	async function listen() {
 		if (server) throw new Error("This bridge is already listening.");
 		await ensureWorkDir();
-		const s = http.createServer((req, res) => api.handle(req, res));
+		const s = http.createServer({ connectionsCheckingInterval: timeouts.requestCheck }, (req, res) => api.handle(req, res));
 		s.requestTimeout = timeouts.requestTimeout;
 		s.headersTimeout = timeouts.headersTimeout;
 		s.maxConnections = LIMITS.maxConnections;

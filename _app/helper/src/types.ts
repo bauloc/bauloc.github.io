@@ -213,6 +213,8 @@ export interface ErrorBody {
     reason?: string
     /** …and what adb itself said, cleaned. */
     detail?: string
+    /** GITHUB_UPLOAD_FAILED: the HTTP status GitHub answered the upload with (§2.10). */
+    status?: number
   }
 }
 
@@ -263,6 +265,20 @@ export interface AndroidAdbInfo {
 
 /** The tunnel's text messages from the helper, before any byte of the service (§4.10). */
 export type TunnelReply = { t: 'ok' } | { t: 'error'; code: string; message: string }
+
+/* ------------------------------------------- wire: release assets for XConsole (§2.10) --- */
+
+/** POST /api/github/release-asset: 201, the file GitHub stored in the release. */
+export interface ReleaseAsset {
+  /** GitHub's id for the asset. */
+  id: number
+  /** The file's name as GitHub stored it. */
+  name: string
+  /** Its size in bytes, as GitHub counted it. */
+  size: number
+  /** GitHub's `browser_download_url`, always under RELEASE_DOWNLOAD_PREFIX (the site's repository). */
+  url: string
+}
 
 /* ------------------------------------------------- wire: Wi-Fi discovery (§4.8) --- */
 
@@ -510,9 +526,14 @@ export type LaneName = 'ios' | 'android' | 'simulators'
 
 /** §1.12, in milliseconds unless the name says otherwise. Tests shorten them. */
 export interface Timeouts {
-  /** HTTP: a request whose headers or body never finish. Never cuts a streaming response. */
+  /**
+   * HTTP: a request whose headers or body never finish. Never cuts a streaming response, and
+   * is lifted while a release upload streams its body (§2.10).
+   */
   requestTimeout: number
   headersTimeout: number
+  /** How often the server looks for requests past those two deadlines (Node's own default). */
+  requestCheck: number
   /** usbmuxd */
   muxRequest: number
   muxConnectUsb: number
@@ -569,6 +590,11 @@ export interface Timeouts {
   lanCache: number
   /** …?refresh=1 starts a new look only this long after the last one started. */
   lanGap: number
+  /**
+   * A release upload (§2.10) with nothing moving either way, the page's bytes to GitHub or
+   * GitHub's answer back, for this long is given up: GITHUB_UNREACHABLE.
+   */
+  githubIdle: number
   /** --doctor and /api/doctor */
   doctorCheck: number
   doctorSlowCheck: number
@@ -878,6 +904,11 @@ export interface BridgeOptions {
   avahiResolvePath: string | undefined
   /** The whole look; `helper:fake` and the page's tests replace it with a fake network. */
   lanScan: ScanLan
+  /**
+   * Where release uploads go (§2.10): https://uploads.github.com, the path always the site's
+   * own repository's. Only tests stand a local fake in for it; no flag can change it.
+   */
+  githubUploads: string
 }
 
 export type BridgeInput = Partial<Omit<BridgeOptions, 'timeouts' | 'lanes'>> & {

@@ -85,17 +85,28 @@ const view = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLengt
 const utf8 = new TextDecoder('utf-8')
 const utf16 = new TextDecoder('utf-16le')
 
-/** Reads the ResStringPool chunk that starts at `at`. */
+/**
+ * Reads the ResStringPool chunk that starts at `at`. Android's reader hands out pointers into
+ * the pool; this one decodes, which copies, so what it decodes is bounded by the pool's own
+ * size. A string is decoded once however many indexes point at it, and strings that lie apart,
+ * as every tool writes them, never come to more characters than the bytes holding them. Only
+ * strings made to overlap do: one long run that each index enters a little further along would
+ * turn a few kilobytes of manifest into gigabytes of text. The pools of one file are separate
+ * chunks, so together they decode to no more than the file's size.
+ */
 export function stringPool(bytes: Uint8Array, at: number): StringPool {
   const v = view(bytes)
   const headerSize = v.getUint16(at + 2, true)
   const count = v.getUint32(at + 8, true)
   const isUtf8 = (v.getUint32(at + 16, true) & 0x100) !== 0
   const stringsStart = at + v.getUint32(at + 20, true)
+  /** Decoded strings by where they start. */
   const cache = new Map<number, string>()
+  /** Characters still allowed: the pool's size in bytes, which its caller has checked. */
+  let budget = v.getUint32(at + 4, true)
 
-  function decode(index: number): string {
-    let p = stringsStart + v.getUint32(at + headerSize + index * 4, true)
+  function decode(start: number): string {
+    let p = start
     if (isUtf8) {
       // The length in characters, then in bytes, each in one byte or two (high bit set).
       p += v.getUint8(p) & 0x80 ? 2 : 1
@@ -120,10 +131,13 @@ export function stringPool(bytes: Uint8Array, at: number): StringPool {
     size: count,
     get(index) {
       if (index < 0 || index >= count) return undefined
-      let s = cache.get(index)
+      const start = stringsStart + v.getUint32(at + headerSize + index * 4, true)
+      let s = cache.get(start)
       if (s === undefined) {
-        s = decode(index)
-        cache.set(index, s)
+        s = decode(start)
+        budget -= s.length
+        if (budget < 0) throw new RangeError('strings that overlap')
+        cache.set(start, s)
       }
       return s
     },
@@ -183,6 +197,13 @@ function walk(bytes: Uint8Array): XmlElement[] {
       const attrStart = v.getUint16(ext + 8, true)
       const attrSize = v.getUint16(ext + 10, true)
       const attrCount = v.getUint16(ext + 12, true)
+      // Every attribute must lie inside its element's chunk, 20 bytes each at least, the size
+      // of the record read for it. Android checks the span alone (ResXMLTree::validateNode),
+      // which an attributeSize of 0 passes, and then 36 bytes could claim 65,535 attributes:
+      // a manifest of a few kilobytes would make millions of objects before anything else.
+      if (attrStart + attrCount * Math.max(attrSize, 20) > size - headerSize) {
+        throw new Error('AXML_CORRUPT')
+      }
       const attrs: XmlAttribute[] = []
       for (let i = 0; i < attrCount; i++) {
         const a = ext + attrStart + i * attrSize

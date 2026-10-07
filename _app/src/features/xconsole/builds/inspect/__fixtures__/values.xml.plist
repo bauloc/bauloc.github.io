@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>__proto__</key>
+	<string>an own key</string>
+	<key>ascii</key>
+	<string>plain</string>
+	<key>below safe</key>
+	<integer>-9007199254740993</integer>
+	<key>beyond safe</key>
+	<integer>9007199254740993</integer>
+	<key>byte</key>
+	<integer>255</integer>
+	<key>constructor</key>
+	<integer>7</integer>
+	<key>data</key>
+	<data>
+	AAEC/w==
+	</data>
+	<key>date</key>
+	<date>2026-10-07T08:15:00Z</date>
+	<key>empty array</key>
+	<array/>
+	<key>empty data</key>
+	<data>
+	</data>
+	<key>empty dict</key>
+	<dict/>
+	<key>empty string</key>
+	<string></string>
+	<key>entities</key>
+	<string>Tom &amp; Jerry &lt;3 "quoted" 'apos'</string>
+	<key>half</key>
+	<real>0.5</real>
+	<key>huge real</key>
+	<real>1.0000000000000001e+300</real>
+	<key>int</key>
+	<integer>4294967295</integer>
+	<key>int64 max</key>
+	<integer>9223372036854775807</integer>
+	<key>long</key>
+	<integer>4294967296</integer>
+	<key>long ascii</key>
+	<string>A string longer than fifteen characters</string>
+	<key>max safe</key>
+	<integer>9007199254740991</integer>
+	<key>minus one</key>
+	<integer>-1</integer>
+	<key>negative real</key>
+	<real>-2.25</real>
+	<key>nested</key>
+	<array>
+		<dict>
+			<key>list</key>
+			<array>
+				<string>plain</string>
+				<true/>
+			</array>
+			<key>name</key>
+			<string>plain</string>
+		</dict>
+	</array>
+	<key>no</key>
+	<false/>
+	<key>old date</key>
+	<date>1999-12-31T23:59:59Z</date>
+	<key>short</key>
+	<integer>65535</integer>
+	<key>sixteen</key>
+	<array>
+		<integer>1</integer>
+		<integer>2</integer>
+		<integer>3</integer>
+		<integer>4</integer>
+		<integer>5</integer>
+		<integer>6</integer>
+		<integer>7</integer>
+		<integer>8</integer>
+		<integer>9</integer>
+		<integer>10</integer>
+		<integer>11</integer>
+		<integer>12</integer>
+		<integer>13</integer>
+		<integer>14</integer>
+		<integer>15</integer>
+		<integer>16</integer>
+	</array>
+	<key>uint64 max</key>
+	<integer>18446744073709551615</integer>
+	<key>unicode</key>
+	<string>Tiếng Việt — 日本語 😀</string>
+	<key>yes</key>
+	<true/>
+	<key>zero</key>
+	<integer>0</integer>
+</dict>
+</plist>
