@@ -37,5 +37,5 @@
     // file, which is what we want anyway.
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src", "vite.config.ts", "eslint.config.js"]
+  "include": ["src", "dev", "vite.config.ts", "eslint.config.js"]
 }

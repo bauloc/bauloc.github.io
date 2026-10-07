@@ -148,7 +148,9 @@ describe('4. CORS preflight', () => {
     expect(reply.status).toBe(204)
     expect(reply.headers['access-control-allow-origin']).toBe(SITE)
     expect(reply.headers['access-control-allow-methods']).toBe('GET, POST, OPTIONS')
-    expect(reply.headers['access-control-allow-headers']).toBe('Authorization, Content-Type')
+    expect(reply.headers['access-control-allow-headers']).toBe(
+      'Authorization, Content-Type, X-GitHub-Token',
+    )
     expect(reply.headers['access-control-max-age']).toBe('600')
     expect(reply.headers['access-control-allow-private-network']).toBeUndefined()
     expect(reply.headers['access-control-allow-credentials']).toBeUndefined()
@@ -166,7 +168,7 @@ describe('5. /api/health and the proof (§2.8, T7)', () => {
     const health = reply.json<Health>()
     expect(health).toMatchObject({
       name: 'bauloc-device-bridge',
-      version: '1.3.0',
+      version: '1.4.0',
       protocol: 1,
       port: s.port,
       tokenId: s.bridge.tokenId,
@@ -180,6 +182,7 @@ describe('5. /api/health and the proof (§2.8, T7)', () => {
         'android.adb',
         'local',
         'lan.discover',
+        'github.upload',
       ],
     })
     expect(health.sha256).toMatch(/^[0-9a-f]{64}$/)
@@ -346,7 +349,7 @@ describe('GET /api/doctor', () => {
     const report = (await get('/api/doctor', s.auth)).json<DoctorReport>()
     expect(report.helper).toMatchObject({
       name: 'bauloc-device-bridge',
-      version: '1.3.0',
+      version: '1.4.0',
       port: s.port,
       protocol: 1,
     })

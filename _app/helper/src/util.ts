@@ -313,6 +313,11 @@ export function seconds(ms: number): string {
   return (ms / 1000).toFixed(1)
 }
 
+/** `456.7 MB` for 478 884 659 bytes: how the terminal reports sizes, 1024-based as XConsole does. */
+export function megabytes(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
 export function plural(n: number, one: string, many = one + 's'): string {
   return `${String(n)} ${n === 1 ? one : many}`
 }

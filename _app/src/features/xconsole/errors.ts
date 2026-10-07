@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import { currentLocale } from '@/lib/locale'
 
 import { XCONSOLE_MESSAGES } from './messages'
-import { AuthError } from './repo/github'
+import { AuthError, NetworkError } from './repo/github'
 
 /**
  * A failed GitHub call, as a toast. A refused token offers the way to replace it. `title` is
@@ -24,5 +24,11 @@ export function toastFailure(
     })
     return
   }
-  toast.error(title, { id, description: error instanceof Error ? error.message : t.unknownError })
+  const description =
+    error instanceof NetworkError
+      ? t.uploadInterrupted
+      : error instanceof Error
+        ? error.message
+        : t.unknownError
+  toast.error(title, { id, description })
 }

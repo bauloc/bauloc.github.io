@@ -14,6 +14,8 @@ import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as ShellDeviceRouteImport } from './routes/_shell/device'
 import { Route as ShellXconsoleRouteImport } from './routes/_shell/xconsole'
+import { Route as ArtifactFileRouteImport } from './routes/artifact.$file'
+import { Route as BuildIdRouteImport } from './routes/build.$id'
 import { Route as ProfileIndexRouteImport } from './routes/profile/index'
 import { Route as ProfileAbout_meRouteImport } from './routes/profile/about_me'
 import { Route as ProfileContactRouteImport } from './routes/profile/contact'
@@ -22,6 +24,8 @@ import { Route as ProfileRelaxRouteImport } from './routes/profile/relax'
 import { Route as ProfileResumeRouteImport } from './routes/profile/resume'
 import { Route as ProfileCvRouteImport } from './routes/profile_.cv'
 import { Route as ShellXconsoleIndexRouteImport } from './routes/_shell/xconsole/index'
+import { Route as ShellXconsoleArtifactsRouteImport } from './routes/_shell/xconsole/artifacts'
+import { Route as ShellXconsoleBuildsRouteImport } from './routes/_shell/xconsole/builds'
 import { Route as ShellXconsoleIptvRouteImport } from './routes/_shell/xconsole/iptv'
 import { Route as ShellXconsoleTermPrivacyRouteImport } from './routes/_shell/xconsole/term-privacy'
 
@@ -48,6 +52,16 @@ const ShellXconsoleRoute = ShellXconsoleRouteImport.update({
   id: '/xconsole',
   path: '/xconsole',
   getParentRoute: () => ShellRoute,
+} as any)
+const ArtifactFileRoute = ArtifactFileRouteImport.update({
+  id: '/artifact/$file',
+  path: '/artifact/$file',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BuildIdRoute = BuildIdRouteImport.update({
+  id: '/build/$id',
+  path: '/build/$id',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ProfileIndexRoute = ProfileIndexRouteImport.update({
   id: '/',
@@ -89,6 +103,16 @@ const ShellXconsoleIndexRoute = ShellXconsoleIndexRouteImport.update({
   path: '/',
   getParentRoute: () => ShellXconsoleRoute,
 } as any)
+const ShellXconsoleArtifactsRoute = ShellXconsoleArtifactsRouteImport.update({
+  id: '/artifacts',
+  path: '/artifacts',
+  getParentRoute: () => ShellXconsoleRoute,
+} as any)
+const ShellXconsoleBuildsRoute = ShellXconsoleBuildsRouteImport.update({
+  id: '/builds',
+  path: '/builds',
+  getParentRoute: () => ShellXconsoleRoute,
+} as any)
 const ShellXconsoleIptvRoute = ShellXconsoleIptvRouteImport.update({
   id: '/iptv',
   path: '/iptv',
@@ -106,6 +130,8 @@ export interface FileRoutesByFullPath {
   '/profile': typeof ProfileRouteWithChildren
   '/device': typeof ShellDeviceRoute
   '/xconsole': typeof ShellXconsoleRouteWithChildren
+  '/artifact/$file': typeof ArtifactFileRoute
+  '/build/$id': typeof BuildIdRoute
   '/profile/about_me': typeof ProfileAbout_meRoute
   '/profile/contact': typeof ProfileContactRoute
   '/profile/portfolio': typeof ProfilePortfolioRoute
@@ -113,6 +139,8 @@ export interface FileRoutesByFullPath {
   '/profile/resume': typeof ProfileResumeRoute
   '/profile/cv': typeof ProfileCvRoute
   '/profile/': typeof ProfileIndexRoute
+  '/xconsole/artifacts': typeof ShellXconsoleArtifactsRoute
+  '/xconsole/builds': typeof ShellXconsoleBuildsRoute
   '/xconsole/iptv': typeof ShellXconsoleIptvRoute
   '/xconsole/term-privacy': typeof ShellXconsoleTermPrivacyRoute
   '/xconsole/': typeof ShellXconsoleIndexRoute
@@ -120,6 +148,8 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/device': typeof ShellDeviceRoute
+  '/artifact/$file': typeof ArtifactFileRoute
+  '/build/$id': typeof BuildIdRoute
   '/profile/about_me': typeof ProfileAbout_meRoute
   '/profile/contact': typeof ProfileContactRoute
   '/profile/portfolio': typeof ProfilePortfolioRoute
@@ -127,6 +157,8 @@ export interface FileRoutesByTo {
   '/profile/resume': typeof ProfileResumeRoute
   '/profile/cv': typeof ProfileCvRoute
   '/profile': typeof ProfileIndexRoute
+  '/xconsole/artifacts': typeof ShellXconsoleArtifactsRoute
+  '/xconsole/builds': typeof ShellXconsoleBuildsRoute
   '/xconsole/iptv': typeof ShellXconsoleIptvRoute
   '/xconsole/term-privacy': typeof ShellXconsoleTermPrivacyRoute
   '/xconsole': typeof ShellXconsoleIndexRoute
@@ -138,6 +170,8 @@ export interface FileRoutesById {
   '/profile': typeof ProfileRouteWithChildren
   '/_shell/device': typeof ShellDeviceRoute
   '/_shell/xconsole': typeof ShellXconsoleRouteWithChildren
+  '/artifact/$file': typeof ArtifactFileRoute
+  '/build/$id': typeof BuildIdRoute
   '/profile/about_me': typeof ProfileAbout_meRoute
   '/profile/contact': typeof ProfileContactRoute
   '/profile/portfolio': typeof ProfilePortfolioRoute
@@ -145,6 +179,8 @@ export interface FileRoutesById {
   '/profile/resume': typeof ProfileResumeRoute
   '/profile_/cv': typeof ProfileCvRoute
   '/profile/': typeof ProfileIndexRoute
+  '/_shell/xconsole/artifacts': typeof ShellXconsoleArtifactsRoute
+  '/_shell/xconsole/builds': typeof ShellXconsoleBuildsRoute
   '/_shell/xconsole/iptv': typeof ShellXconsoleIptvRoute
   '/_shell/xconsole/term-privacy': typeof ShellXconsoleTermPrivacyRoute
   '/_shell/xconsole/': typeof ShellXconsoleIndexRoute
@@ -156,6 +192,8 @@ export interface FileRouteTypes {
     | '/profile'
     | '/device'
     | '/xconsole'
+    | '/artifact/$file'
+    | '/build/$id'
     | '/profile/about_me'
     | '/profile/contact'
     | '/profile/portfolio'
@@ -163,6 +201,8 @@ export interface FileRouteTypes {
     | '/profile/resume'
     | '/profile/cv'
     | '/profile/'
+    | '/xconsole/artifacts'
+    | '/xconsole/builds'
     | '/xconsole/iptv'
     | '/xconsole/term-privacy'
     | '/xconsole/'
@@ -170,6 +210,8 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/device'
+    | '/artifact/$file'
+    | '/build/$id'
     | '/profile/about_me'
     | '/profile/contact'
     | '/profile/portfolio'
@@ -177,6 +219,8 @@ export interface FileRouteTypes {
     | '/profile/resume'
     | '/profile/cv'
     | '/profile'
+    | '/xconsole/artifacts'
+    | '/xconsole/builds'
     | '/xconsole/iptv'
     | '/xconsole/term-privacy'
     | '/xconsole'
@@ -187,6 +231,8 @@ export interface FileRouteTypes {
     | '/profile'
     | '/_shell/device'
     | '/_shell/xconsole'
+    | '/artifact/$file'
+    | '/build/$id'
     | '/profile/about_me'
     | '/profile/contact'
     | '/profile/portfolio'
@@ -194,6 +240,8 @@ export interface FileRouteTypes {
     | '/profile/resume'
     | '/profile_/cv'
     | '/profile/'
+    | '/_shell/xconsole/artifacts'
+    | '/_shell/xconsole/builds'
     | '/_shell/xconsole/iptv'
     | '/_shell/xconsole/term-privacy'
     | '/_shell/xconsole/'
@@ -203,6 +251,8 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ShellRoute: typeof ShellRouteWithChildren
   ProfileRoute: typeof ProfileRouteWithChildren
+  ArtifactFileRoute: typeof ArtifactFileRoute
+  BuildIdRoute: typeof BuildIdRoute
   ProfileCvRoute: typeof ProfileCvRoute
 }
 
@@ -242,6 +292,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/xconsole'
       preLoaderRoute: typeof ShellXconsoleRouteImport
       parentRoute: typeof ShellRoute
+    }
+    '/artifact/$file': {
+      id: '/artifact/$file'
+      path: '/artifact/$file'
+      fullPath: '/artifact/$file'
+      preLoaderRoute: typeof ArtifactFileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/build/$id': {
+      id: '/build/$id'
+      path: '/build/$id'
+      fullPath: '/build/$id'
+      preLoaderRoute: typeof BuildIdRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/profile/': {
       id: '/profile/'
@@ -299,6 +363,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellXconsoleIndexRouteImport
       parentRoute: typeof ShellXconsoleRoute
     }
+    '/_shell/xconsole/artifacts': {
+      id: '/_shell/xconsole/artifacts'
+      path: '/artifacts'
+      fullPath: '/xconsole/artifacts'
+      preLoaderRoute: typeof ShellXconsoleArtifactsRouteImport
+      parentRoute: typeof ShellXconsoleRoute
+    }
+    '/_shell/xconsole/builds': {
+      id: '/_shell/xconsole/builds'
+      path: '/builds'
+      fullPath: '/xconsole/builds'
+      preLoaderRoute: typeof ShellXconsoleBuildsRouteImport
+      parentRoute: typeof ShellXconsoleRoute
+    }
     '/_shell/xconsole/iptv': {
       id: '/_shell/xconsole/iptv'
       path: '/iptv'
@@ -317,12 +395,16 @@ declare module '@tanstack/react-router' {
 }
 
 interface ShellXconsoleRouteChildren {
+  ShellXconsoleArtifactsRoute: typeof ShellXconsoleArtifactsRoute
+  ShellXconsoleBuildsRoute: typeof ShellXconsoleBuildsRoute
   ShellXconsoleIptvRoute: typeof ShellXconsoleIptvRoute
   ShellXconsoleTermPrivacyRoute: typeof ShellXconsoleTermPrivacyRoute
   ShellXconsoleIndexRoute: typeof ShellXconsoleIndexRoute
 }
 
 const ShellXconsoleRouteChildren: ShellXconsoleRouteChildren = {
+  ShellXconsoleArtifactsRoute: ShellXconsoleArtifactsRoute,
+  ShellXconsoleBuildsRoute: ShellXconsoleBuildsRoute,
   ShellXconsoleIptvRoute: ShellXconsoleIptvRoute,
   ShellXconsoleTermPrivacyRoute: ShellXconsoleTermPrivacyRoute,
   ShellXconsoleIndexRoute: ShellXconsoleIndexRoute,
@@ -369,6 +451,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ShellRoute: ShellRouteWithChildren,
   ProfileRoute: ProfileRouteWithChildren,
+  ArtifactFileRoute: ArtifactFileRoute,
+  BuildIdRoute: BuildIdRoute,
   ProfileCvRoute: ProfileCvRoute,
 }
 export const routeTree = rootRouteImport

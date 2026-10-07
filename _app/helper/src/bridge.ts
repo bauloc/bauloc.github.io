@@ -17,7 +17,16 @@ import {
   proofOf,
   tokenIdOf,
 } from './auth'
-import { DEFAULT_PORT, LIMITS, NAME, PROTOCOL, SITE, TIMEOUTS, VERSION } from './constants'
+import {
+  DEFAULT_PORT,
+  GITHUB_UPLOADS,
+  LIMITS,
+  NAME,
+  PROTOCOL,
+  SITE,
+  TIMEOUTS,
+  VERSION,
+} from './constants'
 import { bugText, createApi } from './http'
 import { createIosLane } from './ios-lane'
 import { createLanScanner, scanLan } from './lan'
@@ -155,6 +164,7 @@ export function resolveOptions(input: BridgeInput = {}): BridgeOptions {
       input.routePath ?? (platform === 'win32' ? system32(env, 'ROUTE.EXE') : '/sbin/route'),
     avahiResolvePath: input.avahiResolvePath,
     lanScan: input.lanScan ?? scanLan,
+    githubUploads: input.githubUploads ?? GITHUB_UPLOADS,
   }
 }
 
@@ -408,6 +418,8 @@ export function createBridge(input: BridgeInput = {}): Bridge {
       lanes.simulators ? 'simulators' : null,
       options.wifi ? 'wifi' : null,
       'lan.discover',
+      /** XConsole's release upload (§2.10): the route needs no lane, so it is always there. */
+      'github.upload',
     ].filter((feature): feature is string => feature !== null)
     return {
       name: NAME,
@@ -496,12 +508,27 @@ export function createBridge(input: BridgeInput = {}): Bridge {
     bug,
     signal: shutdown.signal,
     lan,
+    /**
+     * Node's requestTimeout runs from a request's first byte to its last [V], so it would cut a
+     * release upload (§2.10) after 30 s, and there is no per-request switch. Uploads run one at
+     * a time, so the server's deadline is lifted while one streams and put back after it; the
+     * upload keeps a deadline of its own for when nothing moves (githubIdle).
+     */
+    liftRequestTimeout: () => {
+      if (server) server.requestTimeout = 0
+      return () => {
+        if (server) server.requestTimeout = timeouts.requestTimeout
+      }
+    },
   })
 
   async function listen(): Promise<{ port: number }> {
     if (server) throw new Error('This bridge is already listening.')
     await ensureWorkDir()
-    const s = http.createServer((req, res) => api.handle(req, res))
+    const s = http.createServer(
+      { connectionsCheckingInterval: timeouts.requestCheck },
+      (req, res) => api.handle(req, res),
+    )
     s.requestTimeout = timeouts.requestTimeout
     s.headersTimeout = timeouts.headersTimeout
     s.maxConnections = LIMITS.maxConnections

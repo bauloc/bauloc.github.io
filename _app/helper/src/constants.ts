@@ -3,7 +3,7 @@ import type { Timeouts } from './types'
 /** What answers on 127.0.0.1: the page checks `health.name` before it trusts anything else. */
 export const NAME = 'bauloc-device-bridge'
 /** Semver of this file. The page shows it and compares it with the published file. */
-export const VERSION = '1.3.0'
+export const VERSION = '1.4.0'
 /**
  * The wire protocol's integer major. Within a major only additions are allowed (fields,
  * codes, endpoints, `features`); the page accepts DVC_MIN_AGENT ≤ PROTOCOL ≤ DVC_MAX_AGENT.
@@ -33,6 +33,7 @@ export const SOURCE_URL =
 
 const KiB = 1024
 const MiB = 1024 * KiB
+const GiB = 1024 * MiB
 
 /** Caps (§1.12). Every one bounds something a device, a tool or a page could make unbounded. */
 export const LIMITS = {
@@ -44,8 +45,20 @@ export const LIMITS = {
   stderr: 64 * KiB,
   /** One log line, after which ` [truncated]` is appended. */
   line: 8 * KiB,
-  /** Request bodies: only the Wi-Fi routes read one, a small JSON object (§4.7). */
+  /**
+   * Request bodies: only the Wi-Fi routes read one, a small JSON object (§4.7). The release
+   * upload is the one exception: it streams its body to GitHub and never holds it (§2.10).
+   */
   body: KiB,
+  /**
+   * A release asset (§2.10): GitHub takes files under 2 GiB, so 2 147 483 647 bytes at most,
+   * the same number XConsole checks before it asks.
+   */
+  releaseAsset: 2 * GiB - 1,
+  /** GitHub's answer to an upload: a few KiB of JSON. A longer one is not read on. */
+  githubAnswer: 64 * KiB,
+  /** GitHub's own words in an error, as passed on to the page. */
+  githubMessage: 300,
   /** One upstream file in local mode. */
   upstream: 16 * MiB,
   /** usbmuxd and lockdown frames. */
@@ -92,6 +105,7 @@ export const LIMITS = {
 export const TIMEOUTS: Timeouts = {
   requestTimeout: 30_000,
   headersTimeout: 10_000,
+  requestCheck: 30_000,
   muxRequest: 2_000,
   muxConnectUsb: 3_000,
   muxConnectNetwork: 6_000,
@@ -127,6 +141,7 @@ export const TIMEOUTS: Timeouts = {
   lanScan: 7_000,
   lanCache: 30_000,
   lanGap: 3_000,
+  githubIdle: 120_000,
   doctorCheck: 5_000,
   doctorSlowCheck: 10_000,
   doctorTotal: 12_000,
@@ -316,4 +331,24 @@ export const LAN_STATIC_TYPES = [
   '_googlecast._tcp',
   '_apple-mobdev2._tcp',
   '_remotepairing._tcp',
+] as const
+
+/*
+  Release assets for XConsole (§2.10, T25): the one request the helper sends off this computer
+  on a page's behalf. Where it goes, and how, is fixed here; the page names only a release
+  number and a file name.
+*/
+
+/** The only host that takes release assets. createBridge's `githubUploads` stands a fake in for tests. */
+export const GITHUB_UPLOADS = 'https://uploads.github.com'
+/** The site's own repository: the route has no way to name another. */
+export const GITHUB_REPO = 'bauloc/bauloc.github.io'
+/** Where every file GitHub stores in that repository's releases downloads from. */
+export const RELEASE_DOWNLOAD_PREFIX = `https://github.com/${GITHUB_REPO}/releases/download/`
+/** The REST API version the upload is written against, sent with it. */
+export const GITHUB_API_VERSION = '2022-11-28'
+/** What a build may be sent as: an APK's own type, or plain bytes (what an IPA is served as). */
+export const RELEASE_ASSET_TYPES = [
+  'application/vnd.android.package-archive',
+  'application/octet-stream',
 ] as const

@@ -30,6 +30,14 @@ export const XCONSOLE_MESSAGES = defineMessages({
         title: 'IPTV',
         description: 'Mirror an upstream M3U playlist to bauloc.github.io/iptv.',
       },
+      artifacts: {
+        title: 'Artifacts',
+        description: 'Host HTML pages under bauloc.github.io/artifact/.',
+      },
+      builds: {
+        title: 'Builds',
+        description: 'Share APK and IPA builds with testers through an install link.',
+      },
     },
     modules: 'Modules',
     repository: 'Repository on GitHub',
@@ -38,6 +46,7 @@ export const XCONSOLE_MESSAGES = defineMessages({
     mockDetail: ' data — nothing is committed',
     loading: 'Loading',
     unknownError: 'Unknown error',
+    uploadInterrupted: 'The upload was interrupted. Check the connection and try again.',
     cancel: 'Cancel',
     updateToken: 'Update token',
 
@@ -221,6 +230,14 @@ export const XCONSOLE_MESSAGES = defineMessages({
         title: 'IPTV',
         description: 'Chép một playlist M3U từ nguồn về bauloc.github.io/iptv.',
       },
+      artifacts: {
+        title: 'Artifact',
+        description: 'Đăng trang HTML tại bauloc.github.io/artifact/.',
+      },
+      builds: {
+        title: 'Bản build',
+        description: 'Gửi bản build APK, IPA cho tester qua một link cài đặt.',
+      },
     },
     modules: 'Mô-đun',
     repository: 'Repo trên GitHub',
@@ -229,6 +246,7 @@ export const XCONSOLE_MESSAGES = defineMessages({
     mockDetail: ' — dữ liệu thử, không commit gì',
     loading: 'Đang tải',
     unknownError: 'Lỗi không xác định',
+    uploadInterrupted: 'Quá trình tải lên bị gián đoạn. Hãy kiểm tra kết nối rồi thử lại.',
     cancel: 'Hủy',
     updateToken: 'Cập nhật token',
 

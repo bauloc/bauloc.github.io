@@ -1,6 +1,6 @@
 # Device Lab helper: specification
 
-`device/agent/device-bridge.mjs`, built from `_app/helper/src`, and the page's helper lane in `_app/src/features/device` · helper 1.3.0, protocol 1 · as built, 2026-10-07
+`device/agent/device-bridge.mjs`, built from `_app/helper/src`, and the page's helper lane in `_app/src/features/device` · helper 1.4.0, protocol 1 · as built, 2026-10-07
 
 **What this is.** The design Device Lab's local helper was built from, kept up to date with what was built. Decisions taken while building it are recorded where they apply, and §0.6 lists them in one place. The code cites this document by section ("§3.3", "spec §12b"), so section numbers are stable: a section that no longer applies says so instead of disappearing.
 
@@ -218,7 +218,7 @@ The design compared several candidate designs; these are the parts it took from 
 
 | v1 (built) | Later |
 | --- | --- |
-| Helper core: security pipeline, token + proof, `--keep-token`, local mode, CLI, banner, auto-open, `--doctor`, preflight | One-time pairing codes, token rotation, terminal keys |
+| Helper core: security pipeline, token + proof, `--keep-token`, local mode, CLI, banner, auto-open, `--doctor`, preflight; XConsole's release upload (§2.10, 1.4.0) | One-time pairing codes, token rotation, terminal keys |
 | iOS: usbmuxd list and hot-plug; lockdown identity, trust, lock, Developer Mode, detail; pinned TLS; devicectl screenshots; `idevicescreenshot` for iOS ≤ 16 (best effort); syslog_relay plus `idevicesyslog`; `ideviceinfo` fallback; `--wifi` | Root-tunnel screenshots; DDI mount from a helper cache for iOS 15–16; native os_trace; "Ask to trust" action; helper-side log filter; CoreDevice-only Wi‑Fi devices |
 | Android: attach-only adb host protocol (list, detail, screenshot, logcat, retry), an explicit start, Wi‑Fi connect, pair and disconnect (§4.7), and the adb tunnel for the page's apps, images and installs (§4.10, 1.3.0) | `.aab` install lane (bundletool; its preflight item ships now) |
 | Simulators (`--simulators`) | — |
@@ -258,6 +258,7 @@ What was decided while building, and where each one now lives in this document.
 | `--doctor` names a Wi‑Fi device by its model, else its instance, never by the name its owner gave it | T18; §4.8's lines printed "BAULOC Pixel 9" | §4.8, T18 |
 | `browse()` sends nothing when its signal aborted before or while its socket opened, and closes it; a UDP socket whose bind fails is closed before the open rejects | The review: shutdown during the bind sent both queries and held the socket for the whole window; a socket whose bind failed stayed alive | §4.8 |
 | Helper 1.3.0, a feature: the adb tunnel. `GET /api/devices/:id/adb` and its WebSocket, with feature `android.adb`, the service allowlist `ADB_TUNNEL_SERVICES`, `host:features` on the host allowlist, `TUNNEL_LIMIT`, and the helper's `ws://` address in local mode's CSP. On the page: an `Adb` per ready Android row over the tunnel, so installs and the Apps and Images tabs work for every device the adb server lists; an older helper is told to update | The owner asked for every Device Lab feature that needed a cable to work over Wi‑Fi too ("cài apk qua wifi"). The page's operations are WebUSB's; a tunnel carries them unchanged, where endpoints would have duplicated them | §4.10, §2.1, §2.2, §2.8, T4, T24 |
+| Helper 1.4.0, a feature: `POST /api/github/release-asset` streams one build file to a GitHub release of the site's own repository for XConsole, with health feature `github.upload`. The one route past the 1 KiB body cap; checked before its body is read (411, 413, 400), one upload at a time (`UPLOAD_BUSY`), `X-GitHub-Token` in the CORS preflight, GitHub's answers as 502 codes, every answer `Connection: close`, and Node's request deadline lifted while an upload streams | GitHub refuses a file of 100 MiB or more in a repository, and a page can't upload a release asset: uploads.github.com answers no CORS preflight [V]. The owner decided (2026-10-07) that only such files go to a release, through the helper on their Mac; the rest stay committed as before | §2.10, §2.1, §2.2, §2.7, §2.8, §1.12, T25 |
 
 ---
 
@@ -268,7 +269,7 @@ What was decided while building, and where each one now lives in this document.
 **Source**
 
 - `_app/helper/src/*.ts`: one module per file section (§1.2), about 11,800 lines with their comments. `types.ts` holds the shared types and is erased by the bundler.
-- Built-ins only: `node:http`, `net`, `tls`, `crypto`, `child_process`, `fs`, `os`, `path`, `url`, `dns`, `dgram`, `events`, `string_decoder`. No npm package reaches the bundle.
+- Built-ins only: `node:http`, `https`, `net`, `tls`, `crypto`, `child_process`, `fs`, `os`, `path`, `url`, `dns`, `dgram`, `events`, `string_decoder`. No npm package reaches the bundle.
 
 **Bundle** (`helper/build.mjs`, `npm run helper:build`)
 
@@ -325,7 +326,8 @@ The **file §** labels number the regions of the built file. Each module's heade
 | §12 | `preflight.ts` | Doctor and preflight: `collectPreflight()`, item wording, `formatChecklist()`, `doctorReport()`, `printDoctor()` | §12 |
 | §13a | `websocket.ts` | WebSocket frames, the server's half: `acceptKey()`, `encodeFrame()`, `encodeClose()`, `createFrameDecoder()` (masked, fragmented, control frames, caps), `offeredProtocols()` | §4.10 |
 | §13b | `adb-tunnel.ts` | The adb tunnel after the upgrade: the opening message, `{t:'ok'}` or the error, the bytes both ways with back-pressure, the close rules | §4.10 |
-| §13 | `http.ts` | HTTP API: gate (Host, Origin, Fetch Metadata), CORS, router, JSON and NDJSON writers, endpoints, Wi‑Fi body reader, stream caps, the adb tunnel's upgrade gate and caps | §2, §4.10 |
+| §13c | `github-upload.ts` | Release assets for XConsole: `parseUpload` (the request's checks), the fixed upstream (`uploadUrl`, `uploadHeaders`), `uploadReleaseAsset` (the stream with back-pressure, the idle deadline, an early answer), `githubAnswer` and `githubMessage` | §2.10 |
+| §13 | `http.ts` | HTTP API: gate (Host, Origin, Fetch Metadata), CORS, router, JSON and NDJSON writers, endpoints, Wi‑Fi body reader, stream caps, the adb tunnel's upgrade gate and caps, the release upload's route and its one-at-a-time rule | §2, §4.10, §2.10 |
 | §14 | `local-mode.ts` | Upstream cache, `bootHtml()`, CSP hashes, asset proxy, redirects | §2.9 |
 | §15 | `lan-net.ts` | LAN sources (§4.9): interfaces → targets, the presence check (connected UDP), the neighbour table and default gateway (macOS/Linux/Windows), SSDP + the UPnP description + its tag scanner, hardware-address facts | §4.9 |
 | §16 | `lan.ts` | Every device on this network (§4.9): `createLanScanner` (cache, single flight, terminal and `--doctor` lines), `scanLan` (the pipeline and the per-IPv4 merge) | §4.9 |
@@ -335,7 +337,7 @@ The **file §** labels number the regions of the built file. Each module's heade
 
 **Constants in file §1**
 
-- Identity: `NAME = 'bauloc-device-bridge'`, `VERSION = '1.3.0'`, `PROTOCOL = 1`, `SITE = 'https://bauloc.github.io'`, `DEFAULT_PORT = 8787`, `DOWNLOAD_URL`, `SOURCE_URL`.
+- Identity: `NAME = 'bauloc-device-bridge'`, `VERSION = '1.4.0'`, `PROTOCOL = 1`, `SITE = 'https://bauloc.github.io'`, `DEFAULT_PORT = 8787`, `DOWNLOAD_URL`, `SOURCE_URL`.
 - Dev origins: `DEV_ORIGINS` = `http://localhost:7360` and `http://127.0.0.1:7360`, the same for `:4173` and `:8000`.
 - Tables: `LIMITS`, `TIMEOUTS`, `ID`, `INSTALL`.
 - Allowlists:
@@ -352,6 +354,7 @@ The **file §** labels number the regions of the built file. Each module's heade
   - The adb tunnel's `ADB_TUNNEL_NEVER`: `reverse:`, `tcp:`, `local*:`, `jdwp:`, `track-jdwp`, `shell:`, `shell,v2,pty:`, `shell,v2:`, `abb:`, `framebuffer:`, `root:`, `unroot:`, `remount:`, `reboot:`, `tcpip:`, `usb:` and host services (§4.10).
 - `EMITTED_BLOCKERS`: every row-blocker code the helper can send.
 - Every device on this network (§4.9): `LAN_PRESENCE_PORT = 9`, `LAN_SSDP_TARGETS = ['ssdp:all', 'upnp:rootdevice']`, `LAN_TXT_KEYS` (the TXT keys a service may pass on), `LAN_STATIC_TYPES` (Device Lab's own service types, always asked about); `LIMITS.lanDevices` 256, `lanTargets` 512, `lanSockets` 256.
+- Release assets for XConsole (§2.10): `GITHUB_UPLOADS = 'https://uploads.github.com'`, `GITHUB_REPO = 'bauloc/bauloc.github.io'`, `RELEASE_DOWNLOAD_PREFIX` (its releases' download address), `GITHUB_API_VERSION = '2022-11-28'`, `RELEASE_ASSET_TYPES`; `LIMITS.releaseAsset` 2 147 483 647, `githubAnswer` 64 KiB, `githubMessage` 300.
 
 **Exports of the built file** (for tests, the page's contract test and `helper:fake`): `createBridge`, `NAME`, `VERSION`, `PROTOCOL`, `ID`, `ADB_DETAIL`, `ADB_EXEC`, `EMITTED_BLOCKERS`, `LOCKDOWN_REQUESTS`, `LOCKDOWN_SERVICES`, `tokenIdOf`, `proofOf`, `HelperError`, `parsePlist`, `buildPlist`, `parseDevicesL`, `mapAdbState`, `deriveIos`, `classifyDevicectl`, `splitSyslogRelay`, `which`, `runTool`, `liveChildren`, `bootHtml`, `formatChecklist`. `HelperError` is exported because the bridge maps only its own class to a code: an error built from another copy of the class is an `INTERNAL` bug.
 
@@ -528,6 +531,7 @@ It has no side effects until `listen()`. Tests replace everything here, so no re
 | `lanInterfaces`, `lanPresence`, `lanSsdp`, `lanDescription` | `os.networkInterfaces()` / the connected-UDP presence socket / the SSDP socket / the `node:http` description fetch; tests: no interface, sockets that send nothing, a fetch that rejects (`fakes/lan.ts`, §4.9) |
 | `arpPath`, `procNetArpPath`, `procNetRoutePath`, `routePath`, `avahiResolvePath` | `/usr/sbin/arp` (Windows `%SystemRoot%\System32\ARP.EXE`) / `/proc/net/arp` / `/proc/net/route` / `/sbin/route` (Windows `ROUTE.EXE`) / undefined (look up `avahi-resolve`); tests: paths that are not there (§4.9) |
 | `lanScan` | the real look (`scanLan`); `helper:fake` and the page's tests stand a fake network in for it (§4.9) |
+| `githubUploads` | `https://uploads.github.com`; tests: a local fake over plain http (`fakes/github.ts`). No flag sets it, and only the origin changes: the path is always the site's own repository's (§2.10) |
 
 It returns `{ listen(): Promise<{port}>, close(): Promise<void>, port, token, tokenId, runId, registry, lanes, options, health(challenge?), preflight({refresh}), toolbox(), doctor(write) }`.
 
@@ -600,7 +604,7 @@ node device-bridge.mjs [options]
 
 **`--doctor` output**
 
-- First line `bauloc-device-bridge 1.3.0 · doctor`, then the checklist (§12) by group, with a status word ("OK", "Warning", "Needs action", "Not checked"); fixes are printed only for items that are not OK.
+- First line `bauloc-device-bridge 1.4.0 · doctor`, then the checklist (§12) by group, with a status word ("OK", "Warning", "Needs action", "Not checked"); fixes are printed only for items that are not OK.
 - Then per device:
   - **iOS:** the UDID and ProductType (never the device name); usbmuxd entry (connection, DeviceID); pair record yes/no; QueryType; plaintext key count; StartSession result; TLS protocol and cipher; whether the peer certificate equals the pair record's `DeviceCertificate`; session key count; `PasswordProtected`; battery, disk and amfi results; syslog_relay 3 s byte count; `devicectl device info lockState` (only when Xcode is ready).
   - **Android:** server state and the `devices -l` rows, or `Android: no adb server on 127.0.0.1:<port> (the doctor never starts one)`.
@@ -612,7 +616,7 @@ node device-bridge.mjs [options]
 `<T>` is the 43-character token. A port other than 8787 adds `&port=<n>` to both fragments, so a link without `&port` always means 8787: the page reads it that way, never as the port it used last (§6.5).
 
 ```
-Device Lab helper 1.3.0 · http://127.0.0.1:8787 (this Mac only)
+Device Lab helper 1.4.0 · http://127.0.0.1:8787 (this Mac only)
 
 Opening Device Lab in your browser. If nothing opens, use the link for your browser:
   Chrome, Edge, Firefox   https://bauloc.github.io/device/#pair=<T>
@@ -668,6 +672,7 @@ Keep this window open while you test. Ctrl+C stops the helper; the token changes
 - "Not answering over Wi-Fi" and its advice ("wake it, or connect it again") are for a device the server still lists but can't reach. A device the tester disconnected (`POST /api/android/disconnect`) gets `Wi-Fi: disconnected …` and its departure line, never that wording: the real-device run printed it right after an intentional Disconnect (§9.7), which reads as a fault.
 - Wi‑Fi actions print `Wi-Fi: connected to …`, `Wi-Fi: could not connect to …`, `Wi-Fi: paired with …`, `Wi-Fi: disconnected …`; a scan prints `Wi-Fi: 2 Android devices on this network (…)` or `Wi-Fi: could not look for Android devices on the network: …`, only when it changed (§4.8). The pairing code is never printed: the terminal is pasted into bug reports.
 - A look at the network prints `Network: 8 devices on 192.168.68.0/24 (en0)`, or why it could not look, only when it changed (§4.9): counts and networks, never a name.
+- A release upload (§2.10) prints `GitHub upload: sending 456.7 MB to a release…` when it starts, then `GitHub upload: done, 456.7 MB in 83.2 s`, `GitHub upload: failed after 12.0 s (GITHUB_ASSET_EXISTS)`, or `GitHub upload: stopped after 3.1 s: the page went away` (`: the helper is stopping`): the size, the time and the outcome, never the release, the file's name or a token.
 
 **"Page connected"** prints once per (origin, browser family) on the first authorized request. The family is parsed from the User-Agent (Chrome, Edge, Firefox, Safari; `HeadlessChrome` counts as Chrome).
 
@@ -680,7 +685,7 @@ Keep this window open while you test. Ctrl+C stops the helper; the token changes
 | --- | --- |
 | Node too old | `Device Lab helper needs Node 18 or newer (this is v16.20.2). Install the current LTS from https://nodejs.org, then run the same command again.` |
 | Running as root | `Don't run the Device Lab helper with sudo; it never needs root. Run it as yourself: node ~/device-bridge.mjs` |
-| Port held by our helper | `A Device Lab helper (1.3.0) is already running on port 8787. Use that window, or stop it with Ctrl+C there.` |
+| Port held by our helper | `A Device Lab helper (1.4.0) is already running on port 8787. Use that window, or stop it with Ctrl+C there.` |
 | Port held by another program | `Port 8787 is used by another program. Start the helper on another port:` then `  node ~/device-bridge.mjs --port 8788` |
 | Token file readable by others | `The token file <path> can be read by other users. Fix it with: chmod 600 '<path>'` |
 | Token file is a symlink / not ours | `The token file <path> is a symbolic link or belongs to another user; refusing to use it.` |
@@ -705,7 +710,7 @@ The pair record is held only in memory, and only the fields the TLS session need
 
 | Item | Value |
 | --- | --- |
-| HTTP server | `requestTimeout` 30 s (does not cut streams [V]); `headersTimeout` 10 s; `maxConnections` 64; request body ≤ 1 KiB (413), read only by the Wi‑Fi routes (§4.7) |
+| HTTP server | `requestTimeout` 30 s (does not cut streams [V]; lifted while a release upload streams its body, §2.10); `headersTimeout` 10 s; both checked every 30 s (`requestCheck`, Node's own default); `maxConnections` 64; request body ≤ 1 KiB (413), read only by the Wi‑Fi routes (§4.7), except the release upload's, which is streamed (§2.10) |
 | usbmuxd | request 2 s; `Connect` 3 s (USB), 6 s (network); frame cap 4 MiB |
 | Lockdown | request 5 s; TLS 5 s; probe total 12 s; detail total 15 s; each domain 3 s; frame cap 4 MiB |
 | devicectl | screenshot `--timeout 40` (minimum 5 [V]), hard 45 s; capture `-h` 5 s |
@@ -721,6 +726,7 @@ The pair record is held only in memory, and only the fields the TLS session need
 | Logs | first byte 10 s, else fallback or `LOGS_UNAVAILABLE`; native silence switch 8 s; lane `hello` within 30 s, else 504; batch ≤ 200 lines, 256 KiB or 100 ms; ping 15 s |
 | Output caps | text 8 MiB; PNG 32 MiB; stderr tail 64 KiB; log line 8 KiB; names 200 characters |
 | Local mode | upstream 15 s and 16 MiB per file; at most 300 cached files; HTML revalidated every 60 s; `/assets/*` immutable; last good copy reused offline |
+| Release upload (§2.10) | a file of 1 to 2 147 483 647 bytes (GitHub takes files under 2 GiB); one at a time; 120 s with nothing moving either way (`githubIdle`); GitHub's answer read up to 64 KiB, its words passed on up to 300 characters |
 | Bounds | rescan 5 s; retry 10 s; banner 3 s; port probe 2 s; tools cache 30 s; active window 30 s |
 | Kill grace | 1.5 s |
 
@@ -734,9 +740,11 @@ The pair record is held only in memory, and only the fields the TLS session need
 2. **Origin**, when present, must be exactly one of: `https://bauloc.github.io`, `http://127.0.0.1:<port>`, `http://localhost:<port>`, or the `DEV_ORIGINS` with `--dev`. Otherwise **403** `BAD_ORIGIN`, with no CORS headers. `null`, `http://bauloc.github.io` and look-alikes are refused. A matched origin is echoed in `Access-Control-Allow-Origin`, always with `Vary: Origin`.
 3. **Fetch Metadata.** No `Origin` and `Sec-Fetch-Site` of `cross-site` or `same-site` → **403**. The only exception is a top-level navigation (`Sec-Fetch-Mode: navigate`, `Sec-Fetch-Dest: document`) to `/`, `/device`, `/device/` or `/device/index.html`.
 4. **Body.** A request body is at most 1 KiB and must come with a `Content-Length`; a larger one, a chunked one or a malformed length → **413** `PAYLOAD_TOO_LARGE` before routing. Only the Wi‑Fi routes read a body (§4.7).
+   - The one exception is `POST /api/github/release-asset` (§2.10): its body is streamed on to GitHub, never held, and the route checks its length after the token (411 without one or chunked, 413 past 2 GiB − 1).
+   - Every answer to that request carries `Connection: close`, so an upload refused before its body was read is not read to its end first.
 5. **`OPTIONS`** → 204 with:
    - `Access-Control-Allow-Methods: GET, POST, OPTIONS`
-   - `Access-Control-Allow-Headers: Authorization, Content-Type` (Authorization is never covered by `*`)
+   - `Access-Control-Allow-Headers: Authorization, Content-Type, X-GitHub-Token` (Authorization is never covered by `*`; `X-GitHub-Token` is the release upload's, §2.10)
    - `Access-Control-Max-Age: 600`
    - `Access-Control-Allow-Private-Network: true`, only if the request asked for it (Chromium 104–141)
    - No token is required.
@@ -775,6 +783,7 @@ The pair record is held only in memory, and only the fields the TLS session need
 | `POST /api/android/disconnect` `{serial}` | bearer | `AndroidDisconnectResult` (§4.7) |
 | `GET /api/android/nearby[?refresh=1]` | bearer | `AndroidNearbyResult` (§4.8) |
 | `GET /api/lan/devices[?refresh=1]` | bearer | `LanResult` (§4.9). Bridge-level, never under `/api/android/*`: it works with `--no-android` |
+| `POST /api/github/release-asset?release=<id>&name=<file>` | bearer | 201 `ReleaseAsset`: one build file, streamed to a GitHub release of the site's own repository for XConsole (§2.10). Bridge-level: it works with `--no-android` |
 | `GET /`, `/device`, `/device/index.html` | Host gate | 302 → `/device/` (query kept) |
 | `GET`/`HEAD /device/` | Host gate | Proxied page with boot script and CSP (§2.9) |
 | `GET`/`HEAD /assets/<name>.<ext>`, `/device/agent/device-bridge.mjs` | Host gate | Proxied, immutable cache |
@@ -960,10 +969,12 @@ interface ErrorBody {
     blockers?: string[] // 409s
     reason?: string
     detail?: string // ANDROID_CONNECT_FAILED, ANDROID_PAIR_FAILED (§4.7)
+    status?: number // GITHUB_UPLOAD_FAILED: the status GitHub answered (§2.10)
   }
 }
 
 // AndroidConnectResult, AndroidPairResult, AndroidDisconnectResult: §4.7.
+// ReleaseAsset (POST /api/github/release-asset, 201): §2.10.
 // DoctorReport and PreflightItem: §12c.
 
 // GET /api/lan/devices (§4.9)
@@ -1076,7 +1087,7 @@ The registry is the authority on state. An operation error that reveals a new st
 | `BAD_ORIGIN` | 403 | Origin not allowed, or cross-site without Origin | — | surfaces as `TypeError` (§6.6) |
 | `UNAUTHORIZED` | 401 | Bearer missing or wrong (`tokenId` in body) | — | phase `stale` |
 | `NOT_FOUND` / `METHOD_NOT_ALLOWED` / `PAYLOAD_TOO_LARGE` / `BAD_ID` | 404 / 405 (`Allow`) / 413 / 400 | Router | — | — |
-| `BAD_REQUEST` | 400 | A Wi‑Fi route's body or input is not acceptable (§4.7); a request target that is not origin-form | — | the helper's sentence |
+| `BAD_REQUEST` | 400 | A Wi‑Fi route's body or input is not acceptable (§4.7); a release upload's query, headers or empty file (§2.10); a request target that is not origin-form | — | the helper's sentence |
 | `DEVICE_NOT_FOUND` | 404 | Id not listed, or gone mid-operation | Row removed | toast |
 | `DEVICE_NOT_READY` | 409 (`state`, `blockers`) | Operation on a non-ready row | — | existing wording |
 | `DEVICE_DROPPED` | 503 | A listed device dropped off mid-stream (as the `end` record's `code`) | — | log waits and resumes (§7.8) |
@@ -1103,9 +1114,13 @@ The registry is the authority on state. An operation error that reveals a new st
 | `TOOL_TIMEOUT` | 504 | Our deadline, devicectl `outcome:"timeout"`, or a lane that never said `hello` | — | toast |
 | `TOOL_FAILED` | 502 (`message` = last 500 characters of stderr, cleaned) | Non-zero exit, unparsable output, an unexpected adb `FAIL` | — | toast |
 | `LOGS_UNAVAILABLE` | 503 | No log lane works | — | toast |
-| `HELPER_STOPPING` | 503 | The helper is shutting down | — | toast |
+| `HELPER_STOPPING` | 503 | The helper is shutting down (a log stream before `hello`, a release upload) | — | toast |
 | `UPSTREAM_UNREACHABLE` / `_STATUS` / `_REDIRECT` / `_TOO_LARGE` | 504 / 404 when the upstream says 404, else 502 / 502 / 502 | Local-mode proxy | — | plain error page |
 | `INTERNAL` | 500 | Bug (logged to stderr); also a refused send to a device, which no page input can cause | — | toast |
+| `LENGTH_REQUIRED` | 411 | A release upload without a `Content-Length`, or chunked (§2.10) | — | XConsole's sentence |
+| `PAYLOAD_TOO_LARGE` | 413 | Also: a release upload past 2 147 483 647 bytes (§2.10) | — | XConsole's sentence |
+| `UPLOAD_BUSY` | 409 | A release upload while another one streams (§2.10) | — | XConsole's sentence |
+| `GITHUB_UNAUTHORIZED` / `GITHUB_ASSET_EXISTS` / `GITHUB_UPLOAD_FAILED` (`status`) / `GITHUB_UNREACHABLE` | 502 | GitHub answered a release upload 401 / 422 / another status, or a 201 without an address in the site's repository / GitHub could not be reached, dropped the connection before its answer, or nothing moved for 120 s (§2.10) | — | XConsole's sentence |
 
 ### 2.8 Versioning, `/api/health` and the proof
 
@@ -1118,7 +1133,7 @@ The registry is the authority on state. An operation error that reveals a new st
 **Version**
 
 - `VERSION` is semver, independent of `protocol`.
-- A release that adds a feature (a new `features` entry, endpoint or field) bumps the **minor** version: `android.discover` made 1.0.0 into 1.1.0. A fix alone bumps the **patch**: 1.1.1 is 1.1.0 with discovery safe against hostile mDNS answers (§4.8). `lan.discover` then made 1.1.x into 1.2.0 (§4.9), and `android.adb` 1.2.x into 1.3.0 (§4.10). The protocol stays 1 while every change is an addition.
+- A release that adds a feature (a new `features` entry, endpoint or field) bumps the **minor** version: `android.discover` made 1.0.0 into 1.1.0. A fix alone bumps the **patch**: 1.1.1 is 1.1.0 with discovery safe against hostile mDNS answers (§4.8). `lan.discover` then made 1.1.x into 1.2.0 (§4.9), `android.adb` 1.2.x into 1.3.0 (§4.10), and `github.upload` 1.3.x into 1.4.0 (§2.10). The protocol stays 1 while every change is an addition.
 - Why: discovery first shipped as 1.0.0, like the helper before it. With both files saying 1.0.0 the page could not say "a newer helper is out", and the tester could not tell which one was running.
 
 **Features in v1** (present only when true):
@@ -1130,6 +1145,7 @@ The registry is the authority on state. An operation error that reveals a new st
 | `android.discover` | the same: `GET /api/android/nearby` exists (§4.8; since 1.1.0). |
 | `lan.discover` | always present since 1.2.0: `GET /api/lan/devices` exists (§4.9). Bridge-level, so it stays on with `--no-android`. |
 | `android.adb` | the Android lane runs: the adb tunnel exists (§4.10; since 1.3.0). The page gives Android rows of the helper installs and the Apps and Images tabs only with it. |
+| `github.upload` | always present since 1.4.0: `POST /api/github/release-asset` exists (§2.10). Bridge-level, so `--no-android` leaves it on. XConsole sends a large build only to a helper that lists it, and otherwise asks the owner to update the helper. |
 | `local` | local mode is on |
 | `simulators` | `--simulators` |
 | `wifi` | `--wifi` (iPhones over Wi‑Fi) |
@@ -1182,7 +1198,7 @@ Everything else in §2.2 is protocol 1 itself.
       mode: 'local',
       apiBase: 'http://127.0.0.1:8787',
       protocol: 1,
-      version: '1.3.0',
+      version: '1.4.0',
     }
   </script>
   ```
@@ -1206,6 +1222,71 @@ Everything else in §2.2 is protocol 1 itself.
 - Headers: `Cache-Control: public, max-age=31536000, immutable`, plus `Content-Security-Policy: sandbox; default-src 'none'`.
 - Browsers ignore a subresource's CSP for scripts, styles, fonts and images. The sandbox only stops a top-level navigation to an asset (an SVG above all) from running script on the helper's origin [D]. The local-mode browser check (§9.4) asserts zero CSP violations.
 - `helper:fake --local-from <origin>` serves local mode from another origin (a dev build), because the real helper only ever fetches the published site.
+
+### 2.10 Release assets for XConsole (`github.upload`, 1.4.0)
+
+XConsole publishes a build by committing it to the site's repository, and GitHub refuses a file of 100 MiB or more there. Such a file goes to a GitHub Release instead. XConsole creates the release itself (api.github.com allows CORS), but no page can fill one: uploads.github.com answers no CORS preflight [V 2026-10-07]. So XConsole hands the file to this helper on the owner's Mac, which streams it there. The install page, the icon and the manifest stay in the repository; only the binary's address changes.
+
+**The route:** `POST /api/github/release-asset?release=<id>&name=<file>` (`github-upload.ts`, wired in `http.ts`).
+
+- **The §2.1 pipeline first**, unchanged: Host, Origin, Fetch Metadata, the bearer token. This route alone skips the 1 KiB body cap (step 4).
+- **Every answer carries `Connection: close`**, so an upload refused before its body was read is not read to its end. A browser reads an answer that arrived mid-upload once its next write fails (Chrome's `ShouldTryReadingOnUploadError`), and macOS keeps that answer readable after the reset [V].
+- **Checked before a byte of the body is read** (`parseUpload`), in this order:
+  1. The framing: a `Content-Length` and no `Transfer-Encoding`, else **411** `LENGTH_REQUIRED`. More than 2 147 483 647 bytes (GitHub takes files under 2 GiB) → **413** `PAYLOAD_TOO_LARGE`; 0 → **400** `BAD_REQUEST`.
+  2. The query: exactly `release` (`/^\d{1,15}$/`) and `name` (`/^[a-z0-9][a-z0-9._-]{0,78}\.(?:apk|ipa)$/`, XConsole's `FILE_NAME_PATTERN`), once each and nothing else, else **400**.
+  3. `Content-Type`: `application/vnd.android.package-archive` or `application/octet-stream` (case and surrounding spaces aside, no parameters), else **400**.
+  4. `X-GitHub-Token`: the owner's GitHub token, `/^[A-Za-z0-9_]{20,255}$/` (`ghp_…`, `github_pat_…`), else **400**.
+  - No refusal repeats what the request said, the token least of all.
+- **One at a time.** An upload while another one streams → **409** `UPLOAD_BUSY`.
+
+**The upstream**, fixed in `constants.ts`. Only a test's fake replaces the origin (createBridge's `githubUploads`), never the path:
+
+```
+POST https://uploads.github.com/repos/bauloc/bauloc.github.io/releases/<release>/assets?name=<encodeURIComponent(name)>
+Authorization: token <the token>
+Accept: application/vnd.github+json
+X-GitHub-Api-Version: 2022-11-28
+Content-Type: <as received>
+Content-Length: <as received>
+User-Agent: bauloc-device-bridge/<VERSION>
+```
+
+- No agent: a connection of its own, closed with the upload. TLS is verified as Node does by default.
+- The token goes in that one header of that one request. It is never stored, logged, echoed, put in a URL, or sent anywhere else. The page's bearer token and its Origin stay on this Mac.
+- **Streamed.** The request body is piped to GitHub with back-pressure: nothing is held in memory, and the page's upload progress follows the real upload. A stalled pipe holds 4–7 MiB on the build Mac [V].
+- **Deadlines.** Nothing moving either way for 120 s, neither the page's bytes to GitHub nor GitHub's answer back (`githubIdle`): `GITHUB_UNREACHABLE`. Node's `requestTimeout` runs from a request's first byte to its last, so it would cut any upload longer than 30 s, and it has no per-request switch: the bridge lifts the server's deadline while an upload streams and puts it back after (`liftRequestTimeout`) [V Node 20 and 24]. Uploads run one at a time, so the lifts never overlap.
+- **Ending.**
+  - The page going away (its connection closes, or its body ends short) destroys the request to GitHub.
+  - GitHub failing (a refused connection, a reset before its answer, the idle deadline) answers the page, if it is still there.
+  - An answer GitHub sends before the body is all there (it refuses a token from the headers) is the answer: the rest is not sent.
+  - Shutdown destroys the request to GitHub and answers 503 `HELPER_STOPPING`.
+
+**Answers** (JSON, the usual `/api/*` headers and CORS, and `Connection: close`):
+
+| GitHub | The helper |
+| --- | --- |
+| 201, `browser_download_url` under `https://github.com/bauloc/bauloc.github.io/releases/download/` | 201 `ReleaseAsset` `{id, name, size, url}`: GitHub's id, name and size, and `url` its `browser_download_url` |
+| 201 without such an address, or not readable | 502 `GITHUB_UPLOAD_FAILED`, `status: 201` |
+| 401 | 502 `GITHUB_UNAUTHORIZED` |
+| 422 | 502 `GITHUB_ASSET_EXISTS`, `message` GitHub's |
+| any other status | 502 `GITHUB_UPLOAD_FAILED`, `status`, `message` GitHub's |
+| unreachable, dropped before its answer, or 120 s without a byte | 502 `GITHUB_UNREACHABLE` |
+
+```ts
+interface ReleaseAsset {
+  id: number // GitHub's id for the asset
+  name: string // the file's name as GitHub stored it
+  size: number // bytes, as GitHub counted them
+  url: string // browser_download_url, always under the site's repository's releases
+}
+```
+
+- Errors are the helper's usual `ErrorBody`: `{error: {code, message, status?}}`. GitHub's words are its `message` and what its `errors` say ("Validation Failed: ReleaseAsset name already_exists"), control characters stripped, at most 300 characters; its answer is read up to 64 KiB.
+- The terminal gets a line when an upload starts and one when it ends, with the size, the time and the outcome (§1.10). `--verbose` adds the size to the request's own line, `POST /api/github/release-asset 201 83211 ms · 456.7 MB`. Never the query, a header or a token.
+
+**Feature:** `github.upload`, always present since 1.4.0 (§2.8).
+
+**XConsole** (`features/xconsole/builds/helper.ts`, outside this helper) finds the helper with Device Lab's own proof (§2.8, §6.5) and sends the file with an XHR, for its upload progress. It creates the release before the upload, and deletes it and its tag when the upload fails or is cancelled.
 
 ---
 
@@ -1231,7 +1312,7 @@ Ranges matter only for the later-phase lanes and for the amfi read (≥ 16). Scr
 
 **Frame:** a 16-byte little-endian header `{u32 total length (header included), u32 version 1, u32 message 8 (plist), u32 tag}`, then an XML plist [V].
 
-- Every request carries `ClientVersionString: 'bauloc-device-bridge 1.3.0'`, `ProgName: 'device-bridge'` and `kLibUSBMuxVersion: 3`. Without `kLibUSBMuxVersion: 3`, `Listen` never pushes network devices [V].
+- Every request carries `ClientVersionString: 'bauloc-device-bridge 1.4.0'`, `ProgName: 'device-bridge'` and `kLibUSBMuxVersion: 3`. Without `kLibUSBMuxVersion: 3`, `Listen` never pushes network devices [V].
 - One connection per request; `Listen` keeps its own. `connect()` hands the socket back paused.
 
 | Message | Reply | Use |
@@ -2770,7 +2851,7 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
 | T11 | Protocol misuse on the device | Code allowlists `LOCKDOWN_REQUESTS`, `LOCKDOWN_SERVICES`, `MUX_MESSAGES`, `DEVICECTL_COMMANDS`, `ADB_EXEC`, `ADB_HOST_SERVICES`, and "never sent" lists, all asserted by tests | — |
 | T12 | The LNA grant is **origin-wide** | Once allowed, every page on bauloc.github.io, XConsole included, can reach every loopback service on the Mac, not only the helper. The helper still requires its token. The Environment check says so; local mode avoids the grant. | Other loopback services the user runs |
 | T13 | Local-mode proxy abuse | Fixed upstream; strict path regex; off-site redirects → 502; never reads disk [V]; caps and timeouts; inline-script hashes; `frame-ancestors 'none'`; `X-Frame-Options: DENY`; `sandbox` CSP on assets | Same trust as hosted mode |
-| T14 | Resource exhaustion | `maxConnections` 64; tool limiter 4; per-device single-flight; one Wi‑Fi dial per host; at most 3 log streams; caps; timeouts; body ≤ 1 KiB | A local DoS needs a restart |
+| T14 | Resource exhaustion | `maxConnections` 64; tool limiter 4; per-device single-flight; one Wi‑Fi dial per host; at most 3 log streams; caps; timeouts; body ≤ 1 KiB, except the release upload's, streamed, one at a time and idle-bounded (§2.10) | A local DoS needs a restart |
 | T15 | Orphan processes | `detached` groups; kill on timeout, abort, client gone and shutdown; synchronous `exit` hook; grandchild reaping tested [V] | — |
 | T16 | Privilege | Refuses root; never runs sudo; sudo commands are only shown for the user to copy | — |
 | T17 | Pair-record secrets | In memory only, and only the fields TLS needs; TLS uses in-memory PEM (no temp files); never logged or returned; `--doctor` prints shapes only | — |
@@ -2781,6 +2862,7 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
 | T22 | The Wi‑Fi routes as a way into the local network (a paired page makes the adb server dial addresses) | Bearer, Origin and the rest of §2.1 first; LAN-only addresses (private, link-local and CGNAT IPv4, ULA and link-local IPv6, `.local`/`.lan`/`.home.arpa` names), never loopback or public; names resolved and every address checked before adb sees them; ports as integers, codes as six digits; one exact string per service; one dial per host at a time; the pairing code never printed | adb resolves a name again, so DNS that changes between the two lookups is not caught; a paired page can make adb try `host:port` pairs on the LAN, one at a time, which is what the feature is |
 | T23 | The LAN list as a way to probe the network (§4.9) | Bearer and the rest of §2.1 first; no request names an address, range or port (`?refresh=1` only); only this computer's own private subnets on real interfaces, at most 512 addresses; one 1-byte datagram an address to port 9, no TCP port, no NetBIOS; the one HTTP request is a UPnP description at the very address that answered SSDP, plain HTTP, no redirect, 64 KiB, no entity expanded; every count, byte and time bounded; one look at a time, cached 30 s, never at startup or on a timer; every answer untrusted, a hardware address never returned | A paired page can make the helper look at its own network every 3 s (`lanGap`) |
 | T24 | The adb tunnel as a way to run commands on devices (§4.10) | §2.1's Host check, then an **allowed Origin required** (cross-site WebSocket hijacking) and the token as a subprotocol, compared in constant time; only rows of the Android lane that are `ready`; the serial goes in `host:transport:` from the registry, never from the page; only the allowlisted device services, never a host service, `reverse:` (the device reaching this Mac's loopback), `tcp:`/`local*:` sockets, a terminal, or what restarts adbd; caps on tunnels, frames and the opening; back-pressure; every tunnel closed at shutdown; `--verbose` logs the path and the time, never the service | A paired page runs shell commands on Android devices the adb server lists, which is the feature (WebUSB gives the page the same on a phone the tester picked). With an XSS on bauloc.github.io (T9), so could the attacker while the helper runs |
+| T25 | The release upload as a way to push data to GitHub (§2.10) | §2.1 first: Host, Origin (or none, and no cross-site Fetch Metadata), then the bearer token; one fixed host (uploads.github.com) and repository (the site's own), the page naming only a release number and a file name of a fixed shape, so no request names another host, repository or path; the PAT only forwarded, in one header of one request, never stored, logged, echoed, put in a URL or sent elsewhere; at most 2 147 483 647 bytes, checked before a byte is read; one upload at a time; streamed with back-pressure, so memory stays flat; 120 s idle deadline; answers that never repeat the request; the terminal and `--verbose` say the size and the time only | A paired page holding the owner's PAT (with an XSS on bauloc.github.io, T9) can add files to the site's releases while the helper runs; that PAT already lets any page do everything else to the repository through api.github.com |
 
 ---
 
@@ -2813,7 +2895,7 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
 **Layout**
 
 - `_app/helper/test/*.test.ts`, run by `helper/vitest.config.ts`: node environment, `pool: 'forks'` (the tests spawn real fake tools and send signals, and the helper installs a process-wide `exit` hook, so each file gets its own process).
-- Files: `util`, `process`, `cli`, `auth`, `registry`, `http`, `operations`, `logs`, `local-mode`, `lifecycle`, `banner`, `build`, `context`, `tunnel` (core); `ios-codec`, `ios-clients`, `ios-lane`, `ios-screenshot`, `ios-logs` (iOS); `android`, `mdns`, `nearby`, `system-resolver`, `simulators`, `lan-net`, `lan` (§4.9); `tools`, `preflight`; and the opt-in `android-real`, `simulators-real`.
+- Files: `util`, `process`, `cli`, `auth`, `registry`, `http`, `operations`, `logs`, `local-mode`, `lifecycle`, `banner`, `build`, `context`, `tunnel`, `github-upload` (core); `ios-codec`, `ios-clients`, `ios-lane`, `ios-screenshot`, `ios-logs` (iOS); `android`, `mdns`, `nearby`, `system-resolver`, `simulators`, `lan-net`, `lan` (§4.9); `tools`, `preflight`; and the opt-in `android-real`, `simulators-real`.
 - Every test builds its bridge with `createBridge({port: 0, searchPath: fakeBin, extraDirs: [], usbmuxdSocket, adbPort, upstream, xcodeSelectPath, plistBuddyPath, javaHomePath, applicationsDir, coreDeviceDir, coreSimulatorDir, home, open: false, timeouts: short})`, or a fixed Toolbox, so no real tool can leak in.
 - `test/build.test.ts` checks the built file: shebang and header first, the Node 18 denylist, the exports.
 
@@ -2832,6 +2914,7 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
 - **`dns-sd.ts`**: a fake `dns-sd` and a fake `avahi-browse` written into the bin directory (`fakeDnsSd`, `fakeAvahiBrowse`), answering by argument from fixtures, optionally after a delay, then running on as the real dns-sd does (or exiting with a code and stderr). `REAL_PIXEL` and `REAL_CAST` are byte for byte what the real dns-sd printed on the owner's Mac on 2026-10-04; `browseOutput`, `resolveOutput`, `lookupOutput` write the same formats. For §4.9 it also answers `dns-sd -Z <type>` (`zoneOutput`, with a block printed twice as for two interfaces), the list of types (`typesOutput`) and `dns-sd -fmc -q` (`queryOutput`); `fakeAvahiResolve` writes a fake `avahi-resolve`.
 - **`lan.ts`**: the LAN sources of §4.9 with no socket: `fakePresence()` (who answers port unreachable and after how long, `sendError` for a computer that sends nothing; it counts the sockets open at once, when the last closed and the datagrams each address got), `fakeSsdpNetwork()` with `decoRouter()` (the owner's TP-Link Deco as measured, made-up ids) and `DECO_DESCRIPTION`, `fakeDescriptions()`, `lanInterfaces()`; `silentPresence()`, `silentSsdp()` and `noDescription` are every isolated bridge's, with no interface (`lanInterfaces: () => []`).
 - **`upstream.ts`**: gzip-encoding HTTP server with ETag/304; `/device/` has an inline theme script **and** an inline script with attributes; `/assets/x.js`, `/assets/i.svg`.
+- **`github.ts`**: a stand-in for uploads.github.com (§2.10), plain HTTP on 127.0.0.1 through `githubUploads`: it records each upload (method, URL, headers, the body's bytes and SHA-256, whether the body ended short, whether the helper hung up before an answer) and answers as each test says: `store` (201 like GitHub's own), `answer` (a status and body, after the body or `early`, before it), `hold` (read nothing until released), `silent` (never answer).
 - **`lane.ts`**, **`devices.ts`**: scriptable fake lanes and rows, also used by `helper:fake` and the page's real-helper tests.
 
 **Fixtures (`_app/helper/test/fixtures/`, kept byte-exact by `.prettierignore`)**: devicectl envelopes (`success`, `4016`, `1001`, `1000`, `timeout`, `lockstate`) with private paths removed; `pixel-9.json` (a copy of `DETAIL_FIXTURES['pixel-9']`); sanitized and trimmed `simctl` lists.
@@ -2847,6 +2930,7 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
 | system resolver | dns-sd's `-B`/`-L`/TXT/`-G` lines from the owner's Mac and hostile ones (headers, junk, wrong domain or type, ports out of range, bad escapes, `No Such Record`, IPv6); presentation names (`\032`, `\.`, UTF-8); avahi's `+`/`-`/`=` lines, a `;` in a name, quoted TXT, a type with `(`, `[` or `+` found as text; TXT details and API → Android version; browsing the owner's network through a fake dns-sd (the exact argv, each host looked up once, every process gone afterwards); a resolve that never answers and a lookup past its deadline cut off; 16 Cast entries whose `-L` never answers, with and without a cap of 4, while the Pixel still resolves; a dns-sd that ignores SIGTERM ending the run on its deadline and freeing its slot; avahi's per-group cap; slow answers inside it kept; `Rmv`; options, oversized names, foreign answers and non-`.local` hosts never passed on; two devices on `Android.local` get no address; caps; a dns-sd that fails at once did not look, a missing one never runs, a silent one looked; abort; no MaxListenersExceededWarning from a dns-sd or avahi run, with every AbortController capped at 10 as on Node 18 and 20 (`listenerWarnings`, `harness.ts`); avahi: IPv4 only, no daemon, hanging, removal; which tool per platform; merging: blocked + resolver looked → `note` and no `error`, no resolver → `blocked` as before, each source's finds once, TXT names filled in, dedupe by serial (same host, or adb's list), two boxes sharing a serial or a junk one kept apart, local-address rules and cap; both sources failed → the resolver's words in `error.detail`, the terminal and `--doctor`; the endpoint and `--doctor` with dns-sd while the helper's queries are blocked |
 | network (§4.9) | The networks looked at: a /24 (its own addresses, network and broadcast never targets), a /16 reduced to the /24 around this computer, two /24s inside 512, a subnet two interfaces share checked once, tunnels/bridges/AirDrop/loopback/link-local/CGNAT/IPv6 refused. Presence: the owner's network found, one datagram each, the pool and the 4/10 ms pace, every socket closed, blocked and no-network; the real transport on 127.0.0.1 (a closed port refuses, a bound silent port and 127.0.0.2 stay silent), a bind that fails leaves no socket. Tables: macOS `arp -an` (unpadded, incomplete and multicast skipped), Linux `/proc/net/arp` (flags 0x2/0x6), Windows `arp -a` in German by shape (broadcast, multicast and empty rows no device); gateways the three ways. SSDP: the router's answers and searches, only local sources, 256 at most, blocked, a bind that fails; the real socket on 127.0.0.1. Description: where it may be fetched from (same IP, http, no redirect, 64 KiB, XML), the tag scanner (entity bomb, DOCTYPE, CDATA, nesting, over 64 KiB), the real fetch on 127.0.0.1. Merge: a shared host name ties nothing unless `from` heard it, several addresses no guess, names (`_raop` after `@`, `_workstation` without its address), a host name carrying a hardware address dropped, TXT allowlist, caps and truncation. Privacy: the reply, the terminal and `--doctor` grepped for every spelling of every fixture's hardware address and its last three bytes, ids, serials and UUIDs. error/note/neither; cut at `lanScan`; the endpoint (cache/gap/one-at-a-time, bearer/Origin/GET, `--no-android`, `lan.discover`, a client that leaves), shutdown, and the `--doctor` Network section without a name |
 | adb tunnel (§4.10) | WebSocket codec: RFC 6455's accept key, frame headers at 125/126/65535/65536 bytes, masked frames whole and byte by byte, fragments with a ping between, close codes, and every refusal (unmasked, RSV, a lone continuation, a message inside another, fragmented or long control frames, unknown opcodes, over the cap from the header alone); the service allowlist and each `ADB_TUNNEL_NEVER` entry; the gate (rebound Host, no Origin, another site, bad key, version 8 → 426, no token, wrong token, the token without the protocol) as bare replies without the token or ACAO, and every other path refused; 101 with the right accept and only the tunnel's protocol; an `exec:` answer and its close, a Wi‑Fi serial, 3 MiB both ways in 256 KiB messages, ping/pong, the page's close and its going away ending the device's service, an opening abandoned midway; each refusal in the first message (unlisted, malformed, an iPhone, not ready, a service off the list) with the lane never asked; protocol errors (bytes first, not JSON, empty service, over 64 KiB, unmasked, text after ok, no opening in time); 16 per device then `TUNNEL_LIMIT`, another device unaffected, room again after one closes; `GET …/adb` (features, token, refusals); shutdown → 1001; `--verbose` without the service or the token. Through the real lane and the fake adb server: `host:transport:<serial>` then `host:features`, then the page's service, its answer, bytes both ways for `sync:`, a `FAIL` worded as the page's code, and nothing off the allowlist sent |
+| release upload (§2.10) | The checks one by one (no length, chunked, a length that is not a number, empty, 2 GiB, the `Content-Type`, the token's shape, the query every way wrong) as 411/413/400, GitHub never asked and the token never repeated; Origin and the bearer token first (a 64 MiB upload refused at once, readable, `Connection: close`); the preflight naming `X-GitHub-Token`; POST only; `github.upload` and 1.4.0 in health; 5 MiB streamed to a fake uploads.github.com (`fakes/github.ts`) with the exact path and headers (the PAT in Authorization only, never the helper's token, nothing in the URL) and the same SHA-256; an IPA as plain bytes; back-pressure (a held GitHub stops the page under 32 MiB of 64 MiB, then the whole file arrives intact); 201 with its address checked, 401, 422, 404 and 500 mapped, GitHub's message cut at 300; an early 401 while the page still sends; nothing listening; the idle deadline cutting the request to GitHub; a page that leaves or stalls mid-file, its slot freed; `UPLOAD_BUSY`; shutdown mid-file → 503 `HELPER_STOPPING`; a slow body elsewhere still cut before and after an upload four times longer than the request deadline; the terminal and `--verbose` without the PAT, the helper's token, the release, the name or the query |
 | simulators | List join; filter iOS runtimes; screenshot refused when not Booted (no hang); `-` never used; compact log header and stderr dropped; grandchild reaped on abort; first-launch gate (CoreSimulator older) → `unavailable` |
 | tools, preflight | §12e matrix |
 

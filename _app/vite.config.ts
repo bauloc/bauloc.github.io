@@ -7,6 +7,8 @@ import { readFileSync, existsSync, statSync, createReadStream } from 'node:fs'
 import path from 'node:path'
 import type { Plugin } from 'vite'
 
+import { createMockStore, type MockStore } from './dev/xconsole-mock-store.ts'
+
 /*
   The app version comes from package.json, the single place it is bumped, and is inlined as
   `__APP_VERSION__` at build time.
@@ -26,6 +28,7 @@ const repoRoot = fileURLToPath(new URL('..', import.meta.url))
   The repo root serves a static contract that this build neither produces nor owns:
 
     /terms/{slug}/   /privacy/{slug}/   /iptv   /data/**   /device/agent/**
+    /artifact/{id}.html   /build/{id}/**
 
   Those files are committed straight to the repo by the in-browser xconsole and GitHub Pages
   serves them directly — deliberately, so that publishing an app-store-facing legal page
@@ -36,7 +39,7 @@ const repoRoot = fileURLToPath(new URL('..', import.meta.url))
   falls through to the SPA and you cannot see what a store reviewer sees. `vite preview` has
   the same gap, since these files are not in dist/ either.
 */
-function serveRepoRootContract(): Plugin {
+function serveRepoRootContract(store: MockStore): Plugin {
   /*
     Each entry is a directory whose subtree may be served, or an exact file. Containment is
     checked against THE MATCHED ENTRY, not against the repo root.
@@ -45,9 +48,9 @@ function serveRepoRootContract(): Plugin {
     an earlier version resolved the path and only asserted `startsWith(repoRoot)`, so
     `/terms/%2e%2e%2f_app%2fpackage.json` escaped the `terms/` prefix, stayed inside the
     repo, and served _app/package.json. Verified, then fixed. `npm run dev` must expose
-    exactly these five things and nothing else.
+    exactly these things and nothing else.
   */
-  const DIRS = ['terms', 'privacy', 'data', 'device/agent']
+  const DIRS = ['terms', 'privacy', 'data', 'device/agent', 'artifact', 'build']
   const FILES = ['iptv']
 
   const MIME: Record<string, string> = {
@@ -61,6 +64,12 @@ function serveRepoRootContract(): Plugin {
     '.otf': 'font/otf',
     '.frag': 'text/plain; charset=utf-8',
     '.pdf': 'application/pdf',
+    '.svg': 'image/svg+xml',
+    '.webp': 'image/webp',
+    // What Pages sends (mime-db): an .apk by name, an .ipa and a .plist as plain bytes.
+    '.apk': 'application/vnd.android.package-archive',
+    '.ipa': 'application/octet-stream',
+    '.plist': 'application/octet-stream',
   }
 
   /** Absolute directory, guaranteed to end in a separator so a sibling like
@@ -110,13 +119,60 @@ function serveRepoRootContract(): Plugin {
     name: 'bauloc:serve-repo-root-contract',
     apply: 'serve',
     configureServer(server) {
+      // The XConsole mock's GitHub (dev/xconsole-mock-store.ts): its own requests first.
+      server.middlewares.use((req, res, next) => {
+        store.handle(req, res).then(
+          (handled) => {
+            if (!handled) next()
+          },
+          (error: unknown) => {
+            next(error)
+          },
+        )
+      })
+
       server.middlewares.use((req, res, next) => {
         const urlPath = (req.url ?? '/').split('?')[0] ?? '/'
         const resolved = resolveOwned(urlPath)
         if (resolved === null) return next()
 
+        /*
+          What the mock published comes first, at the same paths Pages would serve it from. A
+          path the mock deleted falls through to the SPA, as an unknown address does on Pages.
+        */
+        const rel = path.relative(repoRoot, resolved).split(path.sep).join('/')
+        const overlaid = (key: string) => (store.overlay.has(key) ? store.read(key) : undefined)
+        const asFile = overlaid(rel)
+        const asIndex = overlaid(rel === '' ? 'index.html' : `${rel}/index.html`)
+        if (asFile === null || (asFile === undefined && asIndex === null)) return next()
+        if (asFile instanceof Buffer && !urlPath.endsWith('/')) {
+          res.setHeader('Content-Type', MIME[path.extname(rel)] ?? 'application/octet-stream')
+          res.end(asFile)
+          return
+        }
+        if (asIndex instanceof Buffer) {
+          // Pages answers /build/{id} with a 301 to /build/{id}/, so relative links resolve.
+          if (!urlPath.endsWith('/')) {
+            res.statusCode = 301
+            res.setHeader('Location', `${urlPath}/`)
+            res.end()
+            return
+          }
+          res.setHeader('Content-Type', MIME['.html'] ?? 'text/html')
+          res.end(asIndex)
+          return
+        }
+
         let file = resolved
-        if (existsSync(file) && statSync(file).isDirectory()) file = path.join(file, 'index.html')
+        if (existsSync(file) && statSync(file).isDirectory()) {
+          if (!urlPath.endsWith('/') && existsSync(path.join(file, 'index.html'))) {
+            res.statusCode = 301
+            res.setHeader('Location', `${urlPath}/`)
+            res.end()
+            return
+          }
+          file = path.join(file, 'index.html')
+        }
         if (!existsSync(file) || !statSync(file).isFile()) return next()
 
         res.setHeader('Content-Type', MIME[path.extname(file)] ?? 'application/octet-stream')
@@ -142,7 +198,7 @@ export default defineConfig({
     }),
     react(),
     tailwindcss(),
-    serveRepoRootContract(),
+    serveRepoRootContract(createMockStore(repoRoot)),
   ],
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
@@ -181,7 +237,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'dev/**/*.test.ts'],
     pool: 'threads',
   },
 })

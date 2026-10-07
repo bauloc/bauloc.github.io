@@ -16,7 +16,7 @@ Website cá nhân của **Nguyễn Phước Lộc (BAULOC)**, lập trình viên
 | --- | --- |
 | [Trang chủ](https://bauloc.github.io/) | Lối vào các mục của site, xem dạng List hoặc Grid, có giao diện sáng và tối. |
 | [Profile](https://bauloc.github.io/profile/) | Giới thiệu, portfolio, quá trình làm việc, CV (PDF) và form liên hệ. |
-| [XConsole](https://bauloc.github.io/xconsole/) | Công cụ quản trị: tạo trang Terms of Service và Privacy Policy để nộp ứng dụng lên App Store và Google Play, quản lý playlist IPTV. |
+| [XConsole](https://bauloc.github.io/xconsole/) | Công cụ quản trị: tạo trang Terms of Service và Privacy Policy để nộp ứng dụng lên App Store và Google Play, gửi bản build APK/IPA cho tester qua link cài đặt, đăng trang HTML (artifact), quản lý playlist IPTV. |
 | [Device Lab](https://bauloc.github.io/device/) | Xem thông tin, chụp màn hình và đọc log của điện thoại kết nối với máy tính; với Android còn cài, gỡ và xuất ứng dụng. Có [bản demo](https://bauloc.github.io/device/?mock=1) dùng thiết bị mẫu. |
 
 Mọi trang đều có giao diện sáng và tối (một lựa chọn chung cho cả site). Mọi trang, kể cả trang chủ, dùng chung một header: các mục của site (Trang chủ, Hồ sơ, XConsole, Device Lab), nút EN · VI và nút sáng/tối. Trang chủ, Profile, XConsole và Device Lab có hai ngôn ngữ, Tiếng Việt và English: mặc định theo ngôn ngữ của trình duyệt, đổi bằng nút EN · VI và được nhớ lại. CV tải về cũng có hai bản.
@@ -34,6 +34,14 @@ Mọi trang đều có giao diện sáng và tối (một lựa chọn chung cho
   Thêm `--simulators` để hiện iOS Simulator. Helper chỉ lắng nghe trên `127.0.0.1:8787` và không gửi telemetry. Nhấn `Ctrl+C` để dừng.
 
   Qua helper, thiết bị Android (cả TV và điện thoại qua Wi-Fi) dùng được mọi tính năng như khi cắm cáp: cài, gỡ, xuất ứng dụng và xem ảnh.
+
+### XConsole: Builds và Artifacts
+
+- **Builds:** tải lên file `.apk` hoặc `.ipa`. XConsole đọc thông tin bản build (tên, phiên bản, icon, provisioning profile) và đăng một trang cài đặt tại `https://bauloc.github.io/build/<id>/` để gửi cho tester. Trên Android, nút Install tải file APK về; trên iPhone và iPad, nút Install cài qua `itms-services` (mở bằng Safari, IPA phải ký Ad Hoc, Development hoặc Enterprise). Trên máy tính, trang hiện mã QR để quét bằng điện thoại.
+- **Artifacts:** tải lên hoặc dán một file HTML, XConsole đăng tại `https://bauloc.github.io/artifact/<id>.html`. Mặc định trang chạy trong iframe sandbox khác origin, nên không đọc được token GitHub mà XConsole lưu trong trình duyệt.
+- File được commit thẳng vào repo qua GitHub API: mỗi file phải nhỏ hơn 100 MB (giới hạn của GitHub), và bản đã tải lên vẫn nằm trong lịch sử git kể cả khi đã xoá. Site GitHub Pages tối đa khoảng 1 GB, nên hãy xoá các bản build cũ.
+- Bản build từ 100 MB trở lên (tối đa dưới 2 GB) được đưa lên GitHub Releases thay vì vào repo, qua helper của Device Lab chạy trên máy Mac (trình duyệt không tự tải file lên GitHub Releases được): `curl -fsSL https://bauloc.github.io/device/agent/device-bridge.mjs -o ~/device-bridge.mjs && node ~/device-bridge.mjs`. Link cài đặt vẫn như cũ; xoá bản build thì release của nó cũng bị xoá.
+- Thử trên máy: chạy `npm run dev` rồi mở http://localhost:7360/xconsole/?mock. Chế độ mock không cần token; mọi thay đổi chỉ nằm trong bộ nhớ của dev server và được phục vụ tại đúng đường dẫn (`/build/<id>/`, `/artifact/<id>.html`).
 
 ## Công nghệ
 
@@ -99,6 +107,8 @@ Form liên hệ gửi tin nhắn qua bot Telegram. `VITE_TELEGRAM_BOT_TOKEN` và
 │   └── agent/          # Helper của Device Lab (device-bridge.mjs)
 ├── terms/              # Trang Terms of Service do XConsole tạo
 ├── privacy/            # Trang Privacy Policy do XConsole tạo
+├── build/              # Trang cài đặt và file APK/IPA do XConsole đăng
+├── artifact/           # Trang HTML do XConsole đăng
 └── data/, iptv         # Dữ liệu do XConsole quản lý
 ```
 
@@ -111,7 +121,7 @@ GitHub Pages phục vụ site trực tiếp từ thư mục gốc của branch `
 3. Commit cả mã nguồn lẫn bản build, rồi mở pull request vào `master`.
 4. Sau khi merge, GitHub Pages tự build lại và site được cập nhật sau khoảng một phút.
 
-> **Lưu ý:** `terms/`, `privacy/`, `data/` và `iptv` do XConsole ghi trực tiếp lên `master`; `npm run publish` không bao giờ ghi đè các đường dẫn này. Không sửa tay hay đổi URL các trang pháp lý, vì chúng đã được khai báo trên App Store và Google Play.
+> **Lưu ý:** `terms/`, `privacy/`, `build/`, `artifact/`, `data/` và `iptv` do XConsole ghi trực tiếp lên `master`; `npm run publish` không bao giờ ghi đè các đường dẫn này. Không sửa tay hay đổi URL các trang pháp lý, vì chúng đã được khai báo trên App Store và Google Play.
 
 ## Liên hệ
 

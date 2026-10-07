@@ -47,6 +47,7 @@ const SECTIONS = /** @type {Record<string, string>} */ ({
   'src/preflight.ts': '§12 Doctor and preflight',
   'src/websocket.ts': '§13a WebSocket frames',
   'src/adb-tunnel.ts': '§13b adb tunnel',
+  'src/github-upload.ts': '§13c GitHub release upload',
   'src/http.ts': '§13 HTTP API',
   'src/local-mode.ts': '§14 Local mode',
   'src/lan-net.ts': '§15 LAN sources',

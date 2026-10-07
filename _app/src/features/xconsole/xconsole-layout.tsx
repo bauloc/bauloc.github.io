@@ -48,7 +48,8 @@ export function XConsoleLayout() {
 
   // The legacy console addressed modules by hash; keep those bookmarks working.
   useEffect(() => {
-    const legacy = CONSOLE_MODULES.find((m) => m.legacyHash === window.location.hash)
+    const hash = window.location.hash
+    const legacy = CONSOLE_MODULES.find((m) => 'legacyHash' in m && m.legacyHash === hash)
     if (legacy) void navigate({ to: legacy.to, replace: true })
   }, [navigate])
 
