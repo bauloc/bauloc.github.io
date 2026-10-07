@@ -32,18 +32,19 @@ const SHEETS = HOME_LINKS.en.length + FIRST_LINK
 const TYPE_AHEAD_MS = 900
 
 /*
-  Two layouts of the same sheets: `list`, the strip under a camera (the reference's), and
-  `grid`, every sheet at once with its description — the way to see the whole list without
-  travelling. The choice is remembered.
+  Two layouts of the same sheets: `grid`, every sheet at once with its description — the way
+  to see the whole list without travelling, and what the page opens on — and `list`, the strip
+  under a camera (the reference's). The choice is remembered.
 */
 type Layout = 'list' | 'grid'
 const LAYOUT_STORAGE_KEY = 'bauloc:layout'
 
+/** The grid, unless this browser chose the strip. */
 function readLayout(): Layout {
   try {
-    return window.localStorage.getItem(LAYOUT_STORAGE_KEY) === 'grid' ? 'grid' : 'list'
+    return window.localStorage.getItem(LAYOUT_STORAGE_KEY) === 'list' ? 'list' : 'grid'
   } catch {
-    return 'list'
+    return 'grid'
   }
 }
 
