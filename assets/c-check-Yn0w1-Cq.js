@@ -1,0 +1,1 @@
+import{d as e}from"./c-messages-DEe-r0tw.js";var t=e(`check`,[[`path`,{d:`M20 6 9 17l-5-5`,key:`1gmf2c`}]]);export{t};
