@@ -9,6 +9,7 @@
     LaneContext the bridge hands each lane, and the options createBridge() takes.
 */
 import type { ChildProcess } from 'node:child_process'
+import type { Duplex } from 'node:stream'
 import type { RunTool, StreamTool } from './process'
 import type { ToolOptions, Toolbox } from './tools'
 import type { IosLaneFacts } from './ios-lane'
@@ -249,6 +250,19 @@ export interface AndroidDisconnectResult {
   /** "disconnected 192.168.1.20:5555". */
   message: string
 }
+
+/* ------------------------------------------------------ wire: the adb tunnel (§4.10) --- */
+
+/** GET /api/devices/:id/adb: what the page's adb transport needs before it opens a tunnel. */
+export interface AndroidAdbInfo {
+  /** The adb serial, as listed (the device's id). */
+  serial: string
+  /** The device's adbd features (`host:features`): `shell_v2`, `cmd`, `abb_exec`, `sendrecv_v2`… */
+  features: string[]
+}
+
+/** The tunnel's text messages from the helper, before any byte of the service (§4.10). */
+export type TunnelReply = { t: 'ok' } | { t: 'error'; code: string; message: string }
 
 /* ------------------------------------------------- wire: Wi-Fi discovery (§4.8) --- */
 
@@ -527,6 +541,8 @@ export interface Timeouts {
   adbExec: number
   adbScreencap: number
   adbStartPoll: number
+  /** The adb tunnel (§4.10): how long the page has to say which service it wants. */
+  tunnelHello: number
   /**
    * `host:connect:` (§4.7): the server dials the device, then waits up to 10 s for its
    * handshake; more than that here, so adb's own answer arrives before ours.
@@ -647,6 +663,13 @@ export interface AndroidLane extends Lane<AndroidLaneFacts> {
    * more often than the lane allows.
    */
   readonly nearby: (refresh: boolean, signal: AbortSignal) => Promise<AndroidNearbyResult>
+  /** §4.10: what the page's adb transport needs to know about a listed device. */
+  readonly adbInfo: (id: string, signal: AbortSignal) => Promise<AndroidAdbInfo>
+  /**
+   * §4.10: one device service (assertTunnelService), open and paused, for the HTTP layer's
+   * tunnel to pipe. The signal destroys it.
+   */
+  readonly openTunnel: (id: string, service: string, signal: AbortSignal) => Promise<Duplex>
 }
 
 export interface LaneSet {

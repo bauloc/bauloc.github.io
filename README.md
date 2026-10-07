@@ -33,13 +33,15 @@ Mọi trang đều có giao diện sáng và tối (một lựa chọn chung cho
 
   Thêm `--simulators` để hiện iOS Simulator. Helper chỉ lắng nghe trên `127.0.0.1:8787` và không gửi telemetry. Nhấn `Ctrl+C` để dừng.
 
+  Qua helper, thiết bị Android (cả TV và điện thoại qua Wi-Fi) dùng được mọi tính năng như khi cắm cáp: cài, gỡ, xuất ứng dụng và xem ảnh.
+
 ## Công nghệ
 
 - [React 19](https://react.dev), [TypeScript](https://www.typescriptlang.org), [Vite](https://vite.dev)
 - [TanStack Router](https://tanstack.com/router) và [TanStack Query](https://tanstack.com/query)
 - [Tailwind CSS 4](https://tailwindcss.com) và [shadcn/ui](https://ui.shadcn.com)
 - [Vitest](https://vitest.dev), ESLint, Prettier
-- [ya-webadb](https://github.com/yume-chan/ya-webadb) cho kết nối Android qua WebUSB
+- [ya-webadb](https://github.com/yume-chan/ya-webadb) cho kết nối Android qua WebUSB và qua helper
 - GitHub Pages để host
 
 ## Bắt đầu

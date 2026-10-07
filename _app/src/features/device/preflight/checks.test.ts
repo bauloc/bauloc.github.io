@@ -2746,7 +2746,10 @@ describe('wifiChecks', () => {
       device: { id: '192.168.1.42:5555', name: 'Living Room TV', state: 'ready' },
     })
     expect(say(allowed)).toMatchObject({
-      authorized: ['ok', 'Living Room TV allows this computer. Detail, screenshots and logs work.'],
+      authorized: [
+        'ok',
+        'Living Room TV allows this computer. Details, screenshots, logs, apps, images and installs all work.',
+      ],
     })
   })
 

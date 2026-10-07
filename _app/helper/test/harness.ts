@@ -6,6 +6,8 @@
     closed after each test file.
   - request() / openStream(): raw node:http, because Node's fetch silently replaces a custom
     Host header [V], which would make the DNS-rebinding tests pass without testing anything.
+  - openWebSocket(): a raw WebSocket client on node:net, for the adb tunnel (§4.10): any
+    handshake header, and frames a browser would never send.
   - until(), tinyPng(), freePort(), tempDir(): the small things every suite needs.
   - listenerWarnings(): what Node 18 and 20 would warn about abort listeners, on Node 24.
 
@@ -15,6 +17,7 @@
                   resolveTools: () => Promise.resolve(toolbox((t) => { t.xcode.state = 'ready' })) })
   Every lane is off unless a test turns it on, and nothing else is ever reachable.
 */
+import { randomBytes } from 'node:crypto'
 import { setMaxListeners } from 'node:events'
 import http, { type IncomingHttpHeaders } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -425,4 +428,191 @@ export function openStream(
 
 export function isStream(value: Stream | Reply): value is Stream {
   return 'messages' in value
+}
+
+/* ------------------------------------------------------------ a raw WebSocket client --- */
+
+export interface WsFrameIn {
+  readonly opcode: number
+  readonly payload: Buffer
+}
+
+export interface RawWebSocket {
+  /** The handshake's status: 101 when the upgrade was accepted. */
+  readonly status: number
+  readonly headers: Record<string, string>
+  /** The refusal's body, when the status isn't 101. */
+  readonly body: string
+  /** The next frame from the helper; rejects when the connection ends first. */
+  readonly next: (timeoutMs?: number) => Promise<WsFrameIn>
+  /** Every frame until the helper closes the connection. */
+  readonly rest: () => Promise<WsFrameIn[]>
+  /** One frame, masked unless `mask: false`, final unless `fin: false`, RSV bits as given. */
+  readonly send: (
+    opcode: number,
+    payload?: Buffer | string,
+    o?: { mask?: boolean; fin?: boolean; rsv?: number },
+  ) => void
+  /** `{"service": …}`, the tunnel's opening message. */
+  readonly hello: (service: string) => void
+  readonly raw: (bytes: Buffer) => void
+  readonly close: () => void
+  /** Resolves when the TCP connection is gone. */
+  readonly closed: Promise<void>
+}
+
+/** A masked client frame (RFC 6455 §5.2). */
+export function clientFrame(
+  opcode: number,
+  payload: Buffer,
+  o: { mask?: boolean; fin?: boolean; rsv?: number } = {},
+): Buffer {
+  const mask = o.mask !== false
+  const length = payload.length
+  const head: number[] = [((o.fin === false ? 0 : 0x80) | ((o.rsv ?? 0) << 4) | opcode) & 0xff]
+  const bit = mask ? 0x80 : 0
+  let ext = Buffer.alloc(0)
+  if (length < 126) head.push(bit | length)
+  else if (length < 0x10000) {
+    head.push(bit | 126)
+    ext = Buffer.alloc(2)
+    ext.writeUInt16BE(length)
+  } else {
+    head.push(bit | 127)
+    ext = Buffer.alloc(8)
+    ext.writeBigUInt64BE(BigInt(length))
+  }
+  if (!mask) return Buffer.concat([Buffer.from(head), ext, payload])
+  const key = randomBytes(4)
+  const body = Buffer.from(payload)
+  for (let i = 0; i < body.length; i++) body[i] = (body[i] ?? 0) ^ (key[i & 3] ?? 0)
+  return Buffer.concat([Buffer.from(head), ext, key, body])
+}
+
+/**
+ * A WebSocket handshake with exactly the headers given (`undefined` leaves one out), then
+ * frames. The defaults are what a browser sends for the adb tunnel, minus the token.
+ */
+export function openWebSocket(
+  port: number,
+  opts: { path: string; host?: string; headers?: Record<string, string | undefined> },
+): Promise<RawWebSocket> {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(port, '127.0.0.1')
+    const headers: Record<string, string | undefined> = {
+      Host: opts.host ?? `127.0.0.1:${String(port)}`,
+      Upgrade: 'websocket',
+      Connection: 'Upgrade',
+      'Sec-WebSocket-Version': '13',
+      'Sec-WebSocket-Key': randomBytes(16).toString('base64'),
+      ...opts.headers,
+    }
+    const lines = [`GET ${opts.path} HTTP/1.1`]
+    for (const [name, value] of Object.entries(headers)) {
+      if (value !== undefined) lines.push(`${name}: ${value}`)
+    }
+    socket.write(`${lines.join('\r\n')}\r\n\r\n`)
+
+    let buffered = Buffer.alloc(0)
+    let handshake: { status: number; headers: Record<string, string> } | null = null
+    const frames: WsFrameIn[] = []
+    const waiters: Array<(frame: WsFrameIn | null) => void> = []
+    let ended = false
+    let resolveClosed: () => void = () => undefined
+    const closed = new Promise<void>((r) => {
+      resolveClosed = r
+    })
+
+    const deliver = (frame: WsFrameIn | null): void => {
+      const waiter = waiters.shift()
+      if (waiter) waiter(frame)
+      else if (frame) frames.push(frame)
+    }
+    const parseFrames = (): void => {
+      for (;;) {
+        if (buffered.length < 2) return
+        const b0 = buffered[0] ?? 0
+        let length = (buffered[1] ?? 0) & 0x7f
+        let offset = 2
+        if (length === 126) {
+          if (buffered.length < 4) return
+          length = buffered.readUInt16BE(2)
+          offset = 4
+        } else if (length === 127) {
+          if (buffered.length < 10) return
+          length = Number(buffered.readBigUInt64BE(2))
+          offset = 10
+        }
+        if (buffered.length < offset + length) return
+        const payload = Buffer.from(buffered.subarray(offset, offset + length))
+        buffered = buffered.subarray(offset + length)
+        deliver({ opcode: b0 & 0x0f, payload })
+      }
+    }
+    const api = (): RawWebSocket => ({
+      status: handshake?.status ?? 0,
+      headers: handshake?.headers ?? {},
+      body: handshake && handshake.status !== 101 ? buffered.toString('utf8') : '',
+      next: (timeoutMs = 3_000) =>
+        new Promise((res, rej) => {
+          const frame = frames.shift()
+          if (frame) return res(frame)
+          if (ended) return rej(new Error('The connection ended.'))
+          const timer = setTimeout(() => rej(new Error('No frame in time.')), timeoutMs)
+          waiters.push((f) => {
+            clearTimeout(timer)
+            if (f) res(f)
+            else rej(new Error('The connection ended.'))
+          })
+        }),
+      rest: async () => {
+        await closed
+        return frames.splice(0)
+      },
+      send: (opcode, payload = Buffer.alloc(0), o = {}) => {
+        socket.write(clientFrame(opcode, Buffer.from(payload), o))
+      },
+      hello: (service) => {
+        socket.write(clientFrame(0x1, Buffer.from(JSON.stringify({ service }), 'utf8')))
+      },
+      raw: (bytes) => {
+        socket.write(bytes)
+      },
+      close: () => socket.destroy(),
+      closed,
+    })
+    socket.on('data', (chunk: Buffer) => {
+      buffered = Buffer.concat([buffered, chunk])
+      if (!handshake) {
+        const end = buffered.indexOf('\r\n\r\n')
+        if (end < 0) return
+        const [statusLine = '', ...rest] = buffered
+          .subarray(0, end)
+          .toString('latin1')
+          .split('\r\n')
+        const parsed: Record<string, string> = {}
+        for (const line of rest) {
+          const colon = line.indexOf(':')
+          if (colon > 0)
+            parsed[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim()
+        }
+        handshake = { status: Number(statusLine.split(' ')[1] ?? 0), headers: parsed }
+        buffered = buffered.subarray(end + 4)
+        if (handshake.status !== 101) {
+          /** A refusal: its body follows, then the helper closes. */
+          socket.on('close', () => resolve(api()))
+          return
+        }
+        resolve(api())
+      }
+      if (handshake.status === 101) parseFrames()
+    })
+    socket.on('error', () => undefined)
+    socket.on('close', () => {
+      ended = true
+      while (waiters.length) deliver(null)
+      resolveClosed()
+      if (!handshake) reject(new Error('Closed before the handshake.'))
+    })
+  })
 }

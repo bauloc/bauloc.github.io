@@ -125,7 +125,7 @@ if (token !== undefined && !/^[A-Za-z0-9_-]{43}$/.test(token)) {
 const cleanups = []
 const STUB = '\0vitest-stub'
 const entry = `
-export { fakeIosLane, fakeAndroidLane, fakeSimulatorLane } from ${JSON.stringify(path.join(FAKES, 'fakes/lane.ts'))}
+export { fakeIosLane, fakeAndroidLane, fakeSimulatorLane, echoService } from ${JSON.stringify(path.join(FAKES, 'fakes/lane.ts'))}
 export { IPHONE, PIXEL, SIMULATOR } from ${JSON.stringify(path.join(FAKES, 'fakes/devices.ts'))}
 export { isolation, toolbox, tinyPng } from ${JSON.stringify(path.join(FAKES, 'harness.ts'))}
 export { createFakeUsbmuxd } from ${JSON.stringify(path.join(FAKES, 'fakes/usbmuxd.ts'))}
@@ -791,6 +791,20 @@ const androidLane = fakes.fakeAndroidLane({
   pairNetwork: (target) => tvPair(target),
   disconnectNetwork: (serial) => tvDisconnect(serial),
   nearby: (refresh, signal) => nearbyResult(refresh, signal),
+  /**
+   * The adb tunnel (§4.10): getprop answers as a Pixel 9 does, so the page's installs gate opens;
+   * anything else says plainly that no phone is behind it, rather than leaving a tab spinning.
+   */
+  openTunnel: async (_id, service, signal) => {
+    if (service.startsWith('exec:getprop ')) return fakes.echoService(service, signal)
+    throw asHelperError({
+      code: 'TOOL_FAILED',
+      status: 502,
+      message:
+        'helper:fake has no phone behind the adb tunnel. Try apps, images and installs with an emulator or a phone.',
+      extra: {},
+    })
+  },
 })
 const simLane = fakes.fakeSimulatorLane({
   state: simLaneState(),

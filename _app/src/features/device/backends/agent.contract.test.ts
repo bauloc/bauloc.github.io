@@ -5,7 +5,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { createHelperConnection, type HelperConnection } from '../helper/connection'
 import { stashPendingPair } from '../helper/pair-fragment'
-import { DVC_MAX_AGENT, DVC_MIN_AGENT, type HelperDevice } from '../helper/protocol'
+import {
+  DVC_MAX_AGENT,
+  DVC_MIN_AGENT,
+  TUNNEL_PROTOCOL,
+  type HelperDevice,
+} from '../helper/protocol'
 import {
   IPHONE,
   PIXEL,
@@ -68,6 +73,10 @@ describe('the contract with the built helper', () => {
   it('speaks a protocol this page accepts', () => {
     expect(built.PROTOCOL).toBeGreaterThanOrEqual(DVC_MIN_AGENT)
     expect(built.PROTOCOL).toBeLessThanOrEqual(DVC_MAX_AGENT)
+  })
+
+  it('opens the adb tunnel with the subprotocol the helper answers (§4.10)', () => {
+    expect(builtText).toContain(`const TUNNEL_PROTOCOL = "${TUNNEL_PROTOCOL}";`)
   })
 
   it('has a hint for every blocker the helper can put on a row', () => {
@@ -133,6 +142,7 @@ async function pageAgainst(helper: RealHelper): Promise<{
     },
     {
       fetch: helper.fetch,
+      webSocket: helper.webSocket,
       stores,
       permissions: { query: () => Promise.resolve({ state: 'granted', onchange: null }) },
       document: null,
@@ -185,7 +195,18 @@ describe('the agent lane end to end', () => {
     const byId = (id: string) => lab.getSnapshot().devices.find((d) => d.id === id)
     expect(byId(IPHONE.id)).toMatchObject({ backend: 'agent', model: 'iPhone 12 Pro' })
     expect(byId(SIMULATOR.id)).toMatchObject({ connection: 'simulator', platform: 'ios' })
-    expect(byId(PIXEL.id)?.capabilities.install).toBe(false)
+    // Through the adb tunnel (§4.10) the Pixel gets WebUSB's operations: its API level and
+    // ABIs are read with getprop, each a WebSocket the helper pipes to the device.
+    await until(() => byId(PIXEL.id)?.capabilities.install === true, 'the Pixel installable')
+    expect(byId(PIXEL.id)).toMatchObject({
+      capabilities: { install: true, apps: true, images: true },
+      android: { sdk: 37, release: '17', manufacturer: 'Google', abis: ['arm64-v8a'] },
+    })
+    expect(helper.calls('android')).toContainEqual({ op: 'adbInfo', id: PIXEL.id })
+    expect(helper.calls('android')).toContainEqual({
+      op: 'openTunnel exec:getprop',
+      id: PIXEL.id,
+    })
 
     // Android detail through the helper equals WebUSB's, Connection aside.
     const webusb = androidDetail(pixelFixture.outputs, pixelFixture.serial)
@@ -352,7 +373,9 @@ describe('discovery against the built helper', { timeout: 20_000 }, () => {
     helpers.push(helper)
     const { conn } = await pageAgainst(helper)
     await until(
-      () => conn.getStatus().health?.features.includes('android.discover') === true,
+      () =>
+        conn.getStatus().phase === 'connected' &&
+        conn.getStatus().health?.features.includes('android.discover') === true,
       'android.discover',
     )
 
@@ -398,7 +421,9 @@ describe('discovery against the built helper', { timeout: 20_000 }, () => {
     helpers.push(helper)
     const { conn } = await pageAgainst(helper)
     await until(
-      () => conn.getStatus().health?.features.includes('android.discover') === true,
+      () =>
+        conn.getStatus().phase === 'connected' &&
+        conn.getStatus().health?.features.includes('android.discover') === true,
       'android.discover',
     )
     expect((await conn.nearby()).error).toEqual({

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createHelperClient, HelperError } from '../helper/client'
+import { createHelperClient, HelperError, type AdbTunnel } from '../helper/client'
 import type { HelperConnection, HelperPhase, HelperStatus } from '../helper/connection'
-import type { HelperDevice, LogMsg } from '../helper/protocol'
+import type { AdbInfo, Health, HelperDevice, LogMsg } from '../helper/protocol'
 import { androidDetail } from './android'
 import {
   LOG_ENDED_LINE,
@@ -37,7 +37,22 @@ const IPHONE: HelperDevice = {
   capabilities: ALL,
 }
 
-const status = (phase: HelperPhase): HelperStatus => ({
+const healthWith = (features: string[], runId = 'run-1'): Health => ({
+  name: 'bauloc-device-bridge',
+  version: '1.3.0',
+  protocol: 1,
+  features,
+  port: 8787,
+  tokenId: 'abcdef01',
+  tokenPersistent: false,
+  runId,
+  startedAt: 0,
+  local: false,
+  platform: 'darwin-arm64',
+  sha256: '',
+})
+
+const status = (phase: HelperPhase, health: Health | null = null): HelperStatus => ({
   phase,
   promptLikely: false,
   env: {
@@ -48,7 +63,7 @@ const status = (phase: HelperPhase): HelperStatus => ({
     devOrigin: false,
   },
   permission: 'granted',
-  health: null,
+  health,
   lanes: null,
   pairing: null,
   remember: false,
@@ -57,15 +72,27 @@ const status = (phase: HelperPhase): HelperStatus => ({
   error: null,
 })
 
-/** A HelperConnection whose phase, rows and log stream the test decides. */
-function fakeConnection(opts: { phase?: HelperPhase; devices?: HelperDevice[] } = {}) {
+/** A HelperConnection whose phase, rows, health and log stream the test decides. */
+function fakeConnection(
+  opts: { phase?: HelperPhase; devices?: HelperDevice[]; health?: Health | null } = {},
+) {
   let phase = opts.phase ?? 'connected'
+  let health = opts.health ?? null
+  let devices = opts.devices ?? []
   let messages: LogMsg[] = []
+  const deviceListeners = new Set<() => void>()
+  const statusListeners = new Set<() => void>()
   const conn = {
-    getStatus: vi.fn(() => status(phase)),
-    subscribeStatus: vi.fn(() => () => undefined),
-    getDevices: vi.fn(() => opts.devices ?? []),
-    subscribeDevices: vi.fn<HelperConnection['subscribeDevices']>(() => () => undefined),
+    getStatus: vi.fn(() => status(phase, health)),
+    subscribeStatus: vi.fn((listener: () => void) => {
+      statusListeners.add(listener)
+      return () => statusListeners.delete(listener)
+    }),
+    getDevices: vi.fn(() => devices),
+    subscribeDevices: vi.fn<HelperConnection['subscribeDevices']>((listener) => {
+      deviceListeners.add(listener)
+      return () => deviceListeners.delete(listener)
+    }),
     start: vi.fn(),
     stop: vi.fn(),
     connect: vi.fn(),
@@ -96,6 +123,10 @@ function fakeConnection(opts: { phase?: HelperPhase; devices?: HelperDevice[] } 
         }
         return Promise.resolve()
       }),
+      adbInfo: vi.fn<HelperConnection['api']['adbInfo']>((id) =>
+        Promise.resolve<AdbInfo>({ serial: id, features: ['shell_v2', 'cmd', 'abb_exec'] }),
+      ),
+      openAdb: vi.fn<HelperConnection['api']['openAdb']>(() => Promise.reject(new Error('unset'))),
     },
   } satisfies HelperConnection
   return {
@@ -106,7 +137,45 @@ function fakeConnection(opts: { phase?: HelperPhase; devices?: HelperDevice[] } 
     play(next: LogMsg[]) {
       messages = next
     },
+    /** New rows, as a poll brings them. */
+    setDevices: (next: HelperDevice[]) => {
+      devices = next
+      for (const listener of [...deviceListeners]) listener()
+    },
+    /** Another health: a helper restarted, or one with other features. */
+    setHealth: (next: Health | null) => {
+      health = next
+      for (const listener of [...statusListeners]) listener()
+    },
   }
+}
+
+/**
+ * A device service that answers once and ends, as `exec:getprop <key>` does: what the scripted
+ * tunnels below send back.
+ */
+function answeringTunnel(text: string): AdbTunnel & { closeCalls: number } {
+  let resolveClosed: () => void = () => undefined
+  const closed = new Promise<void>((resolve) => {
+    resolveClosed = resolve
+  })
+  const tunnel = {
+    closeCalls: 0,
+    read(onData: (bytes: Uint8Array) => void, onEnd: () => void) {
+      queueMicrotask(() => {
+        onData(new TextEncoder().encode(text))
+        resolveClosed()
+        onEnd()
+      })
+    },
+    write: () => Promise.resolve(),
+    close() {
+      tunnel.closeCalls++
+      resolveClosed()
+    },
+    closed,
+  }
+  return tunnel
 }
 
 describe('toDevice', () => {
@@ -455,5 +524,163 @@ describe('logs', () => {
     expect(logEndError({ t: 'end', reason: 'eof' })).toBeNull()
     expect(logEndError({ t: 'end', reason: 'client-gone' })).toBeNull()
     expect(logEndError(null)?.code).toBe('HELPER_UNREACHABLE')
+  })
+})
+
+describe('the agent lane’s Android operations, through the adb tunnel (§4.10)', () => {
+  const TV: HelperDevice = {
+    ...IPHONE,
+    id: '192.168.68.101:5555',
+    platform: 'android',
+    connection: 'network',
+    name: 'BRAVIA 4K UR3',
+    model: 'BRAVIA 4K UR3',
+    modelId: 'BRAVIA_UR3',
+    osVersion: '10',
+  }
+  const PROPS: Record<string, string> = {
+    'ro.product.manufacturer': 'Sony',
+    'ro.product.brand': 'Sony',
+    'ro.build.version.release': '10',
+    'ro.build.version.sdk': '29',
+    'ro.product.cpu.abilist': 'armeabi-v7a,armeabi',
+  }
+
+  /** A TV whose services answer getprop from PROPS, through a helper with or without the tunnel. */
+  function tvLane(features = ['android.adb']) {
+    const fake = fakeConnection({ devices: [TV], health: healthWith(features) })
+    const services: string[] = []
+    fake.conn.api.openAdb.mockImplementation((_id, service) => {
+      services.push(service)
+      const key = /^exec:getprop (\S+)$/.exec(service)?.[1]
+      return key === undefined
+        ? Promise.reject(new HelperError('BAD_REQUEST', 'http'))
+        : Promise.resolve(answeringTunnel(`${PROPS[key] ?? ''}\n`))
+    })
+    const lane = createAgentBackend(fake.conn)
+    return { ...fake, lane, services }
+  }
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+  /** Until `check` holds: the first opening also loads ya-webadb. */
+  const until = async (check: () => boolean) => {
+    for (let waited = 0; !check(); waited += 10) {
+      if (waited > 3_000) throw new Error('Timed out.')
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+  }
+
+  it('maps the tunnel’s part of a row: apps and images with the tunnel, installs from API 24', () => {
+    expect(toDevice(TV).capabilities).toMatchObject({ install: false, apps: false, images: false })
+    expect(toDevice(TV, { facts: null }).capabilities).toMatchObject({
+      install: false,
+      apps: true,
+      images: true,
+    })
+    const facts = {
+      sdk: 29,
+      release: '10',
+      manufacturer: 'Sony',
+      brand: 'Sony',
+      abis: ['armeabi-v7a'],
+    }
+    const tv = toDevice(TV, { facts })
+    expect(tv.capabilities).toMatchObject({ install: true, apps: true, images: true })
+    expect(tv.android).toEqual(facts)
+    expect(toDevice(TV, { facts: { ...facts, sdk: 23 } }).capabilities.install).toBe(false)
+    expect(toDevice({ ...TV, state: 'unauthorized' }, { facts }).capabilities).toMatchObject({
+      install: false,
+      apps: false,
+      images: false,
+    })
+  })
+
+  it('opens a ready Android device as soon as it is listed, and reads what WebUSB reads', async () => {
+    const { conn, lane, services } = tvLane()
+    const changed = vi.fn()
+    lane.subscribe(changed)
+    await lane.start()
+    await until(() => lane.list()[0]?.android !== undefined)
+    expect(conn.api.adbInfo).toHaveBeenCalledWith(TV.id)
+    expect(services.sort()).toEqual(
+      Object.keys(PROPS)
+        .map((key) => `exec:getprop ${key}`)
+        .sort(),
+    )
+    const [tv] = lane.list()
+    expect(tv?.capabilities).toMatchObject({ install: true, apps: true, images: true })
+    expect(tv?.android).toEqual({
+      sdk: 29,
+      release: '10',
+      manufacturer: 'Sony',
+      brand: 'Sony',
+      abis: ['armeabi-v7a', 'armeabi'],
+    })
+    expect(changed).toHaveBeenCalled()
+    lane.stop()
+  })
+
+  it('offers no operations through a helper without the tunnel, and says why when asked', async () => {
+    const { conn, lane } = tvLane([])
+    await lane.start()
+    await settle()
+    expect(conn.api.adbInfo).not.toHaveBeenCalled()
+    expect(lane.list()[0]?.capabilities).toMatchObject({ install: false, apps: false })
+    await expect(lane.apps?.(TV.id, 'user')).rejects.toMatchObject({ code: 'ADB_UNSUPPORTED' })
+    expect(deviceErrorMessage(new HelperError('ADB_UNSUPPORTED', 'http'))).toMatch(
+      /Download it again/,
+    )
+    lane.stop()
+  })
+
+  it('closes a device’s session when its row goes, and opens a new one when it is back', async () => {
+    const { conn, lane, setDevices } = tvLane()
+    await lane.start()
+    await until(() => lane.list()[0]?.android !== undefined)
+    expect(lane.list()[0]?.android?.sdk).toBe(29)
+    setDevices([{ ...TV, state: 'offline', blockers: ['ANDROID_OFFLINE'] }])
+    expect(lane.list()[0]?.android).toBeUndefined()
+    expect(lane.list()[0]?.capabilities.apps).toBe(false)
+    setDevices([TV])
+    await until(() => lane.list()[0]?.android !== undefined)
+    expect(conn.api.adbInfo).toHaveBeenCalledTimes(2)
+    expect(lane.list()[0]?.android?.sdk).toBe(29)
+    lane.stop()
+  })
+
+  it('starts over for a restarted helper: its adb client is a new one', async () => {
+    const { conn, lane, setHealth } = tvLane()
+    await lane.start()
+    await until(() => lane.list()[0]?.android !== undefined)
+    setHealth(healthWith(['android.adb'], 'run-2'))
+    expect(lane.list()[0]?.android).toBeUndefined()
+    await until(() => lane.list()[0]?.android !== undefined)
+    expect(conn.api.adbInfo).toHaveBeenCalledTimes(2)
+    lane.stop()
+  })
+
+  it('doesn’t retry a failed opening on every poll, but an operation tries again at once', async () => {
+    const { conn, lane, setDevices } = tvLane()
+    conn.api.adbInfo.mockRejectedValueOnce(new HelperError('TUNNEL_LIMIT', 'http'))
+    await lane.start()
+    await settle()
+    expect(conn.api.adbInfo).toHaveBeenCalledTimes(1)
+    setDevices([TV])
+    await settle()
+    expect(conn.api.adbInfo).toHaveBeenCalledTimes(1)
+    await lane.installFacts?.(TV.id, null).catch(() => undefined)
+    expect(conn.api.adbInfo).toHaveBeenCalledTimes(2)
+    lane.stop()
+  })
+
+  it('refuses an operation on a device that isn’t ready, without asking the helper', async () => {
+    const { conn, lane } = tvLane()
+    conn.getDevices.mockReturnValue([{ ...TV, state: 'unauthorized' }])
+    await lane.start()
+    await expect(lane.images?.(TV.id, { album: 'camera', offset: 0, limit: 10 })).rejects.toThrow(
+      'DEVICE_NOT_READY',
+    )
+    expect(conn.api.adbInfo).not.toHaveBeenCalled()
+    lane.stop()
   })
 })

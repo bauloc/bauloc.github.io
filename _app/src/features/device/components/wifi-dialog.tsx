@@ -67,7 +67,7 @@ const WIFI_MESSAGES = defineMessages({
   en: {
     title: 'Connect over Wi‑Fi',
     description:
-      'An Android TV or phone on the same Wi‑Fi as this computer, through the local helper. Details, screenshots and the log work over Wi‑Fi.',
+      'An Android TV or phone on the same Wi‑Fi as this computer, through the local helper. Details, screenshots, the log, apps, images and installing all work over Wi‑Fi.',
     close: 'Close',
     found: 'Found on this network',
     looking: 'Looking…',
@@ -108,7 +108,7 @@ const WIFI_MESSAGES = defineMessages({
   vi: {
     title: 'Kết nối qua Wi‑Fi',
     description:
-      'Android TV hoặc điện thoại dùng cùng mạng Wi‑Fi với máy tính này, kết nối qua helper cục bộ. Thông tin chi tiết, ảnh chụp màn hình và log đều dùng được qua Wi‑Fi.',
+      'Android TV hoặc điện thoại dùng cùng mạng Wi‑Fi với máy tính này, kết nối qua helper cục bộ. Thông tin chi tiết, ảnh chụp màn hình, log, ứng dụng, ảnh và cài đặt đều dùng được qua Wi‑Fi.',
     close: 'Đóng',
     found: 'Tìm thấy trên mạng này',
     looking: 'Đang tìm…',

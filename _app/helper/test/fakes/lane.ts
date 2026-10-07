@@ -6,10 +6,12 @@
   test overrides only what it is about. The context the bridge handed the lane is kept, so a
   test can publish rows or set lane state at any moment, exactly as a real lane would.
 */
+import { Duplex } from 'node:stream'
 import { networkSerial, type AndroidLaneFacts } from '../../src/android-lane'
 import type { IosLaneFacts } from '../../src/ios-lane'
 import type { SimulatorLaneFacts } from '../../src/simulator-lane'
 import type {
+  AndroidAdbInfo,
   AndroidConnectResult,
   AndroidLane,
   AndroidNearbyResult,
@@ -61,6 +63,72 @@ export interface FakeLaneScript<K extends LaneName> {
   ) => Promise<{ message: string }>
   /** Wi-Fi discovery (§4.8). By default nothing is found on the network. */
   nearby?: (refresh: boolean, signal: AbortSignal, ctx: LaneContext) => Promise<AndroidNearbyResult>
+  /** The adb tunnel (§4.10). By default a modern phone's features. */
+  adbInfo?: (id: string, signal: AbortSignal, ctx: LaneContext) => Promise<AndroidAdbInfo>
+  /**
+   * By default `echoService`: what the page writes comes back, `exec:echo X` answers X and
+   * `exec:getprop <key>` a Pixel 9's value (PHONE_PROPS).
+   */
+  openTunnel?: (
+    id: string,
+    service: string,
+    signal: AbortSignal,
+    ctx: LaneContext,
+  ) => Promise<Duplex>
+}
+
+/** A modern phone's adbd features, as `host:features` lists them. */
+export const PHONE_FEATURES = [
+  'shell_v2',
+  'cmd',
+  'stat_v2',
+  'ls_v2',
+  'fixed_push_mkdir',
+  'apex',
+  'abb',
+  'fixed_push_symlink_timestamp',
+  'abb_exec',
+  'remount_shell',
+  'track_app',
+  'sendrecv_v2',
+]
+
+/** What a Pixel 9 answers to `getprop <key>`, for the page's connect through the tunnel. */
+export const PHONE_PROPS: Readonly<Record<string, string>> = {
+  'ro.product.model': 'Pixel 9',
+  'ro.product.manufacturer': 'Google',
+  'ro.product.brand': 'google',
+  'ro.build.version.release': '17',
+  'ro.build.version.sdk': '37',
+  'ro.product.cpu.abilist': 'arm64-v8a',
+}
+
+/**
+ * A device service for tests: `exec:echo <text>` writes `<text>\n` and ends, like adbd, and
+ * `exec:getprop <key>` writes PHONE_PROPS' value; any other service sends back whatever is
+ * written to it until the tunnel closes. Destroyed when `signal` aborts, as the real adb
+ * client's socket is.
+ */
+export function echoService(service: string, signal: AbortSignal): Duplex {
+  const prop = /^exec:getprop (\S+)$/.exec(service)?.[1]
+  const echo =
+    prop === undefined ? /^exec:echo (.*)$/s.exec(service) : [service, PHONE_PROPS[prop] ?? '']
+  const stream: Duplex = new Duplex({
+    read() {
+      /** Pushed by write() below, or at once for an echo command. */
+    },
+    write(chunk: Buffer, _encoding, done) {
+      stream.push(chunk)
+      done()
+    },
+  })
+  if (echo) {
+    stream.push(`${echo[1] ?? ''}\n`)
+    stream.push(null)
+  }
+  if (signal.aborted) stream.destroy()
+  else signal.addEventListener('abort', () => stream.destroy(), { once: true })
+  return stream
 }
 
 export interface FakeLane<L extends Lane> {
@@ -160,6 +228,16 @@ function build<K extends LaneName, F>(
           calls.push({ op: refresh ? 'nearby refresh' : 'nearby' })
           if (script.nearby) return script.nearby(refresh, signal, created)
           return Promise.resolve({ devices: [], scannedAt: created.now() })
+        },
+        adbInfo(id, signal) {
+          calls.push({ op: 'adbInfo', id })
+          if (script.adbInfo) return script.adbInfo(id, signal, created)
+          return Promise.resolve({ serial: id, features: [...PHONE_FEATURES] })
+        },
+        openTunnel(id, service, signal) {
+          calls.push({ op: `openTunnel ${service.split(/[\s\0]/)[0] ?? ''}`, id })
+          if (script.openTunnel) return script.openTunnel(id, service, signal, created)
+          return Promise.resolve(echoService(service, signal))
         },
         facts,
       }

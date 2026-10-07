@@ -34,6 +34,11 @@ export type HelperFeature =
   | 'android.discover'
   /** GET /api/lan/devices: every device on this computer's network (helper 1.2.0). */
   | 'lan.discover'
+  /**
+   * The adb tunnel (§4.10, helper 1.3.0): GET /api/devices/:id/adb and its WebSocket, so the
+   * Android operations (installs, apps, images) reach a device only the adb server reaches.
+   */
+  | 'android.adb'
   | 'local'
   | 'simulators'
   | 'wifi'
@@ -616,6 +621,49 @@ export function parseDisconnectReply(value: unknown): DisconnectReply | null {
   if (!isRecord(value) || value.result !== 'disconnected') return null
   const serial = typeof value.serial === 'string' ? value.serial : ''
   return DEVICE_ID.android.test(serial) ? { result: 'disconnected', serial } : null
+}
+
+/*
+  The adb tunnel (§4.10, feature `android.adb`): one WebSocket per device service, as an adb
+  client opens one socket per service. The page names the service in its first message; the
+  helper answers one of these, then only bytes travel.
+*/
+
+/** The WebSocket subprotocol; the token travels as a second one, `bearer.<token>`. */
+export const TUNNEL_PROTOCOL = 'device-bridge.adb.v1'
+
+/** GET /api/devices/:id/adb. */
+export interface AdbInfo {
+  readonly serial: string
+  /** The device's adbd features: `shell_v2`, `cmd`, `abb_exec`, `sendrecv_v2`… */
+  readonly features: readonly string[]
+}
+
+export type TunnelReply =
+  { readonly t: 'ok' } | { readonly t: 'error'; readonly code: string; readonly message: string }
+
+export function parseAdbInfo(value: unknown): AdbInfo | null {
+  if (!isRecord(value)) return null
+  const serial = typeof value.serial === 'string' ? value.serial : ''
+  if (!DEVICE_ID.android.test(serial)) return null
+  return {
+    serial,
+    features: strings(value.features, 64, 40).filter((f) => /^[\w.-]+$/.test(f)),
+  }
+}
+
+/** The tunnel's first message, a JSON text. */
+export function parseTunnelReply(text: string): TunnelReply | null {
+  let value: unknown
+  try {
+    value = JSON.parse(text)
+  } catch {
+    return null
+  }
+  if (!isRecord(value)) return null
+  if (value.t === 'ok') return { t: 'ok' }
+  if (value.t !== 'error' || typeof value.code !== 'string' || !CODE.test(value.code)) return null
+  return { t: 'error', code: value.code, message: str(value.message, CAP.sentence) }
 }
 
 /*

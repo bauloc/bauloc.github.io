@@ -1,7 +1,8 @@
 /*
   A fake adb server: Google's host protocol on 127.0.0.1, in this process, on a port the test
   picks (or 0). It answers what the Android lane may send — host:version, track-devices-l,
-  devices-l, reconnect-offline, host:transport:<serial> and the exec: commands — the way the
+  devices-l, reconnect-offline, host:transport:<serial>, host:features, the exec: commands and
+  the adb tunnel's device services (§4.10) — the way the
   real server does, including its FAIL texts, so the lane is tested against the wire and not
   against itself. No adb binary and no real server are ever involved.
 
@@ -56,6 +57,13 @@ export interface FakeAdbServer {
   readonly setDevices: (devices: FakeAdbDevice[]) => void
   /** How exec:<cmd> on <serial> answers; undefined → FAIL "closed". */
   exec: (serial: string, cmd: string) => ExecAnswer | undefined
+  /**
+   * How any other device service on <serial> answers (`shell,v2,raw:…`, `sync:`, `abb_exec:…`,
+   * the adb tunnel's, §4.10); undefined → FAIL "closed".
+   */
+  service: (serial: string, service: string) => ExecAnswer | undefined
+  /** `host:features` after host:transport:<serial>: the device's comma-separated features. */
+  features: (serial: string) => string
   /** Answer track-devices-l with FAIL, as a server without the tracker would. */
   failTrack: boolean
   /**
@@ -262,9 +270,14 @@ export async function createFakeAdbServer(opts: { port?: number } = {}): Promise
         socket.write('OKAY')
         return
       }
-      if (transport && service.startsWith('exec:')) {
+      if (transport && service === 'host:features') {
+        return void socket.end(okayWith(fake.features(transport)))
+      }
+      if (transport && !service.startsWith('host')) {
         busy = true
-        const answer = fake.exec(transport, service.slice('exec:'.length))
+        const answer = service.startsWith('exec:')
+          ? fake.exec(transport, service.slice('exec:'.length))
+          : fake.service(transport, service)
         if (answer === undefined) return void socket.end(fail('closed'))
         if (typeof answer === 'string' || Buffer.isBuffer(answer)) {
           socket.write('OKAY')
@@ -341,6 +354,8 @@ export async function createFakeAdbServer(opts: { port?: number } = {}): Promise
       timers.add(timer)
     },
     exec: () => undefined,
+    service: () => undefined,
+    features: () => 'shell_v2,cmd,stat_v2,ls_v2,fixed_push_mkdir,apex,abb,abb_exec,sendrecv_v2',
     failTrack: false,
     mdnsServices: '',
     hang,

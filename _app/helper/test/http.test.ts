@@ -166,7 +166,7 @@ describe('5. /api/health and the proof (§2.8, T7)', () => {
     const health = reply.json<Health>()
     expect(health).toMatchObject({
       name: 'bauloc-device-bridge',
-      version: '1.2.0',
+      version: '1.3.0',
       protocol: 1,
       port: s.port,
       tokenId: s.bridge.tokenId,
@@ -177,6 +177,7 @@ describe('5. /api/health and the proof (§2.8, T7)', () => {
         'android.start-server',
         'android.connect',
         'android.discover',
+        'android.adb',
         'local',
         'lan.discover',
       ],
@@ -271,7 +272,7 @@ describe('limits and the router', () => {
     const get_ = await get('/api/rescan', s.auth)
     expect([get_.status, get_.headers.allow]).toEqual([405, 'POST'])
   })
-  it('destroys WebSocket upgrades: there is no WebSocket', async () => {
+  it('refuses every WebSocket upgrade but the adb tunnel’s (§4.10), and never switches', async () => {
     const answer = await new Promise<string>((resolve) => {
       let data = ''
       const socket = net.connect(s.port, '127.0.0.1', () => {
@@ -283,7 +284,10 @@ describe('limits and the router', () => {
       socket.on('data', (chunk) => (data += chunk.toString()))
       socket.on('close', () => resolve(data))
     })
-    expect(answer).toBe('')
+    /** No Origin: refused before anything else is looked at, with no CORS header. */
+    expect(answer).toMatch(/^HTTP\/1\.1 403 /)
+    expect(answer).not.toMatch(/Access-Control-Allow-Origin/i)
+    expect(answer).not.toContain('101')
   })
   it('refuses an absolute-form request target', async () => {
     const answer = await new Promise<string>((resolve) => {
@@ -342,7 +346,7 @@ describe('GET /api/doctor', () => {
     const report = (await get('/api/doctor', s.auth)).json<DoctorReport>()
     expect(report.helper).toMatchObject({
       name: 'bauloc-device-bridge',
-      version: '1.2.0',
+      version: '1.3.0',
       port: s.port,
       protocol: 1,
     })

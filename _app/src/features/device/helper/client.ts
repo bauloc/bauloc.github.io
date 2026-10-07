@@ -2,6 +2,8 @@ import { localized } from '@/lib/i18n'
 
 import { DEVICE_ERRORS } from '../backends/backend'
 import {
+  TUNNEL_PROTOCOL,
+  parseAdbInfo,
   parseDetail,
   parseDoctor,
   parseErrorBody,
@@ -15,6 +17,8 @@ import {
   parseRetry,
   parseSnapshot,
   parseStartServer,
+  parseTunnelReply,
+  type AdbInfo,
   type AndroidLaneState,
   type DetailResponse,
   type DoctorReport,
@@ -56,6 +60,11 @@ export type HelperErrorKind =
   | 'http'
   /** The helper answered something this page can't read. */
   | 'protocol'
+  /**
+   * An adb tunnel's WebSocket closed before it opened (§4.10). Never read as the helper being
+   * gone: a page can't see why a WebSocket was refused, so the connection's next poll decides.
+   */
+  | 'tunnel'
 
 /** Words for the codes this module raises itself, until DEVICE_ERRORS has its own. */
 const OWN_WORDS = localized<Readonly<Record<string, string>>>({
@@ -145,6 +154,10 @@ export const TIMEOUTS = {
   lan: 20_000,
   /** No message on a log stream for this long: HELPER_STREAM_STALLED. */
   logWatchdog: 45_000,
+  /** GET /api/devices/:id/adb: one `host:features` through the adb server. */
+  adbInfo: 10_000,
+  /** An adb tunnel's "ok": the helper gives the adb server 5 s per step. */
+  adbOpen: 15_000,
 } as const
 
 /** fetch options every request shares. */
@@ -208,7 +221,39 @@ export interface HelperClient {
    * `refresh` as for nearby. Only IPv4 addresses on a local network survive (checkHost).
    */
   readonly lanDevices: (refresh: boolean, signal?: AbortSignal) => Promise<LanResult>
+  /** GET /api/devices/:id/adb (feature `android.adb`): what the adb transport needs first. */
+  readonly adbInfo: (id: string, signal?: AbortSignal) => Promise<AdbInfo>
+  /**
+   * The adb tunnel (feature `android.adb`, §4.10): a WebSocket to one service of an Android
+   * device the helper lists, open once the helper said "ok". Rejects with the helper's code
+   * when it couldn't open (DEVICE_NOT_READY, BAD_REQUEST, TUNNEL_LIMIT, ANDROID_OFFLINE…).
+   */
+  readonly openAdb: (id: string, service: string, signal?: AbortSignal) => Promise<AdbTunnel>
 }
+
+/**
+ * One open adb tunnel: a device service after the helper's "ok". What arrives is held until
+ * read() takes it, so nothing is lost between the opening and the reader.
+ */
+export interface AdbTunnel {
+  /** Every byte the service sends, in order; `onEnd` once, when either side closed it. */
+  readonly read: (onData: (bytes: Uint8Array) => void, onEnd: () => void) => void
+  /**
+   * Sends `bytes` in pieces, waiting while the browser still holds much of it unsent (a
+   * WebSocket has no back-pressure of its own). Rejects once the tunnel is closed.
+   */
+  readonly write: (bytes: Uint8Array) => Promise<void>
+  readonly close: () => void
+  /** Settles once the tunnel is closed, by either side. */
+  readonly closed: Promise<void>
+}
+
+/** How the client opens a WebSocket; tests pass one that sets Origin, as a browser does. */
+export type WebSocketFactory = (url: string, protocols: string[]) => WebSocket
+
+/** The page sends at most this much per frame, and waits while more than this is unsent. */
+const TUNNEL_CHUNK = 256 * 1024
+const TUNNEL_HIGH_WATER = 1024 * 1024
 
 /** A device on the network, as adb names it: an address or a local name, and a port. */
 export interface NetworkTarget {
@@ -421,11 +466,13 @@ export function readNdjson(
 export function createHelperClient(
   apiBase: string,
   getToken: () => string | null,
-  deps: { fetch?: typeof fetch } = {},
+  deps: { fetch?: typeof fetch; webSocket?: WebSocketFactory } = {},
 ): HelperClient {
   // Called unbound: window.fetch throws "Illegal invocation" when called as a method of another object.
   const doFetch =
     deps.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init))
+  const newWebSocket: WebSocketFactory =
+    deps.webSocket ?? ((url, protocols) => new WebSocket(url, protocols))
   const url = (path: string) => apiBase + path
   const devicePath = (id: string, action: string) =>
     `/api/devices/${encodeURIComponent(id)}/${action}`
@@ -610,7 +657,133 @@ export function createHelperClient(
         (value) => parseLan(value, localHostOf),
         { signal, timeoutMs: TIMEOUTS.lan },
       ),
+
+    adbInfo: (id, signal) =>
+      call(devicePath(id, 'adb'), parseAdbInfo, { signal, timeoutMs: TIMEOUTS.adbInfo }),
+
+    openAdb(id, service, signal) {
+      const token = getToken()
+      if (!token) {
+        return Promise.reject(new HelperError('HELPER_UNAUTHORIZED', 'http', { status: 401 }))
+      }
+      const ws = newWebSocket(apiBase.replace(/^http/, 'ws') + devicePath(id, 'adb'), [
+        TUNNEL_PROTOCOL,
+        `bearer.${token}`,
+      ])
+      ws.binaryType = 'arraybuffer'
+      return openTunnel(ws, service, signal)
+    },
   }
+}
+
+/**
+ * Names the service, waits for the helper's answer, and wraps the open WebSocket. A refusal
+ * before the WebSocket opened (a stopped helper, a wrong token) can't be read by a page: it is
+ * ADB_TUNNEL_FAILED of kind `tunnel`, and the connection's next poll says what changed.
+ */
+function openTunnel(ws: WebSocket, service: string, signal?: AbortSignal): Promise<AdbTunnel> {
+  const d = deadline(signal, TIMEOUTS.adbOpen)
+  const pending: Uint8Array[] = []
+  let reader: { onData: (bytes: Uint8Array) => void; onEnd: () => void } | null = null
+  let ended = false
+  let resolveClosed: () => void = () => undefined
+  const closed = new Promise<void>((resolve) => {
+    resolveClosed = resolve
+  })
+  const end = () => {
+    if (ended) return
+    ended = true
+    resolveClosed()
+    reader?.onEnd()
+  }
+
+  const tunnel: AdbTunnel = {
+    read(onData, onEnd) {
+      reader = { onData, onEnd }
+      for (const bytes of pending.splice(0)) onData(bytes)
+      if (ended) onEnd()
+    },
+    async write(bytes) {
+      for (let at = 0; at < bytes.length; at += TUNNEL_CHUNK) {
+        if (ended || ws.readyState !== WebSocket.OPEN) throw new HelperError('DEVICE_GONE', 'http')
+        // A copy per piece: send() wants an ArrayBuffer-backed view, and copies it anyway.
+        ws.send(bytes.slice(at, at + TUNNEL_CHUNK))
+        while (ws.bufferedAmount > TUNNEL_HIGH_WATER && !ended) {
+          await new Promise((resolve) => setTimeout(resolve, 4))
+        }
+      }
+    },
+    close() {
+      if (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN) {
+        ws.close(1000)
+      }
+      end()
+    },
+    closed,
+  }
+
+  return new Promise<AdbTunnel>((resolve, reject) => {
+    let opened = false
+    let settled = false
+    const fail = (error: Error) => {
+      if (settled) return
+      settled = true
+      d.dispose()
+      tunnel.close()
+      reject(error)
+    }
+    const onAbort = () => {
+      fail(
+        signal?.aborted || !d.timedOut()
+          ? abortError()
+          : new HelperError('TOOL_TIMEOUT', 'timeout'),
+      )
+    }
+    if (d.signal.aborted) onAbort()
+    else d.signal.addEventListener('abort', onAbort, { once: true })
+
+    ws.addEventListener('open', () => {
+      opened = true
+      ws.send(JSON.stringify({ service }))
+    })
+    ws.addEventListener('message', (event: MessageEvent) => {
+      const data: unknown = event.data
+      if (settled) {
+        // After "ok", bytes only: the helper closes the tunnel on anything else.
+        if (!(data instanceof ArrayBuffer) || ended) return
+        const bytes = new Uint8Array(data)
+        if (reader) reader.onData(bytes)
+        else pending.push(bytes)
+        return
+      }
+      const reply = typeof data === 'string' ? parseTunnelReply(data) : null
+      if (!reply) {
+        fail(new HelperError('HELPER_BAD_REPLY', 'protocol'))
+      } else if (reply.t === 'error') {
+        const code = pageCode(reply.code)
+        fail(
+          new HelperError(code, 'http', {
+            body: { code: reply.code, message: reply.message },
+          }),
+        )
+      } else {
+        settled = true
+        d.signal.removeEventListener('abort', onAbort)
+        d.dispose()
+        resolve(tunnel)
+      }
+    })
+    ws.addEventListener('close', () => {
+      end()
+      if (!settled) {
+        fail(
+          opened
+            ? new HelperError('HELPER_BAD_REPLY', 'protocol')
+            : new HelperError('ADB_TUNNEL_FAILED', 'tunnel'),
+        )
+      }
+    })
+  })
 }
 
 /** checkHost's normalised host, or null: what parseNearby keeps. */

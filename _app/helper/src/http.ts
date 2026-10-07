@@ -1,7 +1,11 @@
-import type { IncomingMessage, ServerResponse } from 'node:http'
+import { STATUS_CODES, type IncomingMessage, type ServerResponse } from 'node:http'
+import { Socket } from 'node:net'
 import path from 'node:path'
+import type { Duplex } from 'node:stream'
+import { serveTunnel, type Tunnel } from './adb-tunnel'
 import {
   ADB_NETWORK_PORT,
+  assertTunnelService,
   parseNetworkHost,
   parseNetworkPort,
   parsePairingCode,
@@ -41,6 +45,7 @@ import {
   linkSignals,
   seconds,
 } from './util'
+import { CLOSE, WS_KEY, acceptKey, offeredProtocols } from './websocket'
 
 /** Everything the HTTP layer needs from the bridge. */
 export interface ApiDeps {
@@ -73,10 +78,18 @@ export interface ApiDeps {
 
 export interface Api {
   readonly handle: (req: IncomingMessage, res: ServerResponse) => void
-  /** Shutdown: every open log stream ends with this reason. */
+  /** The server's `upgrade` event: the adb tunnel's WebSocket (§4.10), and nothing else. */
+  readonly upgrade: (req: IncomingMessage, socket: Duplex, head: Buffer) => void
+  /** Shutdown: every open log stream ends with this reason, and every adb tunnel closes. */
   readonly endStreams: (reason: 'shutdown') => void
   readonly openStreams: () => number
+  readonly openTunnels: () => number
 }
+
+/** The adb tunnel's WebSocket subprotocol (§4.10); the helper answers with this one only. */
+export const TUNNEL_PROTOCOL = 'device-bridge.adb.v1'
+/** The page's token, offered as a second subprotocol: `bearer.<token>`. */
+export const BEARER_PROTOCOL = 'bearer.'
 
 type Headers = Record<string, string>
 
@@ -212,8 +225,16 @@ const ROUTES: Readonly<Record<string, 'GET' | 'POST'>> = {
   '/api/lan/devices': 'GET',
 }
 
-const DEVICE_ROUTE = /^\/api\/devices\/([^/]*)\/(detail|screenshot|retry|logs)$/
-const DEVICE_ACTIONS = { detail: 'GET', screenshot: 'POST', retry: 'POST', logs: 'GET' } as const
+const DEVICE_ROUTE = /^\/api\/devices\/([^/]*)\/(detail|screenshot|retry|logs|adb)$/
+const DEVICE_ACTIONS = {
+  detail: 'GET',
+  screenshot: 'POST',
+  retry: 'POST',
+  logs: 'GET',
+  adb: 'GET',
+} as const
+/** The adb tunnel's WebSocket (§4.10): the same path as its GET, upgraded. */
+const TUNNEL_ROUTE = /^\/api\/devices\/([^/]*)\/adb$/
 type DeviceAction = keyof typeof DEVICE_ACTIONS
 
 /** A log stream that ends before hello answers with an ordinary JSON error (§2.5). */
@@ -245,6 +266,9 @@ export function createApi(deps: ApiDeps): Api {
   const { options, registry, lanes } = deps
   const shots = new Set<string>()
   const streams = new Map<string, { end: (reason: LogEndReason) => void }>()
+  const tunnels = new Set<Tunnel>()
+  /** Open adb tunnels per device id (§4.10). */
+  const tunnelsOf = new Map<string, number>()
   let hostsFor = -1
   let hosts = new Set<string>()
   let origins = new Set<string>()
@@ -468,11 +492,15 @@ export function createApi(deps: ApiDeps): Api {
       return methodNotAllowed(res, DEVICE_ACTIONS[action], headers)
     const { id, lane, row } = resolveDevice(match[1] ?? '')
     if (action === 'retry') return retry(res, headers, id, lane)
-    if (row.state !== 'ready') {
-      throw new HelperError('DEVICE_NOT_READY', 409, 'The device is not ready yet.', {
-        state: row.state,
-        blockers: row.blockers,
-      })
+    assertReady(row)
+    if (action === 'adb') {
+      const android = tunnelLane(id)
+      const op = operation(res)
+      try {
+        return sendJson(res, 200, await android.adbInfo(id, op.signal), headers)
+      } finally {
+        op.dispose()
+      }
     }
     if (action === 'detail') {
       const op = operation(res)
@@ -484,6 +512,144 @@ export function createApi(deps: ApiDeps): Api {
     }
     if (action === 'screenshot') return screenshot(res, headers, id, lane)
     return openLogStream(res, headers, id, lane)
+  }
+
+  function assertReady(row: HelperDevice): void {
+    if (row.state !== 'ready') {
+      throw new HelperError('DEVICE_NOT_READY', 409, 'The device is not ready yet.', {
+        state: row.state,
+        blockers: row.blockers,
+      })
+    }
+  }
+
+  /** §4.10: only the Android lane's devices have an adb tunnel. */
+  function tunnelLane(id: string): AndroidLane {
+    if (registry.owner(id) !== 'android') {
+      throw new HelperError('BAD_REQUEST', 400, 'Only an Android device has an adb tunnel.')
+    }
+    return androidLane()
+  }
+
+  /**
+   * §4.10, the adb tunnel's WebSocket. The gate of §2.1, stricter where a WebSocket differs:
+   * CORS never applies to one, so an allowed Origin is required (a browser always sends it),
+   * and the token comes as a subprotocol, `bearer.<token>`, since a page can't set headers on
+   * a WebSocket. Refusals until then are bare HTTP replies, which a page can't read. Once the
+   * token is right the WebSocket opens, and a tunnel that can't open says why in its first
+   * message, which the page can read.
+   */
+  function upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
+    socket.on('error', () => undefined)
+    const started = Date.now()
+    const { pathname } = splitTarget(req.url ?? '/')
+    const refuse = (status: number, code: string, message: string, extra: Headers = {}): void => {
+      const body = toJson(errorBody(code, message))
+      const lines = [
+        `HTTP/1.1 ${String(status)} ${STATUS_CODES[status] ?? 'Error'}`,
+        'Connection: close',
+        'Content-Type: application/json; charset=utf-8',
+        `Content-Length: ${String(Buffer.byteLength(body))}`,
+        ...Object.entries({ ...BARE, ...extra }).map(([name, value]) => `${name}: ${value}`),
+      ]
+      socket.end(`${lines.join('\r\n')}\r\n\r\n${body}`)
+      if (options.verbose) deps.log(`WS ${pathname} ${String(status)}`)
+    }
+    const { hosts, origins } = allowlists()
+    const host = (req.headers.host ?? '').toLowerCase()
+    if (!hosts.has(host)) {
+      return refuse(421, 'BAD_HOST', 'This helper answers only to 127.0.0.1 and localhost.')
+    }
+    const origin = req.headers.origin
+    if (origin === undefined || !origins.has(origin)) {
+      return refuse(403, 'BAD_ORIGIN', 'This page may not use the helper.')
+    }
+    const match = TUNNEL_ROUTE.exec(pathname)
+    if (!match || req.method !== 'GET') return refuse(404, 'NOT_FOUND', 'No such endpoint.')
+    const key = req.headers['sec-websocket-key']
+    if (
+      (req.headers.upgrade ?? '').toLowerCase() !== 'websocket' ||
+      typeof key !== 'string' ||
+      !WS_KEY.test(key)
+    ) {
+      return refuse(400, 'BAD_REQUEST', 'Not a WebSocket handshake.')
+    }
+    if (req.headers['sec-websocket-version'] !== '13') {
+      return refuse(426, 'BAD_REQUEST', 'WebSocket version 13 only.', {
+        'Sec-WebSocket-Version': '13',
+      })
+    }
+    const offered = offeredProtocols(req.headers['sec-websocket-protocol'])
+    const bearer = offered.find((p) => p.startsWith(BEARER_PROTOCOL))
+    if (
+      !offered.includes(TUNNEL_PROTOCOL) ||
+      !deps.bearer(bearer ? `Bearer ${bearer.slice(BEARER_PROTOCOL.length)}` : undefined)
+    ) {
+      return refuse(
+        401,
+        'UNAUTHORIZED',
+        'Missing or wrong token. Open the link the helper printed.',
+        {
+          'WWW-Authenticate': 'Bearer realm="device-bridge"',
+        },
+      )
+    }
+    registry.touch()
+    deps.pageConnected(origin, host, req.headers['user-agent'])
+    socket.write(
+      [
+        'HTTP/1.1 101 Switching Protocols',
+        'Upgrade: websocket',
+        'Connection: Upgrade',
+        `Sec-WebSocket-Accept: ${acceptKey(key)}`,
+        `Sec-WebSocket-Protocol: ${TUNNEL_PROTOCOL}`,
+        '',
+        '',
+      ].join('\r\n'),
+    )
+    if (socket instanceof Socket) socket.setNoDelay(true)
+
+    let counted: string | null = null
+    const tunnel = serveTunnel(socket, head, {
+      open: (service, signal) => {
+        const { id, row } = resolveDevice(match[1] ?? '')
+        const android = tunnelLane(id)
+        assertReady(row)
+        /** Refused here with a clear answer; the adb client checks it again before sending. */
+        assertTunnelService(service)
+        const mine = tunnelsOf.get(id) ?? 0
+        if (tunnels.size > LIMITS.tunnels || mine >= LIMITS.tunnelsPerDevice) {
+          throw new HelperError(
+            'TUNNEL_LIMIT',
+            429,
+            'Too many operations are open on the helper at once. Try again in a moment.',
+          )
+        }
+        counted = id
+        tunnelsOf.set(id, mine + 1)
+        return android.openTunnel(id, service, signal)
+      },
+      describe(error) {
+        const described = describeError(error)
+        if (!described) return null
+        if (described.status >= 500 && described.body.error.code === 'INTERNAL') deps.bug(error)
+        return { code: described.body.error.code, message: described.body.error.message }
+      },
+      helloMs: options.timeouts.tunnelHello,
+      signal: deps.signal,
+      bug: deps.bug,
+    })
+    tunnels.add(tunnel)
+    void tunnel.done.then(() => {
+      tunnels.delete(tunnel)
+      if (counted !== null) {
+        const left = (tunnelsOf.get(counted) ?? 1) - 1
+        if (left > 0) tunnelsOf.set(counted, left)
+        else tunnelsOf.delete(counted)
+      }
+      /** The path only: never the service, which is a command line. */
+      if (options.verbose) deps.log(`WS ${pathname} ${String(Date.now() - started)} ms`)
+    })
   }
 
   /** §2.2 `:id`: decoded, shape-checked, and listed right now; its lane comes from the registry. */
@@ -919,10 +1085,13 @@ export function createApi(deps: ApiDeps): Api {
 
   return {
     handle,
+    upgrade,
     endStreams(reason) {
       for (const stream of [...streams.values()]) stream.end(reason)
+      for (const tunnel of [...tunnels]) tunnel.close(CLOSE.goingAway, 'The helper is stopping.')
     },
     openStreams: () => streams.size,
+    openTunnels: () => tunnels.size,
   }
 }
 

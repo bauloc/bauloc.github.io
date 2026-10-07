@@ -3,9 +3,11 @@ import {
   HelperError,
   isAbortError,
   TIMEOUTS,
+  type AdbTunnel,
   type HelperClient,
   type NetworkTarget,
   type PairTarget,
+  type WebSocketFactory,
 } from './client'
 import {
   queryLoopback,
@@ -20,6 +22,7 @@ import {
   DVC_MAX_AGENT,
   DVC_MIN_AGENT,
   HELPER_NAME,
+  type AdbInfo,
   type DetailResponse,
   type DoctorReport,
   type Health,
@@ -204,6 +207,13 @@ export interface HelperConnection {
     ) => Promise<{ blob: Blob; source: ScreenshotSource | null }>
     readonly retry: (id: string) => Promise<HelperDevice | null>
     readonly logs: (id: string, onMsg: (m: LogMsg) => void, signal: AbortSignal) => Promise<void>
+    /**
+     * The adb tunnel (feature `android.adb`, §4.10; else ADB_UNSUPPORTED, without a request):
+     * what an Android device's adb transport needs, and one service of it, open. A tunnel
+     * outlives the call that opened it: its owner closes it (backends/agent.ts).
+     */
+    readonly adbInfo: (id: string, signal?: AbortSignal) => Promise<AdbInfo>
+    readonly openAdb: (id: string, service: string, signal?: AbortSignal) => Promise<AdbTunnel>
   }
 }
 
@@ -219,6 +229,8 @@ export type WindowLike = Pick<EventTarget, 'addEventListener' | 'removeEventList
 
 export interface HelperConnectionDeps {
   readonly fetch?: typeof fetch
+  /** How WebSockets open (the adb tunnel); tests pass one that sends an Origin. */
+  readonly webSocket?: WebSocketFactory
   readonly now?: () => number
   readonly stores?: TokenStores
   readonly permissions?: PermissionsLike | null
@@ -319,6 +331,7 @@ export function createHelperConnection(
   let authToken: string | null = null
   let client: HelperClient = createHelperClient(env.apiBase, () => authToken, {
     fetch: deps.fetch,
+    webSocket: deps.webSocket,
   })
 
   let status: HelperStatus = {
@@ -836,6 +849,17 @@ export function createHelperConnection(
     }
   }
 
+  /** An adb tunnel operation (§4.10): refused without the feature, as an older helper lacks it. */
+  function adbOperation<T>(
+    run: (signal: AbortSignal) => Promise<T>,
+    callerSignal?: AbortSignal,
+  ): Promise<T> {
+    if (status.phase === 'connected' && !status.health?.features.includes('android.adb')) {
+      return Promise.reject(new HelperError('ADB_UNSUPPORTED', 'http'))
+    }
+    return operation(run, callerSignal)
+  }
+
   /** A Wi‑Fi operation: refused without the feature, and the list polled once it answers. */
   async function networkOperation<T>(run: (signal: AbortSignal) => Promise<T>): Promise<T> {
     if (status.phase === 'connected' && !status.health?.features.includes('android.connect')) {
@@ -862,7 +886,10 @@ export function createHelperConnection(
   function switchPort(port: number) {
     env = { ...env, port, apiBase: `http://127.0.0.1:${String(port)}` }
     authToken = null
-    client = createHelperClient(env.apiBase, () => authToken, { fetch: deps.fetch })
+    client = createHelperClient(env.apiBase, () => authToken, {
+      fetch: deps.fetch,
+      webSocket: deps.webSocket,
+    })
     setStatus({ env, health: null, lanes: null })
   }
 
@@ -1112,6 +1139,8 @@ export function createHelperConnection(
         return device
       },
       logs: (id, onMsg, s) => operation((linked) => client.logs(id, onMsg, linked), s),
+      adbInfo: (id, s) => adbOperation((linked) => client.adbInfo(id, linked), s),
+      openAdb: (id, service, s) => adbOperation((linked) => client.openAdb(id, service, linked), s),
     },
   }
 }

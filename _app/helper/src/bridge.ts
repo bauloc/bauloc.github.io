@@ -403,6 +403,7 @@ export function createBridge(input: BridgeInput = {}): Bridge {
       lanes.android ? 'android.start-server' : null,
       lanes.android ? 'android.connect' : null,
       lanes.android ? 'android.discover' : null,
+      lanes.android ? 'android.adb' : null,
       options.local ? 'local' : null,
       lanes.simulators ? 'simulators' : null,
       options.wifi ? 'wifi' : null,
@@ -504,8 +505,11 @@ export function createBridge(input: BridgeInput = {}): Bridge {
     s.requestTimeout = timeouts.requestTimeout
     s.headersTimeout = timeouts.headersTimeout
     s.maxConnections = LIMITS.maxConnections
-    /** No WebSocket, no CONNECT tunnel: an upgrade could otherwise outlive every check above. */
-    s.on('upgrade', (_req, socket) => socket.destroy())
+    /**
+     * One WebSocket only, the adb tunnel (§4.10), behind the same checks as every request;
+     * any other upgrade, and every CONNECT, is refused by the API or destroyed here.
+     */
+    s.on('upgrade', (req, socket, head) => api.upgrade(req, socket, head))
     s.on('connect', (_req, socket) => socket.destroy())
     s.on('clientError', (_error, socket) => {
       if (socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n')

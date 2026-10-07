@@ -44,6 +44,7 @@
     "@yume-chan/adb-credential-web": "2.1.0",
     "@yume-chan/adb-daemon-webusb": "2.3.2",
     "@yume-chan/android-bin": "2.1.0",
+    "@yume-chan/stream-extra": "2.6.1",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "lucide-react": "1.31.0",

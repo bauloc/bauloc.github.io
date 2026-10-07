@@ -56,6 +56,7 @@ import {
   isolation,
   onCleanup,
   openStream,
+  openWebSocket,
   request,
   startBridge,
   tinyPng,
@@ -1895,3 +1896,127 @@ describe('facts for the checklist', () => {
 function stateDir(run: AndroidRun): string {
   return run.adbPath.replace(/\/bin\/adb$/, '/state')
 }
+
+describe('the adb tunnel through the real lane (§4.10)', () => {
+  const TUNNEL_PROTOCOL = 'device-bridge.adb.v1'
+  const TV_SERIAL = '192.168.1.20:5555'
+  const tv = (): FakeAdbDevice => ({
+    serial: TV_SERIAL,
+    state: 'device',
+    props: ' product:BRAVIA_UR3 model:BRAVIA_4K_UR3 device:BRAVIA_UR3 transport_id:5',
+  })
+
+  async function tunnel(run: AndroidRun, serial: string) {
+    const ws = await openWebSocket(run.port, {
+      path: `/api/devices/${encodeURIComponent(serial)}/adb`,
+      headers: {
+        Origin: 'https://bauloc.github.io',
+        'Sec-WebSocket-Protocol': `${TUNNEL_PROTOCOL}, bearer.${run.bridge.token}`,
+      },
+    })
+    expect(ws.status).toBe(101)
+    return ws
+  }
+  const message = (frame: { payload: Buffer }): unknown =>
+    JSON.parse(frame.payload.toString('utf8'))
+
+  it('reads the device’s features after selecting it by serial', async () => {
+    const adbPort = await freePort()
+    const server = await fakeServer(adbPort)
+    pixelExec(server)
+    server.setDevices([pixel(), tv()])
+    const run = await startAndroid({ adbPort })
+    await waitForRow(run, TV_SERIAL)
+    const reply = await request(run.port, {
+      path: `/api/devices/${encodeURIComponent(TV_SERIAL)}/adb`,
+      headers: run.auth,
+    })
+    expect(reply.status).toBe(200)
+    expect(reply.json()).toEqual({
+      serial: TV_SERIAL,
+      features: [
+        'shell_v2',
+        'cmd',
+        'stat_v2',
+        'ls_v2',
+        'fixed_push_mkdir',
+        'apex',
+        'abb',
+        'abb_exec',
+        'sendrecv_v2',
+      ],
+    })
+    const at = server.services.lastIndexOf(`host:transport:${TV_SERIAL}`)
+    expect(server.services[at + 1]).toBe('host:features')
+  })
+
+  it('sends host:transport:<serial> then the page’s service, and carries its answer', async () => {
+    const adbPort = await freePort()
+    const server = await fakeServer(adbPort)
+    pixelExec(server, { 'cmd package list packages -3': 'package:com.example.shop\n' })
+    server.setDevices([pixel(), tv()])
+    const run = await startAndroid({ adbPort })
+    await waitForRow(run, TV_SERIAL)
+    const ws = await tunnel(run, TV_SERIAL)
+    ws.hello('exec:cmd package list packages -3')
+    expect(message(await ws.next())).toEqual({ t: 'ok' })
+    expect((await ws.next()).payload.toString()).toBe('package:com.example.shop\n')
+    const frames = await ws.rest()
+    expect(frames.at(-1)?.opcode).toBe(0x8)
+    const at = server.services.lastIndexOf(`host:transport:${TV_SERIAL}`)
+    expect(server.services[at + 1]).toBe('exec:cmd package list packages -3')
+  })
+
+  it('carries bytes both ways for a service that reads what the page writes (sync:)', async () => {
+    const adbPort = await freePort()
+    const server = await fakeServer(adbPort)
+    pixelExec(server)
+    server.service = (_serial, service) =>
+      service === 'sync:'
+        ? (socket) => {
+            socket.on('data', (data: Buffer) =>
+              socket.write(Buffer.from(data.toString().toUpperCase())),
+            )
+          }
+        : undefined
+    server.setDevices([pixel()])
+    const run = await startAndroid({ adbPort })
+    await waitForRow(run, '55090DLAQ0026D')
+    const ws = await tunnel(run, '55090DLAQ0026D')
+    ws.hello('sync:')
+    expect(message(await ws.next())).toEqual({ t: 'ok' })
+    await until(() => server.streams() === 1, 2_000, 'the service open')
+    ws.send(0x2, 'stat /sdcard')
+    expect((await ws.next()).payload.toString()).toBe('STAT /SDCARD')
+    ws.close()
+    /** The page left: the helper's socket to the server goes too. */
+    await until(() => server.streams() === 0, 2_000, 'the service closed')
+  })
+
+  it('words a FAIL after the service as the page’s code', async () => {
+    const adbPort = await freePort()
+    const server = await fakeServer(adbPort)
+    pixelExec(server)
+    server.service = () => ({ fail: 'device offline' })
+    server.setDevices([pixel()])
+    const run = await startAndroid({ adbPort })
+    await waitForRow(run, '55090DLAQ0026D')
+    const ws = await tunnel(run, '55090DLAQ0026D')
+    ws.hello('shell,v2,raw:ls /sdcard')
+    expect(message(await ws.next())).toMatchObject({ t: 'error', code: 'ANDROID_OFFLINE' })
+  })
+
+  it('never sends a service off the tunnel’s allowlist to the server', async () => {
+    const adbPort = await freePort()
+    const server = await fakeServer(adbPort)
+    pixelExec(server)
+    server.setDevices([pixel()])
+    const run = await startAndroid({ adbPort })
+    await waitForRow(run, '55090DLAQ0026D')
+    const before = server.services.length
+    const ws = await tunnel(run, '55090DLAQ0026D')
+    ws.hello('reverse:forward:tcp:8787;tcp:8787')
+    expect(message(await ws.next())).toMatchObject({ t: 'error', code: 'BAD_REQUEST' })
+    expect(server.services.slice(before).filter((s) => !s.startsWith('host:'))).toEqual([])
+  })
+})

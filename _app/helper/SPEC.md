@@ -1,6 +1,6 @@
 # Device Lab helper: specification
 
-`device/agent/device-bridge.mjs`, built from `_app/helper/src`, and the page's helper lane in `_app/src/features/device` · helper 1.2.0, protocol 1 · as built, 2026-10-05
+`device/agent/device-bridge.mjs`, built from `_app/helper/src`, and the page's helper lane in `_app/src/features/device` · helper 1.3.0, protocol 1 · as built, 2026-10-07
 
 **What this is.** The design Device Lab's local helper was built from, kept up to date with what was built. Decisions taken while building it are recorded where they apply, and §0.6 lists them in one place. The code cites this document by section ("§3.3", "spec §12b"), so section numbers are stable: a section that no longer applies says so instead of disappearing.
 
@@ -81,6 +81,7 @@
    - Logs: NDJSON over `fetch`, at most 1 per device and 3 in total.
    - Screenshots: `POST` → `image/png`.
    - Wi‑Fi connect, pair and disconnect: `POST` with a small JSON body (§4.7), the only routes that read one.
+   - The adb tunnel: one WebSocket per device service, the one upgrade the helper accepts (§4.10).
 
 9. **Browser modes.**
    - **Hosted** (Chrome, Edge, Firefox): one LNA prompt, never triggered without user intent.
@@ -103,7 +104,7 @@
 
 14. **Auto-open without the token in argv.** The pairing link reaches the browser through AppleScript's `open location` on `/usr/bin/osascript`'s stdin, never in a process's arguments, which any user on the Mac can read with `ps` (§1.7, T8).
 
-15. **Never.** The helper never runs sudo, sends a lockdown `Pair`, shows Trust prompts itself, mounts or downloads a DDI, installs apps, kills the adb server, sends telemetry, or listens on anything but 127.0.0.1. It changes what the adb server serves only through the three Wi‑Fi services of §4.7, on a click.
+15. **Never.** The helper never runs sudo, sends a lockdown `Pair`, shows Trust prompts itself, mounts or downloads a DDI, installs an app by itself, kills the adb server, sends telemetry, or listens on anything but 127.0.0.1. It changes what the adb server serves only through the three Wi‑Fi services of §4.7, on a click. An install, like every Android operation of the page, is the tester's click, carried through the adb tunnel (§4.10).
 
 ### 0.2 Checked while writing the design (2026-10-04)
 
@@ -219,7 +220,7 @@ The design compared several candidate designs; these are the parts it took from 
 | --- | --- |
 | Helper core: security pipeline, token + proof, `--keep-token`, local mode, CLI, banner, auto-open, `--doctor`, preflight | One-time pairing codes, token rotation, terminal keys |
 | iOS: usbmuxd list and hot-plug; lockdown identity, trust, lock, Developer Mode, detail; pinned TLS; devicectl screenshots; `idevicescreenshot` for iOS ≤ 16 (best effort); syslog_relay plus `idevicesyslog`; `ideviceinfo` fallback; `--wifi` | Root-tunnel screenshots; DDI mount from a helper cache for iOS 15–16; native os_trace; "Ask to trust" action; helper-side log filter; CoreDevice-only Wi‑Fi devices |
-| Android: attach-only adb host protocol (list, detail, screenshot, logcat, retry), an explicit start, and Wi‑Fi connect, pair and disconnect (§4.7) | `.aab` install lane (bundletool; its preflight item ships now); apps, images and installs over Wi‑Fi (the page says they need a cable) |
+| Android: attach-only adb host protocol (list, detail, screenshot, logcat, retry), an explicit start, Wi‑Fi connect, pair and disconnect (§4.7), and the adb tunnel for the page's apps, images and installs (§4.10, 1.3.0) | `.aab` install lane (bundletool; its preflight item ships now) |
 | Simulators (`--simulators`) | — |
 | Page: agent lane, connection, pairing, chip, Gate card, notice, pair dialog, Wi‑Fi dialog, Environment check, preflight rows, log levels, log sessions that resume, badges, merge rule, hints, `iosDetail`, model map | — |
 
@@ -256,6 +257,7 @@ What was decided while building, and where each one now lives in this document.
 | The presence check sends **one** datagram an address from at most 256 sockets, 4 opened every 10 ms, each closed after 1 s | The design's 64 sockets with a 1.5 s window took about 6 s on a /24, past its own bounds; every live host on the owner's network answered within 615 ms [V] | §4.9 |
 | `--doctor` names a Wi‑Fi device by its model, else its instance, never by the name its owner gave it | T18; §4.8's lines printed "BAULOC Pixel 9" | §4.8, T18 |
 | `browse()` sends nothing when its signal aborted before or while its socket opened, and closes it; a UDP socket whose bind fails is closed before the open rejects | The review: shutdown during the bind sent both queries and held the socket for the whole window; a socket whose bind failed stayed alive | §4.8 |
+| Helper 1.3.0, a feature: the adb tunnel. `GET /api/devices/:id/adb` and its WebSocket, with feature `android.adb`, the service allowlist `ADB_TUNNEL_SERVICES`, `host:features` on the host allowlist, `TUNNEL_LIMIT`, and the helper's `ws://` address in local mode's CSP. On the page: an `Adb` per ready Android row over the tunnel, so installs and the Apps and Images tabs work for every device the adb server lists; an older helper is told to update | The owner asked for every Device Lab feature that needed a cable to work over Wi‑Fi too ("cài apk qua wifi"). The page's operations are WebUSB's; a tunnel carries them unchanged, where endpoints would have duplicated them | §4.10, §2.1, §2.2, §2.8, T4, T24 |
 
 ---
 
@@ -317,11 +319,13 @@ The **file §** labels number the regions of the built file. Each module's heade
 | §7 | `ios-lane.ts` | iOS lane: table keyed by UDID, probe pipeline, `deriveIos`, whitelists, devicectl adapter + `classifyDevicectl`, `idevicescreenshot`, syslog_relay + `idevicesyslog`, Wi‑Fi hold, `probeForDoctor` | §3 |
 | §8 | `simulator-lane.ts` | Simulator lane: simctl list/join, screenshot, `log stream`, `SIMCTL_COMMANDS` | §5 |
 | §9 | `mdns.ts` | mDNS browser: DNS codec (`parseMessage`, `readName`, `encodeQuery`), `udpTransport()`, `browse()`, `mdnsFailure()`; the system resolver: `systemMdnsTools()`, `systemBrowse()` and the dns-sd/avahi-browse parsers; for §4.9 `browseServiceTypes()`, `systemBrowseAll()` (`dns-sd -Z`, `avahi-browse -a`), `reverseNames()` and their parsers | §4.8, §4.9 |
-| §9 | `android-lane.ts` | Android lane: adb host client, `ADB_HOST_SERVICES` and `assertAdbService`, the Wi‑Fi senders and their checks, discovery (`scanNearby`, `mergeNearby`, `parseAdbMdnsServices`), `parseDevicesL`, `mapAdbState`, identity cache, detail, screencap, logcat, `startAdbServer` | §4 |
+| §9 | `android-lane.ts` | Android lane: adb host client, `ADB_HOST_SERVICES` and `assertAdbService`, `ADB_TUNNEL_SERVICES` and `assertTunnelService` (§4.10), the Wi‑Fi senders and their checks, discovery (`scanNearby`, `mergeNearby`, `parseAdbMdnsServices`), `parseDevicesL`, `mapAdbState`, identity cache, detail, screencap, logcat, `startAdbServer` | §4 |
 | §10 | `registry.ts` | Lane rows → `Snapshot {rev, runId, devices, lanes}`, owner lookup, activity clock, transition lines | §1.3, §2.4 |
 | §11 | `auth.ts` | Token (fresh or kept file), `tokenIdOf`, `proofOf`, bearer check, "Page connected" lines | §2.8, §6.5 |
 | §12 | `preflight.ts` | Doctor and preflight: `collectPreflight()`, item wording, `formatChecklist()`, `doctorReport()`, `printDoctor()` | §12 |
-| §13 | `http.ts` | HTTP API: gate (Host, Origin, Fetch Metadata), CORS, router, JSON and NDJSON writers, endpoints, Wi‑Fi body reader, stream caps, `upgrade` destroy | §2 |
+| §13a | `websocket.ts` | WebSocket frames, the server's half: `acceptKey()`, `encodeFrame()`, `encodeClose()`, `createFrameDecoder()` (masked, fragmented, control frames, caps), `offeredProtocols()` | §4.10 |
+| §13b | `adb-tunnel.ts` | The adb tunnel after the upgrade: the opening message, `{t:'ok'}` or the error, the bytes both ways with back-pressure, the close rules | §4.10 |
+| §13 | `http.ts` | HTTP API: gate (Host, Origin, Fetch Metadata), CORS, router, JSON and NDJSON writers, endpoints, Wi‑Fi body reader, stream caps, the adb tunnel's upgrade gate and caps | §2, §4.10 |
 | §14 | `local-mode.ts` | Upstream cache, `bootHtml()`, CSP hashes, asset proxy, redirects | §2.9 |
 | §15 | `lan-net.ts` | LAN sources (§4.9): interfaces → targets, the presence check (connected UDP), the neighbour table and default gateway (macOS/Linux/Windows), SSDP + the UPnP description + its tag scanner, hardware-address facts | §4.9 |
 | §16 | `lan.ts` | Every device on this network (§4.9): `createLanScanner` (cache, single flight, terminal and `--doctor` lines), `scanLan` (the pipeline and the per-IPv4 merge) | §4.9 |
@@ -331,7 +335,7 @@ The **file §** labels number the regions of the built file. Each module's heade
 
 **Constants in file §1**
 
-- Identity: `NAME = 'bauloc-device-bridge'`, `VERSION = '1.2.0'`, `PROTOCOL = 1`, `SITE = 'https://bauloc.github.io'`, `DEFAULT_PORT = 8787`, `DOWNLOAD_URL`, `SOURCE_URL`.
+- Identity: `NAME = 'bauloc-device-bridge'`, `VERSION = '1.3.0'`, `PROTOCOL = 1`, `SITE = 'https://bauloc.github.io'`, `DEFAULT_PORT = 8787`, `DOWNLOAD_URL`, `SOURCE_URL`.
 - Dev origins: `DEV_ORIGINS` = `http://localhost:7360` and `http://127.0.0.1:7360`, the same for `:4173` and `:8000`.
 - Tables: `LIMITS`, `TIMEOUTS`, `ID`, `INSTALL`.
 - Allowlists:
@@ -340,11 +344,12 @@ The **file §** labels number the regions of the built file. Each module's heade
   - `MUX_MESSAGES = ['ListDevices','Listen','ReadPairRecord','ReadBUID','Connect']`
   - `DEVICECTL_COMMANDS = [['device','capture','screenshot'], ['device','info','lockState']]` (`lockState` in `--doctor` only)
   - `ADB_EXEC`: the constant strings in §4.3
-  - In their lane modules: `ADB_HOST_SERVICES = ['host:version','host:track-devices-l','host:devices-l','host:reconnect-offline','host:mdns:services']` (plus `host:transport:<listed serial>`), and `SIMCTL_COMMANDS`.
+  - In their lane modules: `ADB_HOST_SERVICES = ['host:version','host:track-devices-l','host:devices-l','host:reconnect-offline','host:mdns:services','host:features']` (plus `host:transport:<listed serial>`; `host:features` only after it), `ADB_TUNNEL_SERVICES = ['shell,v2,raw:','exec:','abb_exec:','sync:']` (§4.10), and `SIMCTL_COMMANDS`.
 - Never-sent lists, each asserted by a test that the client refuses it:
   - Lockdown `LOCKDOWN_NEVER`: `Pair`, `Unpair`, `ValidatePair`, `SetValue`, `RemoveValue`, `EnterRecovery`, `Activate`.
   - usbmuxd `MUX_NEVER`: `SavePairRecord`, `DeletePairRecord`.
   - adb `ADB_HOST_NEVER`: `host:kill`, `host:reconnect`, and `host:connect:`, `host:pair:`, `host:disconnect:`, which only the three Wi‑Fi senders of §4.7 may send, each through its own exact check.
+  - The adb tunnel's `ADB_TUNNEL_NEVER`: `reverse:`, `tcp:`, `local*:`, `jdwp:`, `track-jdwp`, `shell:`, `shell,v2,pty:`, `shell,v2:`, `abb:`, `framebuffer:`, `root:`, `unroot:`, `remount:`, `reboot:`, `tcpip:`, `usb:` and host services (§4.10).
 - `EMITTED_BLOCKERS`: every row-blocker code the helper can send.
 - Every device on this network (§4.9): `LAN_PRESENCE_PORT = 9`, `LAN_SSDP_TARGETS = ['ssdp:all', 'upnp:rootdevice']`, `LAN_TXT_KEYS` (the TXT keys a service may pass on), `LAN_STATIC_TYPES` (Device Lab's own service types, always asked about); `LIMITS.lanDevices` 256, `lanTargets` 512, `lanSockets` 256.
 
@@ -595,7 +600,7 @@ node device-bridge.mjs [options]
 
 **`--doctor` output**
 
-- First line `bauloc-device-bridge 1.2.0 · doctor`, then the checklist (§12) by group, with a status word ("OK", "Warning", "Needs action", "Not checked"); fixes are printed only for items that are not OK.
+- First line `bauloc-device-bridge 1.3.0 · doctor`, then the checklist (§12) by group, with a status word ("OK", "Warning", "Needs action", "Not checked"); fixes are printed only for items that are not OK.
 - Then per device:
   - **iOS:** the UDID and ProductType (never the device name); usbmuxd entry (connection, DeviceID); pair record yes/no; QueryType; plaintext key count; StartSession result; TLS protocol and cipher; whether the peer certificate equals the pair record's `DeviceCertificate`; session key count; `PasswordProtected`; battery, disk and amfi results; syslog_relay 3 s byte count; `devicectl device info lockState` (only when Xcode is ready).
   - **Android:** server state and the `devices -l` rows, or `Android: no adb server on 127.0.0.1:<port> (the doctor never starts one)`.
@@ -607,7 +612,7 @@ node device-bridge.mjs [options]
 `<T>` is the 43-character token. A port other than 8787 adds `&port=<n>` to both fragments, so a link without `&port` always means 8787: the page reads it that way, never as the port it used last (§6.5).
 
 ```
-Device Lab helper 1.2.0 · http://127.0.0.1:8787 (this Mac only)
+Device Lab helper 1.3.0 · http://127.0.0.1:8787 (this Mac only)
 
 Opening Device Lab in your browser. If nothing opens, use the link for your browser:
   Chrome, Edge, Firefox   https://bauloc.github.io/device/#pair=<T>
@@ -675,7 +680,7 @@ Keep this window open while you test. Ctrl+C stops the helper; the token changes
 | --- | --- |
 | Node too old | `Device Lab helper needs Node 18 or newer (this is v16.20.2). Install the current LTS from https://nodejs.org, then run the same command again.` |
 | Running as root | `Don't run the Device Lab helper with sudo; it never needs root. Run it as yourself: node ~/device-bridge.mjs` |
-| Port held by our helper | `A Device Lab helper (1.2.0) is already running on port 8787. Use that window, or stop it with Ctrl+C there.` |
+| Port held by our helper | `A Device Lab helper (1.3.0) is already running on port 8787. Use that window, or stop it with Ctrl+C there.` |
 | Port held by another program | `Port 8787 is used by another program. Start the helper on another port:` then `  node ~/device-bridge.mjs --port 8788` |
 | Token file readable by others | `The token file <path> can be read by other users. Fix it with: chmod 600 '<path>'` |
 | Token file is a symlink / not ours | `The token file <path> is a symbolic link or belongs to another user; refusing to use it.` |
@@ -708,6 +713,7 @@ The pair record is held only in memory, and only the fields the TLS session need
 | libimobiledevice | `ideviceinfo` 8 s per call; `idevicescreenshot` 20 s |
 | simctl | list 10 s; screenshot 20 s (only after a `Booted` check) |
 | adb | connect 1 s; host request 5 s (2 s in the doctor); `exec:` detail 10 s; screencap 20 s; `start-server` reply poll 8 s |
+| adb tunnel (§4.10) | the opening message within 10 s (`tunnelHello`), ≤ 64 KiB; a service ≤ 32 KiB; a frame from the page ≤ 4 MiB; 32 tunnels at once, 16 per device; `host:features` ≤ 64 entries; the page sends ≤ 256 KiB a message and waits above 1 MiB unsent, and waits 15 s for the helper's answer |
 | adb Wi‑Fi | name lookup 5 s; `host:connect:` 20 s (adb itself waits up to 10 s for the device's handshake, so its answer arrives before our deadline); `host:pair:` 15 s |
 | Discovery | mDNS window 2 s (`mdnsWindow`); system resolver: `dns-sd -B` 1.5 s (`systemBrowse`), each `-L`/`-G` 1.5 s (`systemResolve`), the whole run ≤ browse + 2 × resolve (a killed process is not waited for; SIGKILL 250 ms after SIGTERM), 4 resolves at a time with the adb types and lookups first and the name-only types in at most 1, 128 instances per group (adb, names); scan cached 20 s, `?refresh=1` at most every 3 s, one at a time; 64 devices; packets ≤ 9000 bytes, 256 records each (§4.8) |
 | Network (§4.9) | presence 1 s a socket (`lanPresence`), 256 sockets at once (`LIMITS.lanSockets`), 4 new a tick; SSDP 3 s (`lanSsdp`), each M-SEARCH twice 500 ms apart; one UPnP description 2 s (`lanDescription`), ≤ 64 KiB, 16 at most, 4 at once; a reverse name 1.2 s (`lanReverse`), the step ≤ 2.4 s, 8 at once; the whole look ≤ 7 s (`lanScan`); scan cached 30 s (`lanCache`), `?refresh=1` at most every 3 s (`lanGap`), one at a time; ≤ 512 targets (`LIMITS.lanTargets`, two /24s), ≤ 256 devices (`LIMITS.lanDevices`) |
@@ -739,7 +745,7 @@ The pair record is held only in memory, and only the fields the TLS session need
    - Parsed with `/^Bearer ([A-Za-z0-9_-]{43})$/i`.
    - `timingSafeEqual(sha256(presented), sha256(token))`; fixed 32 bytes, so it never throws.
    - Failure → **401** `UNAUTHORIZED` with `tokenId` in the body and `WWW-Authenticate: Bearer realm="device-bridge"`.
-8. **Route.** `upgrade` sockets are destroyed: there is no WebSocket.
+8. **Route.** One WebSocket only: the adb tunnel on `/api/devices/:id/adb` (§4.10), behind the same Host and Origin checks (an Origin is required there) and the token as a subprotocol. Every other upgrade is refused, and a `CONNECT` is destroyed.
 
 **Every `/api/*` response, errors included**
 
@@ -760,6 +766,8 @@ The pair record is held only in memory, and only the fields the TLS session need
 | `POST /api/devices/:id/screenshot` | bearer | `200 image/png` (§2.6) |
 | `POST /api/devices/:id/retry` | bearer | `{ device: HelperDevice \| null }` after the re-check (≤ 10 s) |
 | `GET /api/devices/:id/logs` | bearer | `application/x-ndjson` stream (§2.5) |
+| `GET /api/devices/:id/adb` | bearer | `{serial, features}` for an Android row (§4.10) |
+| `GET /api/devices/:id/adb` + `Upgrade: websocket` | Origin + `bearer.<token>` subprotocol | The adb tunnel (§4.10) |
 | `GET /api/doctor[?refresh=1]` | bearer | `DoctorReport` (§12c); `refresh=1` re-resolves tools. Bearer because paths show the user name. |
 | `POST /api/android/start-server` | bearer | `{ android: Lanes['android'] }`, or an error (§4.5) |
 | `POST /api/android/connect` `{host, port?}` | bearer | `AndroidConnectResult` (§4.7) |
@@ -1074,6 +1082,7 @@ The registry is the authority on state. An operation error that reveals a new st
 | `DEVICE_DROPPED` | 503 | A listed device dropped off mid-stream (as the `end` record's `code`) | — | log waits and resumes (§7.8) |
 | `BUSY` | 409 | A screenshot of that device is in flight; a connect or pairing to that host is in flight | — | toast |
 | `TOO_MANY_STREAMS` | 429 | A 4th log stream | — | toast |
+| `TUNNEL_LIMIT` | 429 | A 33rd adb tunnel, or a 17th on one device (§4.10), in the tunnel's first message | — | the operation's error |
 | `STREAM_REPLACED` | 409 | A newer stream for the same device replaced this one before `hello` | — | toast ("another tab") |
 | `IOS_UNTRUSTED` | 409 | No pair record; `InvalidHostID`, `InvalidConnection` or `UserDeniedPairing`; TLS reset right after `StartSession` | `untrusted` + `IOS_UNTRUSTED` | hint |
 | `IOS_LOCKED` | 409 | Session refused with `PasswordProtected` (BFU) | `locked` + `IOS_LOCKED` | hint |
@@ -1109,7 +1118,7 @@ The registry is the authority on state. An operation error that reveals a new st
 **Version**
 
 - `VERSION` is semver, independent of `protocol`.
-- A release that adds a feature (a new `features` entry, endpoint or field) bumps the **minor** version: `android.discover` made 1.0.0 into 1.1.0. A fix alone bumps the **patch**: 1.1.1 is 1.1.0 with discovery safe against hostile mDNS answers (§4.8). `lan.discover` then made 1.1.x into 1.2.0 (§4.9). The protocol stays 1 while every change is an addition.
+- A release that adds a feature (a new `features` entry, endpoint or field) bumps the **minor** version: `android.discover` made 1.0.0 into 1.1.0. A fix alone bumps the **patch**: 1.1.1 is 1.1.0 with discovery safe against hostile mDNS answers (§4.8). `lan.discover` then made 1.1.x into 1.2.0 (§4.9), and `android.adb` 1.2.x into 1.3.0 (§4.10). The protocol stays 1 while every change is an addition.
 - Why: discovery first shipped as 1.0.0, like the helper before it. With both files saying 1.0.0 the page could not say "a newer helper is out", and the tester could not tell which one was running.
 
 **Features in v1** (present only when true):
@@ -1120,6 +1129,7 @@ The registry is the authority on state. An operation error that reveals a new st
 | `android.connect` | the same: the Wi‑Fi routes of §4.7 exist (since 1.0.0). The page shows its Wi‑Fi dialog's form only to a helper that lists it, and otherwise says the helper is older than this page, with the update command. |
 | `android.discover` | the same: `GET /api/android/nearby` exists (§4.8; since 1.1.0). |
 | `lan.discover` | always present since 1.2.0: `GET /api/lan/devices` exists (§4.9). Bridge-level, so it stays on with `--no-android`. |
+| `android.adb` | the Android lane runs: the adb tunnel exists (§4.10; since 1.3.0). The page gives Android rows of the helper installs and the Apps and Images tabs only with it. |
 | `local` | local mode is on |
 | `simulators` | `--simulators` |
 | `wifi` | `--wifi` (iPhones over Wi‑Fi) |
@@ -1131,7 +1141,7 @@ Everything else in §2.2 is protocol 1 itself.
 - "Helper too old" (protocol) → the download command.
 - "Page too old" → "Reload". Pages caches for 600 s.
 - **A feature the page would use is missing** (`helper/update.ts` `featureSupport`): running and paired, and the feature not in `features`.
-  - Android lane on → `older`. Said where the feature would be, never hidden: "Your helper is older than this page: it can't look for devices on this network yet. Update it: press Ctrl+C in its window, then run:", the download command for the page's port (`downloadCommand(port)`), then "Then reload this page." The feature's words: `android.discover` "look for devices on this network" ("On this network", under the device list and in the Gate's Wi‑Fi part), `android.connect` "connect to devices over Wi‑Fi" (the Wi‑Fi dialog's `wifi.helper` row), `android.start-server` "start Google's adb server" (the Gate's Android card without WebUSB), `lan.discover` "list every device on this network" (the "Devices on this network" line and dialog).
+  - Android lane on → `older`. Said where the feature would be, never hidden: "Your helper is older than this page: it can't look for devices on this network yet. Update it: press Ctrl+C in its window, then run:", the download command for the page's port (`downloadCommand(port)`), then "Then reload this page." The feature's words: `android.discover` "look for devices on this network" ("On this network", under the device list and in the Gate's Wi‑Fi part), `android.connect` "connect to devices over Wi‑Fi" (the Wi‑Fi dialog's `wifi.helper` row), `android.start-server` "start Google's adb server" (the Gate's Android card without WebUSB), `lan.discover` "list every device on this network" (the "Devices on this network" line and dialog), `android.adb` "list apps, show images or install apps on this device" (the detail pane of an Android device the helper lists; Install app is disabled with `ADB_UNSUPPORTED`).
   - `lanes.android.status === 'off'` (`--no-android`, which leaves every Android feature out) → `off`: the `--no-android` sentence and how to restart without it, no download. Never for `lan.discover`, which `--no-android` leaves on.
   - Lanes not read yet (the moment after connecting) → `unknown`: nothing is said until they are.
 
@@ -1172,7 +1182,7 @@ Everything else in §2.2 is protocol 1 itself.
       mode: 'local',
       apiBase: 'http://127.0.0.1:8787',
       protocol: 1,
-      version: '1.2.0',
+      version: '1.3.0',
     }
   </script>
   ```
@@ -1221,7 +1231,7 @@ Ranges matter only for the later-phase lanes and for the amfi read (≥ 16). Scr
 
 **Frame:** a 16-byte little-endian header `{u32 total length (header included), u32 version 1, u32 message 8 (plist), u32 tag}`, then an XML plist [V].
 
-- Every request carries `ClientVersionString: 'bauloc-device-bridge 1.2.0'`, `ProgName: 'device-bridge'` and `kLibUSBMuxVersion: 3`. Without `kLibUSBMuxVersion: 3`, `Listen` never pushes network devices [V].
+- Every request carries `ClientVersionString: 'bauloc-device-bridge 1.3.0'`, `ProgName: 'device-bridge'` and `kLibUSBMuxVersion: 3`. Without `kLibUSBMuxVersion: 3`, `Listen` never pushes network devices [V].
 - One connection per request; `Listen` keeps its own. `connect()` hands the socket back paused.
 
 | Message | Reply | Use |
@@ -1956,6 +1966,73 @@ Expected time on a /24: about 3.5–5.5 s (the presence check about 1.7 s; mDNS 
 
 ---
 
+### 4.10 The adb tunnel: apps, images and installs through the helper
+
+The page's Android operations (installs, and the Apps and Images tabs: PLAN §2) speak adb to a device. Over WebUSB, Chrome holds the phone's USB interface itself. A device that only Google's adb server reaches had details, screenshots and the log through the helper (§4.4) and nothing else; the page said those needed a cable. That covers an Android TV on the Wi‑Fi, a phone on Wireless debugging, a phone an IDE's server holds, and an emulator. Since helper 1.3.0 the helper carries the very same operations, unchanged, through a tunnel. The page runs ya-webadb's `Adb` over a transport whose every service is a WebSocket, which the helper pipes to the adb server.
+
+**Why a tunnel, not more endpoints.** The operations are a large, tested part of the page: install sessions, split selection, MediaStore queries, APK badge reading (`backends/webusb-ops.ts` and `backends/android/`). Rebuilding them as helper endpoints was rejected in the plan ("it would duplicate every feature server-side", PLAN §9, "Not planned"). The tunnel reuses them as they are, the way ya-webadb's own `AdbServerTransport` talks to an adb server: a connection per service, and the device's features from `host:features`.
+
+**Feature** `android.adb` (1.3.0), present while the Android lane runs.
+
+**Endpoints** (bearer; `--no-android` → 409 `ANDROID_OFF`; a row of another lane → 400 `BAD_REQUEST`; a row that isn't `ready` → 409 `DEVICE_NOT_READY`)
+
+| Request | Answer |
+| --- | --- |
+| `GET /api/devices/:id/adb` | `{serial, features}`: `host:transport:<serial>`, then `host:features` (the device's adbd features, at most 64) |
+| The same path with `Upgrade: websocket` | The tunnel, below |
+
+**The WebSocket**
+
+1. **Gate.** §2.1, adapted to a WebSocket. The page can't read any of these refusals: they are bare HTTP replies.
+   - Host allowlist (421).
+   - **An Origin is required**, and must be allowed (403). CORS never applies to a WebSocket, and a browser always sends Origin.
+   - Path and method (404).
+   - A version-13 handshake with a valid key (400; a different version gets 426 with `Sec-WebSocket-Version: 13`).
+   - The offered subprotocols must include `device-bridge.adb.v1` **and** `bearer.<token>` (401). The token is compared in constant time, as in the header. A page can't set headers on a WebSocket, so the token travels as a subprotocol, as Kubernetes does. The helper answers `Sec-WebSocket-Protocol: device-bridge.adb.v1` only, never the token.
+2. **Opening.**
+   - Within 10 s (`tunnelHello`, else close 1008), the page sends one text message of at most 64 KiB: `{"service": "<service>"}`.
+   - The helper checks `:id` against the registry (listed, `ready`, Android lane), the service (`assertTunnelService`) and the caps.
+   - It then sends `host:transport:<serial>` and the service to the server itself.
+   - It answers with one text message: `{"t":"ok"}`, or `{"t":"error","code","message"}` and a close 1000. The codes are §2.7's: `BAD_ID`, `DEVICE_NOT_FOUND`, `DEVICE_NOT_READY`, `BAD_REQUEST`, `TUNNEL_LIMIT`, `ANDROID_OFFLINE`, `ADB_SERVER_STOPPED` and the rest.
+3. **Bytes.** After `ok`, only binary messages travel, both ways, until either side closes.
+   - The device ending the service closes the WebSocket (1000). The page's close frame (echoed back) or a dropped connection destroys the adb socket.
+   - Text after `ok` closes the tunnel (1002), as do bytes before it (1003). So does an unmasked frame or one with an RSV bit (1002); a frame over 4 MiB gets 1009.
+   - Back-pressure both ways: the adb socket isn't read while the WebSocket's buffer is full, and the WebSocket isn't read while the adb socket's is.
+4. **Shutdown** closes every tunnel with 1001.
+
+**Services** (`ADB_TUNNEL_SERVICES`, by prefix, at most 32 KiB)
+
+- Allowed: `shell,v2,raw:<cmd>`, `exec:<cmd>`, `abb_exec:<args>`, and exactly `sync:`. These are what the page's operations open over WebUSB.
+- Never (`ADB_TUNNEL_NEVER`, each one asserted by a test):
+  - `reverse:`, which would let the device reach this Mac's loopback;
+  - `tcp:`, `local*:`, `jdwp:` and `track-jdwp`, which reach the device's sockets;
+  - a terminal (`shell:`, `shell,v2,pty:`) and `abb:`;
+  - `framebuffer:`;
+  - what restarts adbd or the device: `root:`, `unroot:`, `remount:`, `reboot:`, `tcpip:`, `usb:`.
+- Host services never reach a tunnel: the helper sends `host:transport:` itself, for a listed serial, and `host:features` only after it.
+
+**Caps.** 32 tunnels at once, 16 per device (`TUNNEL_LIMIT`, 429). Per device, the page reads at most 3 previews and 2 app badges at once (`webusb-ops.ts`), beside a listing and an install.
+
+**The page** (`backends/agent.ts`, `backends/agent-adb.ts`, `helper/client.ts`)
+
+- **Sessions.** The page keeps one `Adb` per ready Android row of a helper that has `android.adb`.
+  - It opens one as soon as a row is ready: `adbInfo`, then the five getprops WebUSB reads at connect (manufacturer, brand, release, SDK level, ABI list). The SDK level gates installs (Android 7.0+), and the ABIs pick split APKs.
+  - It closes a session when its row goes or stops being ready, and all of them when the helper's `runId` changes.
+  - An opening that failed isn't retried on its own for 15 s; an operation retries at once.
+- **`agent-adb.ts`**, loaded on first use with ya-webadb.
+  - `TunnelTransport` implements `AdbTransport` as `AdbServerTransport` does: a 1 MiB maximum payload, `ADB_SERVER_DEFAULT_FEATURES` as the client's features, the device's as the banner's. No reverse tunnels.
+  - Closing a socket's writable doesn't close the socket, as over WebUSB; `close()` does.
+- **`client.openAdb`.**
+  - It sends the opening once the WebSocket is open and waits up to 15 s for the answer. What arrives after `ok` is held until the reader takes it.
+  - It sends at most 256 KiB a message, and waits while more than 1 MiB is unsent: a WebSocket has no back-pressure of its own.
+  - A WebSocket that closes before it opened is `ADB_TUNNEL_FAILED` of kind `tunnel`, which never reads as the helper being gone: the connection only polls.
+- **The rows.** `apps` and `images` come with the tunnel; `install` once the SDK level is read and is 24 or more; the `android` facts are WebUSB's.
+- **An older helper** (no `android.adb`): no tabs, Install disabled with `ADB_UNSUPPORTED`, and the detail pane says "Your helper is older than this page: it can't list apps, show images or install apps on this device yet", with the update command (`OlderHelper`, §2.8).
+- **Local mode's CSP** adds the helper's `ws://` address to `connect-src`, since older Safari doesn't count `ws:` as `'self'`.
+- **A Wi‑Fi device** gets Install app and Disconnect side by side. The device's name keeps at least 20rem before the buttons wrap below it.
+
+**Measured** (2026-10-07, §9.7): an emulator, the same emulator over adb's TCP transport, and the owner's Android TV over Wi‑Fi. The TV listed its apps with labels and icons, installed a 4.2 MB APK, and uninstalled it.
+
 ## 5. Simulators (`--simulators`, off by default)
 
 **Why include them.** They are the end-to-end path on a Mac with no phone (list → detail → screenshot → logs). They are off by default because a Mac often has several booted simulators, which would defeat one-ready-device auto-select.
@@ -2466,7 +2543,7 @@ export function createAgentBackend(conn: HelperConnection): Backend {
 normalizeDevice({ ...d, backend: 'agent', model: d.model || iosModelName(d.modelId) || d.modelId })
 ```
 
-`iosModelName` is used only for `platform === 'ios'`; `install` is always false.
+`iosModelName` is used only for `platform === 'ios'`. Since 1.3.0 an Android row takes a second argument, its adb tunnel's part: `apps` and `images` when the helper has `android.adb`, `install` once the SDK level read through the tunnel is 24 or more, and the `android` facts; the lane opens and closes those sessions itself (§4.10). The lane's `install`, `apps`, `app`, `appAction`, `images`, `thumbnail`, `pull`, `deviceSpec`, `installFacts` and `appBadge` are WebUSB's (`createAndroidOps`), each after opening the device's session.
 
 **`toDetail(r)`** (`connectionLabel(r)`)
 
@@ -2569,7 +2646,7 @@ The design's list; `backend.ts` holds the shipped words. The contract test (§9.
 | `ADB_START_FAILED` | The adb server did not start. Open the environment check. |
 | `LOGS_UNAVAILABLE` | No log source works for this device. |
 
-Also worded: `HELPER_BAD_REPLY`, `HELPER_FOREIGN` (with "Start the helper on another port with --port."), `HELPER_STOPPING`, `UNAUTHORIZED`, `ANDROID_OFF`, `STREAM_REPLACED`, `BAD_REQUEST`, `INTERNAL`, `DEVICE_DROPPED`, the router codes (`BAD_ID`, `NOT_FOUND`, `METHOD_NOT_ALLOWED`, `PAYLOAD_TOO_LARGE`), and the Wi‑Fi codes. Only `BAD_HOST`, `BAD_ORIGIN` and `UPSTREAM_*` are exempt, because they never reach the page.
+Also worded: `HELPER_BAD_REPLY`, `HELPER_FOREIGN` (with "Start the helper on another port with --port."), `HELPER_STOPPING`, `UNAUTHORIZED`, `ANDROID_OFF`, `STREAM_REPLACED`, `BAD_REQUEST`, `INTERNAL`, `DEVICE_DROPPED`, the router codes (`BAD_ID`, `NOT_FOUND`, `METHOD_NOT_ALLOWED`, `PAYLOAD_TOO_LARGE`), the Wi‑Fi codes, and the adb tunnel's (`TUNNEL_LIMIT`; the page's own `ADB_UNSUPPORTED` and `ADB_TUNNEL_FAILED`). Only `BAD_HOST`, `BAD_ORIGIN` and `UPSTREAM_*` are exempt, because they never reach the page.
 
 ### 7.6 iOS detail and model names (`backends/ios.ts`)
 
@@ -2683,7 +2760,7 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
 | T1 | LAN or Wi‑Fi attacker | `listen(port, '127.0.0.1')` only; the LAN IP is refused [V test] | — |
 | T2 | DNS rebinding | Exact Host allowlist before routing → 421; URLs are never built from Host except the allowlisted `apiBase` | — |
 | T3 | Malicious site in Chrome or Firefox | LNA is granted per site; Origin allowlist (403, no ACAO); token required; no `*`, no credentials | — |
-| T4 | Malicious **http** site in Safari (no LNA; http → loopback allowed [V]) or in Firefox | Origin check; Fetch Metadata 403; every state-changing route needs `Authorization`, which forms and no-cors cannot send; no WebSocket (upgrades destroyed); CORP `same-origin`; bodies only as `application/json` with a `Content-Length` | Can detect that a server listens (timing) |
+| T4 | Malicious **http** site in Safari (no LNA; http → loopback allowed [V]) or in Firefox | Origin check; Fetch Metadata 403; every state-changing route needs `Authorization`, which forms and no-cors cannot send; the one WebSocket (§4.10) requires an allowed Origin and the token as a subprotocol, so a cross-site WebSocket gets a bare 403; CORP `same-origin`; bodies only as `application/json` with a `Content-Length` | Can detect that a server listens (timing) |
 | T5 | Other macOS users or sandboxed apps | 256-bit token, constant-time compare; per-run by default; the kept-token file is 0600 in a 0700 directory, and symlinks and foreign owners are refused | Same-user malware is out of scope (it can run the tools directly) |
 | T6 | Form or no-cors CSRF | No GET changes state; POSTs need Bearer | — |
 | T7 | Port squatting and relay (a fake helper, a crafted `#pair=…&port=9999`) | Token bound to its port; no token is sent before a **port-bound HMAC proof** (§2.8); a crafted link only pairs the page with the attacker's own token (UI spoof only); a link whose port answers nothing, or not as the helper, is spent, so it can't hold the tab on that port across reloads (§6.5); on the helper's own page nothing is remembered and a kept token stays in memory, since the next program on the port owns that origin and its storage | With `--keep-token`, a squatter that binds the port between two polls after the real helper exits could receive the kept token on the next poll. Documented; per-run default; `--new-token` rotates. |
@@ -2703,6 +2780,7 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
 | T21 | Tampered download | HTTPS; `curl -fsSL` refuses to save a 404 page [V]; "Review the source" link; the Environment check compares SHA-256 and VERSION with the published file | Trust in GitHub Pages |
 | T22 | The Wi‑Fi routes as a way into the local network (a paired page makes the adb server dial addresses) | Bearer, Origin and the rest of §2.1 first; LAN-only addresses (private, link-local and CGNAT IPv4, ULA and link-local IPv6, `.local`/`.lan`/`.home.arpa` names), never loopback or public; names resolved and every address checked before adb sees them; ports as integers, codes as six digits; one exact string per service; one dial per host at a time; the pairing code never printed | adb resolves a name again, so DNS that changes between the two lookups is not caught; a paired page can make adb try `host:port` pairs on the LAN, one at a time, which is what the feature is |
 | T23 | The LAN list as a way to probe the network (§4.9) | Bearer and the rest of §2.1 first; no request names an address, range or port (`?refresh=1` only); only this computer's own private subnets on real interfaces, at most 512 addresses; one 1-byte datagram an address to port 9, no TCP port, no NetBIOS; the one HTTP request is a UPnP description at the very address that answered SSDP, plain HTTP, no redirect, 64 KiB, no entity expanded; every count, byte and time bounded; one look at a time, cached 30 s, never at startup or on a timer; every answer untrusted, a hardware address never returned | A paired page can make the helper look at its own network every 3 s (`lanGap`) |
+| T24 | The adb tunnel as a way to run commands on devices (§4.10) | §2.1's Host check, then an **allowed Origin required** (cross-site WebSocket hijacking) and the token as a subprotocol, compared in constant time; only rows of the Android lane that are `ready`; the serial goes in `host:transport:` from the registry, never from the page; only the allowlisted device services, never a host service, `reverse:` (the device reaching this Mac's loopback), `tcp:`/`local*:` sockets, a terminal, or what restarts adbd; caps on tunnels, frames and the opening; back-pressure; every tunnel closed at shutdown; `--verbose` logs the path and the time, never the service | A paired page runs shell commands on Android devices the adb server lists, which is the feature (WebUSB gives the page the same on a phone the tester picked). With an XSS on bauloc.github.io (T9), so could the attacker while the helper runs |
 
 ---
 
@@ -2735,7 +2813,7 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
 **Layout**
 
 - `_app/helper/test/*.test.ts`, run by `helper/vitest.config.ts`: node environment, `pool: 'forks'` (the tests spawn real fake tools and send signals, and the helper installs a process-wide `exit` hook, so each file gets its own process).
-- Files: `util`, `process`, `cli`, `auth`, `registry`, `http`, `operations`, `logs`, `local-mode`, `lifecycle`, `banner`, `build`, `context` (core); `ios-codec`, `ios-clients`, `ios-lane`, `ios-screenshot`, `ios-logs` (iOS); `android`, `mdns`, `nearby`, `system-resolver`, `simulators`, `lan-net`, `lan` (§4.9); `tools`, `preflight`; and the opt-in `android-real`, `simulators-real`.
+- Files: `util`, `process`, `cli`, `auth`, `registry`, `http`, `operations`, `logs`, `local-mode`, `lifecycle`, `banner`, `build`, `context`, `tunnel` (core); `ios-codec`, `ios-clients`, `ios-lane`, `ios-screenshot`, `ios-logs` (iOS); `android`, `mdns`, `nearby`, `system-resolver`, `simulators`, `lan-net`, `lan` (§4.9); `tools`, `preflight`; and the opt-in `android-real`, `simulators-real`.
 - Every test builds its bridge with `createBridge({port: 0, searchPath: fakeBin, extraDirs: [], usbmuxdSocket, adbPort, upstream, xcodeSelectPath, plistBuddyPath, javaHomePath, applicationsDir, coreDeviceDir, coreSimulatorDir, home, open: false, timeouts: short})`, or a fixed Toolbox, so no real tool can leak in.
 - `test/build.test.ts` checks the built file: shebang and header first, the Node 18 denylist, the exports.
 
@@ -2762,12 +2840,13 @@ The description is "syslog" / "simulator log" / "logcat" (from the device's plat
 
 | Area | Cases |
 | --- | --- |
-| core | Loopback-only (LAN IP refused); Host 421 via raw `http.request` (Node `fetch` drops a custom Host [V]); Origin 403 for unknown, `null`, `http://bauloc.github.io` and `https://bauloc.github.io.evil.example`, with no ACAO; `--dev` origins only with the flag; Fetch Metadata 403 plus the navigation exception; preflight (with and without the PNA header); health has `tokenId` but never the token; **proof** equals a reference HMAC and changes with the port; challenge validation; 401 variants (missing, short, wrong, wrong scheme) readable with CORS; 413 (large, chunked, malformed length); `upgrade` destroyed; ids (`--help`, `-u`, `..`, `%2e%2e`, `a b`, malformed `%`, unlisted UDID, IPv6 serial); `rev`/`runId`; stream caps (4th → 429; same device → `replaced`); ping cadence; back-pressure pause and resume; client abort reaps group and grandchild; local mode (boot before the first script, CSP hashes cover every inline script, no copied encoding, correct length, **token absent from HTML**, assets immutable plus `sandbox` CSP, redirects, traversal → 302, favicon 404, offline last-good copy); `--keep-token` (0600 created; group-readable, symlink and foreign owner refused; `--new-token`); port-in-use messages (our helper vs another server); root refusal; SIGINT → `end:shutdown`, groups dead, exit 0, second signal 130; `--verbose` never prints Authorization or queries; "Page connected" wording; banner waits for lanes; Node-18 API denylist; no abort-listener warning from `linkSignals` on Node 18 or 20; BigInt replacer |
+| core | Loopback-only (LAN IP refused); Host 421 via raw `http.request` (Node `fetch` drops a custom Host [V]); Origin 403 for unknown, `null`, `http://bauloc.github.io` and `https://bauloc.github.io.evil.example`, with no ACAO; `--dev` origins only with the flag; Fetch Metadata 403 plus the navigation exception; preflight (with and without the PNA header); health has `tokenId` but never the token; **proof** equals a reference HMAC and changes with the port; challenge validation; 401 variants (missing, short, wrong, wrong scheme) readable with CORS; 413 (large, chunked, malformed length); every upgrade but the adb tunnel's refused, never 101; ids (`--help`, `-u`, `..`, `%2e%2e`, `a b`, malformed `%`, unlisted UDID, IPv6 serial); `rev`/`runId`; stream caps (4th → 429; same device → `replaced`); ping cadence; back-pressure pause and resume; client abort reaps group and grandchild; local mode (boot before the first script, CSP hashes cover every inline script, no copied encoding, correct length, **token absent from HTML**, assets immutable plus `sandbox` CSP, redirects, traversal → 302, favicon 404, offline last-good copy); `--keep-token` (0600 created; group-readable, symlink and foreign owner refused; `--new-token`); port-in-use messages (our helper vs another server); root refusal; SIGINT → `end:shutdown`, groups dead, exit 0, second signal 130; `--verbose` never prints Authorization or queries; "Page connected" wording; banner waits for lanes; Node-18 API denylist; no abort-listener warning from `linkSignals` on Node 18 or 20; BigInt replacer |
 | ios | Plist round trip (BigInt, data, date, real); `Attached` → `ready` within 500 ms; no record → `untrusted`; record appears via the 3 s `ReadPairRecord` poll → `ready`; `Paired` → re-probe; `InvalidHostID` → `untrusted`; TLS reset → `untrusted`; `PasswordProtected` on `StartSession` → `locked`; AFU (`PasswordProtected: true` in session) → `ready`, `locked: true` in detail; Developer Mode false → blocker + `screenshot:false`; iOS 15 → `developerMode: null`, no amfi request; **whitelists** (no IMEI, PhoneNumber, WiFiAddress, DieID, BasebandSerialNumber in any response); `UniqueChipID` as a decimal string; **TLS succeeds on both certificate chains with the §3.3 options, and a synchronous throw is caught** → `ideviceinfo` fallback or plaintext + `TOOL_MISSING`; pin mismatch ends the session; devicectl success plus every `classifyDevicectl` case; **wrapper never executed** (first-launch mismatch → `XCODE_SETUP_REQUIRED` and the real binary never spawned); `idevicescreenshot` and `screenshotr` → `IOS_DDI_REQUIRED`; nothing applies → `XCODE_REQUIRED`/`TOOL_MISSING`; syslog_relay framing, batching, `device-gone` on detach, abort closes the service socket within 100 ms; 8 s silence → `idevicesyslog` with a notice; Wi‑Fi entry ignored without `--wifi`; with it: 2 s for a new entry, none for a returning one, 120 s hold, a cut link before or after `Detached` keeps a ready row ready, a dropped log ends `DEVICE_DROPPED`, "real rhythm" replays of the measured presence; usbmuxd restart → reconnect and resync; non-phone `DeviceClass` ignored; allowlists (sending `Pair` throws) |
 | android | No server → `stopped`, **no adb process spawned at startup**; tracker rows and the state map; identity cache per `transport_id`; a listed phone turning ready changes in place; detail outputs byte-equal to the fixtures; screencap PNG extraction; logcat stream and abort closes the socket; `FAIL` mapping; `reconnect-offline` on Retry; server dies → rows cleared, `ADB_SERVER_STOPPED`; start-server spawns exactly `['start-server']` with ignored stdio, untracked, and waits for `host:version`; `ADB_START_FAILED` after 8 s; `ADB_EXEC` contains only constants; `ADB_HOST_NEVER` refused both ways; Wi‑Fi: host, port and code parsers, adb's reply texts, connect → Allow → ready with detail, screenshot and logs, every failure `reason`, pair, disconnect (mDNS and loopback refused), IPv6, 400 before anything is sent, names resolved (loopback and public answers refused), `BUSY`, server stopped, `--no-android`, a TV that leaves (socket hung and socket closed) |
 | discovery | Codec: the TV's answer written byte by byte, QU queries, escaped labels, RFC 5952 addresses, hostile names (pointer loops, forward pointers, overruns, reserved labels, 256 bytes, labels that are not UTF-8), counts not trusted, every truncation and 6,000 corrupted packets without a throw; browse: TV and Pixel complete, follow-up SRV/TXT/A for a PTR alone, multicast answers taken and foreign ids dropped, PTR shape, goodbyes, `max`, abort, each errno → `blocked`/`no-network`/`failed`; an instance or host whose name could not be asked about dropped, with nothing thrown from the follow-up timer; a transport handing over a non-packet or throwing from `send` throws nothing out of a callback; a type that cannot be written refused before a socket opens; the real UDP transport against a responder on 127.0.0.1, ENETDOWN and EADDRNOTAVAIL sending nothing; only local addresses offered; Cast name before Remote name; adb's list parsed; connected/paired/deviceId by address, mDNS name, same host and USB serial; dedupe, order, cap; terminal and doctor lines; the endpoint: shape, no server → no adb request, cache/gap/one-at-a-time, merged with adb's list as it is now, blocked with adb's finds and printed once, bearer/Origin/405, `?refresh=1` to the lane, `ANDROID_OFF`, `android.discover` |
 | system resolver | dns-sd's `-B`/`-L`/TXT/`-G` lines from the owner's Mac and hostile ones (headers, junk, wrong domain or type, ports out of range, bad escapes, `No Such Record`, IPv6); presentation names (`\032`, `\.`, UTF-8); avahi's `+`/`-`/`=` lines, a `;` in a name, quoted TXT, a type with `(`, `[` or `+` found as text; TXT details and API → Android version; browsing the owner's network through a fake dns-sd (the exact argv, each host looked up once, every process gone afterwards); a resolve that never answers and a lookup past its deadline cut off; 16 Cast entries whose `-L` never answers, with and without a cap of 4, while the Pixel still resolves; a dns-sd that ignores SIGTERM ending the run on its deadline and freeing its slot; avahi's per-group cap; slow answers inside it kept; `Rmv`; options, oversized names, foreign answers and non-`.local` hosts never passed on; two devices on `Android.local` get no address; caps; a dns-sd that fails at once did not look, a missing one never runs, a silent one looked; abort; no MaxListenersExceededWarning from a dns-sd or avahi run, with every AbortController capped at 10 as on Node 18 and 20 (`listenerWarnings`, `harness.ts`); avahi: IPv4 only, no daemon, hanging, removal; which tool per platform; merging: blocked + resolver looked → `note` and no `error`, no resolver → `blocked` as before, each source's finds once, TXT names filled in, dedupe by serial (same host, or adb's list), two boxes sharing a serial or a junk one kept apart, local-address rules and cap; both sources failed → the resolver's words in `error.detail`, the terminal and `--doctor`; the endpoint and `--doctor` with dns-sd while the helper's queries are blocked |
 | network (§4.9) | The networks looked at: a /24 (its own addresses, network and broadcast never targets), a /16 reduced to the /24 around this computer, two /24s inside 512, a subnet two interfaces share checked once, tunnels/bridges/AirDrop/loopback/link-local/CGNAT/IPv6 refused. Presence: the owner's network found, one datagram each, the pool and the 4/10 ms pace, every socket closed, blocked and no-network; the real transport on 127.0.0.1 (a closed port refuses, a bound silent port and 127.0.0.2 stay silent), a bind that fails leaves no socket. Tables: macOS `arp -an` (unpadded, incomplete and multicast skipped), Linux `/proc/net/arp` (flags 0x2/0x6), Windows `arp -a` in German by shape (broadcast, multicast and empty rows no device); gateways the three ways. SSDP: the router's answers and searches, only local sources, 256 at most, blocked, a bind that fails; the real socket on 127.0.0.1. Description: where it may be fetched from (same IP, http, no redirect, 64 KiB, XML), the tag scanner (entity bomb, DOCTYPE, CDATA, nesting, over 64 KiB), the real fetch on 127.0.0.1. Merge: a shared host name ties nothing unless `from` heard it, several addresses no guess, names (`_raop` after `@`, `_workstation` without its address), a host name carrying a hardware address dropped, TXT allowlist, caps and truncation. Privacy: the reply, the terminal and `--doctor` grepped for every spelling of every fixture's hardware address and its last three bytes, ids, serials and UUIDs. error/note/neither; cut at `lanScan`; the endpoint (cache/gap/one-at-a-time, bearer/Origin/GET, `--no-android`, `lan.discover`, a client that leaves), shutdown, and the `--doctor` Network section without a name |
+| adb tunnel (§4.10) | WebSocket codec: RFC 6455's accept key, frame headers at 125/126/65535/65536 bytes, masked frames whole and byte by byte, fragments with a ping between, close codes, and every refusal (unmasked, RSV, a lone continuation, a message inside another, fragmented or long control frames, unknown opcodes, over the cap from the header alone); the service allowlist and each `ADB_TUNNEL_NEVER` entry; the gate (rebound Host, no Origin, another site, bad key, version 8 → 426, no token, wrong token, the token without the protocol) as bare replies without the token or ACAO, and every other path refused; 101 with the right accept and only the tunnel's protocol; an `exec:` answer and its close, a Wi‑Fi serial, 3 MiB both ways in 256 KiB messages, ping/pong, the page's close and its going away ending the device's service, an opening abandoned midway; each refusal in the first message (unlisted, malformed, an iPhone, not ready, a service off the list) with the lane never asked; protocol errors (bytes first, not JSON, empty service, over 64 KiB, unmasked, text after ok, no opening in time); 16 per device then `TUNNEL_LIMIT`, another device unaffected, room again after one closes; `GET …/adb` (features, token, refusals); shutdown → 1001; `--verbose` without the service or the token. Through the real lane and the fake adb server: `host:transport:<serial>` then `host:features`, then the page's service, its answer, bytes both ways for `sync:`, a `FAIL` worded as the page's code, and nothing off the allowlist sent |
 | simulators | List join; filter iOS runtimes; screenshot refused when not Booted (no hang); `-` never used; compact log header and stderr dropped; grandchild reaped on abort; first-launch gate (CoreSimulator older) → `unavailable` |
 | tools, preflight | §12e matrix |
 
@@ -2901,6 +2980,24 @@ All read-only on the iPhone: no Pair, no `SetValue`, no Trust prompt, no sudo. T
 - **After an intentional Disconnect** the terminal printed "not answering over Wi-Fi: wake it, or connect it again", which is wrong for a disconnect (§1.10, §4.7).
 - **The Environment check** showed the WebUSB row "Phone allowed in the browser" as a Warning in a session with only an iPhone (§12a).
 
+**The adb tunnel, on hardware** (2026-10-07, helper 1.3.0, Chrome against `npm run dev` with `--dev`)
+
+- **An emulator** (`Medium_Phone_API_36.0`, Android 16, API 36), through the adb server the helper started.
+  - The Apps tab listed 8 apps with their labels and icons read from the APKs.
+  - The app sheet showed a 71 MB app's details; Open launched it.
+  - The Images tab showed a screenshot with its preview, 1.0 s to refresh.
+  - A 4.2 MB APK installed and opened. On the AVD as found, Android itself refused the first install for lack of space ("Requested internal only, but not enough space", the emulator 95% full), which the page showed as Android's own words. It installed in a second run started with `-read-only` (writes go to temporary files), with the low-storage threshold lowered for that run only.
+  - About 230 tunnels in the session; the slowest took 1.4 s (an install commit), most 5–15 ms.
+  - Restarting the emulator dropped the session and opened a new one. The Apps tab, reloading while Android was still booting, said "cmd: Can't find service: package" with Retry, as WebUSB does for a phone that is still booting.
+- **The same emulator over adb's TCP transport** (`adb connect 127.0.0.1:5555`): listed as a Wi‑Fi device; Apps, Images and Install worked the same.
+- **The owner's Android TV over Wi‑Fi** (Sony BRAVIA 4K UR3, KD-43X8050H, Android 10, API 29, armeabi-v7a).
+  - The helper ran from Terminal.app, as on 2026-10-04: processes started from VS Code still get "No route to host" on the LAN.
+  - "On this network" found it; Connect, then Ready.
+  - The Apps tab listed its 9 apps, with labels and icons, over Wi‑Fi.
+  - The same 4.2 MB APK installed ("Installed … 4.0.1 (13) on BRAVIA 4K UR3"), and Uninstall removed it again (`pm list packages` empty afterwards).
+  - Install app and Disconnect showed side by side.
+- **An older helper** (1.2.0, the published one) with this page: no Apps or Images tabs, Install app disabled, and the "Update the helper" note with the command for its port, in English and Vietnamese.
+
 ---
 
 ## 10. Risks and open questions, ranked
@@ -3029,10 +3126,10 @@ The sentences below are the design's. The helper's shipped words are in `helper/
 | `browser.secure` | `window.isSecureContext` | ok → "This page runs in a secure context." · blocking → "This page isn't in a secure context, so WebUSB and pairing can't work." → link `https://bauloc.github.io/device/` "Open the secure page" |
 | `browser.webusb` | `'usb' in navigator` | ok → "This browser reaches Android phones directly over WebUSB." · without WebUSB → "This browser has no WebUSB, so Android needs the helper and Google's adb." → step "Use Chrome or Edge for Android without the helper." |
 | `helper.lna` | Mode, `safariLike`, `loopbackPermission()` (§6.3) | local → ok "Not needed: the helper serves this page." · `granted` → ok "Allowed to reach apps on this device." (with a note that the grant covers the whole site, T12) · `unsupported` (not Safari) → ok "This browser doesn't ask for this permission." · `prompt` → not checked "The browser will ask once to let this page reach apps on this device; choose Allow." → action `connect` "Connect helper" · `denied` → blocking "This browser blocks this page from reaching apps on this device." → step "Chrome or Edge: Site settings → Apps on device → Allow. Firefox: Settings → Privacy & Security → Device apps and services." + action `open-local` · hosted Safari → blocking "Safari can't reach the helper from this secure page." → action `open-local` "Open the helper's page" |
-| `helper.running` | Phase | `connected` → ok "Helper 1.2.0 answers on 127.0.0.1:8787." · `off`/`checking` → not checked "Not checked yet." → action `connect` · `absent` → blocking "Nothing answers on 127.0.0.1:8787." (+ "…or the helper was started without --dev." on a dev origin) → command `curl -fsSL https://bauloc.github.io/device/agent/device-bridge.mjs -o ~/device-bridge.mjs && node ~/device-bridge.mjs` (dev: `node ../device/agent/device-bridge.mjs --dev`) · `lost` → blocking "The helper stopped." → command `node ~/device-bridge.mjs` · `foreign` → blocking "Another program answers on port 8787." → command `node ~/device-bridge.mjs --port 8788` · `dismissed`/`denied`/`safari` → not checked (see `helper.lna`) |
-| `helper.version` | `health.protocol` vs `[1,1]` | ok → "Protocol 1, version 1.2.0." · `outdated` → blocking "This helper (0.9.0) is older than this page needs." → the download command · `newer` → blocking "This page is older than the helper." → action `reload` |
+| `helper.running` | Phase | `connected` → ok "Helper 1.3.0 answers on 127.0.0.1:8787." · `off`/`checking` → not checked "Not checked yet." → action `connect` · `absent` → blocking "Nothing answers on 127.0.0.1:8787." (+ "…or the helper was started without --dev." on a dev origin) → command `curl -fsSL https://bauloc.github.io/device/agent/device-bridge.mjs -o ~/device-bridge.mjs && node ~/device-bridge.mjs` (dev: `node ../device/agent/device-bridge.mjs --dev`) · `lost` → blocking "The helper stopped." → command `node ~/device-bridge.mjs` · `foreign` → blocking "Another program answers on port 8787." → command `node ~/device-bridge.mjs --port 8788` · `dismissed`/`denied`/`safari` → not checked (see `helper.lna`) |
+| `helper.version` | `health.protocol` vs `[1,1]` | ok → "Protocol 1, version 1.3.0." · `outdated` → blocking "This helper (0.9.0) is older than this page needs." → the download command · `newer` → blocking "This page is older than the helper." → action `reload` |
 | `helper.paired` | Phase | ok → "Paired · fingerprint 4d1566a1 · this tab only" (or "· remembered on this computer") · `unpaired` → blocking "This page isn't paired with the helper." → action `pair` · `stale` → blocking "The helper restarted, so this page's pairing ended." → action `pair` · `foreign` → blocking "The program on port 8787 couldn't prove it is your helper; nothing was sent." |
-| `helper.update` | `readPublishedHelper()`: fetch `/device/agent/device-bridge.mjs`; SHA-256 + `VERSION` vs health | ok → "Matches the published helper (1.2.0)." · warning → "A newer helper (1.3.0) is published." → download command · warning → "This helper differs from the published file." → download command · not checked (offline, or not published yet) |
+| `helper.update` | `readPublishedHelper()`: fetch `/device/agent/device-bridge.mjs`; SHA-256 + `VERSION` vs health | ok → "Matches the published helper (1.3.0)." · warning → "A newer helper (1.4.0) is published." → download command · warning → "This helper differs from the published file." → download command · not checked (offline, or not published yet) |
 | `mac.tools` | Until a doctor report exists | not checked → "This Mac's tools aren't checked yet; start the helper to check Xcode, adb and the rest." (running but unpaired: "Checked once this page is paired…") |
 
 **Mac items (helper; §1.5 detection)**
