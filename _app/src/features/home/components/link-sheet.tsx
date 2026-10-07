@@ -1,10 +1,10 @@
-import type { CSSProperties, FocusEvent } from 'react'
+import type { CSSProperties, FocusEvent, PointerEvent } from 'react'
 
 import { useMessages } from '@/lib/i18n'
 
 import type { HomeLink } from '../home-links'
 import { HOME_MESSAGES } from '../messages'
-import { SheetArt } from './sheet-art'
+import { SheetArt, sheetTint } from './sheet-art'
 
 /** What you need to know before clicking. Nothing for a finished, public destination. */
 function statusNote(
@@ -40,6 +40,31 @@ const COUNTER_SCALE = { transform: 'scale(calc(1 / var(--k, 1)))' }
 const FOCUS_RING =
   'group-focus-visible:[outline:calc(4px/var(--k,1))_solid_var(--index-focus)] group-focus-visible:[outline-offset:calc(4px/var(--k,1))]'
 
+/*
+  The sheet's tint (sheetTint) comes in as a circle growing from where the pointer entered —
+  from the centre for keyboard focus and in front of the camera — and goes out gathering to
+  where the pointer left: the statement's circle and the theme switch's, once more.
+*/
+const TINT =
+  'pointer-events-none absolute inset-0 transition-[clip-path] duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] [clip-path:circle(0%_at_var(--tint-x,50%)_var(--tint-y,50%))] group-hover:[clip-path:circle(150%_at_var(--tint-x,50%)_var(--tint-y,50%))] group-focus-visible:[clip-path:circle(150%_at_var(--tint-x,50%)_var(--tint-y,50%))] group-data-[active=true]:[clip-path:circle(150%_at_var(--tint-x,50%)_var(--tint-y,50%))]'
+
+/** Where on the sheet, in %, the tint's circle grows from or gathers to. */
+function placeTint(sheet: HTMLElement, x: string, y: string) {
+  sheet.style.setProperty('--tint-x', x)
+  sheet.style.setProperty('--tint-y', y)
+}
+
+/** The point where the pointer crosses the sheet's edge, coming in or going out. */
+function tintAtPointer(event: PointerEvent<HTMLAnchorElement>) {
+  const box = event.currentTarget.getBoundingClientRect()
+  if (box.width === 0 || box.height === 0) return
+  placeTint(
+    event.currentTarget,
+    `${String(((event.clientX - box.left) / box.width) * 100)}%`,
+    `${String(((event.clientY - box.top) / box.height) * 100)}%`,
+  )
+}
+
 /**
  * One sheet: a label above, and the whole sheet as the link. Used by the strip and the grid
  * alike; whoever places it sets `--k` to the scale it is drawn at.
@@ -65,6 +90,7 @@ export function LinkSheet({
   // Art that covers the sheet edge to edge gets no white sheet under it: at fractional zoom
   // the white would show through the art's anti-aliased edges as a pale rim.
   const fullBleed = link.art?.kind === 'testCard'
+  const tint = sheetTint(link)
 
   return (
     <a
@@ -75,8 +101,12 @@ export function LinkSheet({
       data-sheet={index}
       style={morphName(index)}
       onFocus={(event: FocusEvent<HTMLAnchorElement>) => {
-        if (event.currentTarget.matches(':focus-visible')) onFocusVisible?.()
+        if (!event.currentTarget.matches(':focus-visible')) return
+        placeTint(event.currentTarget, '50%', '50%')
+        onFocusVisible?.()
       }}
+      onPointerEnter={tintAtPointer}
+      onPointerLeave={tintAtPointer}
       className={`group text-index-ink relative block h-[720px] w-[1200px] shrink-0 no-underline outline-none ${entrance ? 'motion-safe:animate-sheet-fade' : ''}`}
     >
       <span
@@ -99,6 +129,7 @@ export function LinkSheet({
       <span
         className={`absolute inset-0 overflow-hidden ${fullBleed ? '' : 'bg-index-sheet'} ${FOCUS_RING}`}
       >
+        {tint !== null && <span aria-hidden="true" className={`${tint} ${TINT}`} />}
         <SheetArt link={link} />
       </span>
     </a>
