@@ -1,0 +1,1 @@
+import{Q as e,X as t,Z as n}from"./index-nsrmtsb-.js";function r(r){let i=e({warn:r?.router===void 0}),a=r?.router||i;return n(a.stores.__store,t(r,a))}export{r as t};
