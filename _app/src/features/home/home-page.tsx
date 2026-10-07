@@ -1,8 +1,17 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react'
 import { flushSync } from 'react-dom'
 
+import { SITE_HEADER_HEIGHT, SiteHeader } from '@/components/site-header'
 import { useMessages } from '@/lib/i18n'
-import { LANGUAGES, setLocale, useLocale } from '@/lib/locale'
+import { useLocale } from '@/lib/locale'
 
 import { SHEET_GAP, SHEET_WIDTH } from './camera'
 import { Crosshair } from './components/crosshair'
@@ -10,7 +19,6 @@ import { IntroSheet } from './components/intro-sheet'
 import { LinkSheet } from './components/link-sheet'
 import { Minimap } from './components/minimap'
 import { TextSwitch } from './components/text-switch'
-import { ThemeSwitch } from './components/theme-switch'
 import { HOME_LINKS } from './home-links'
 import { buildView } from './launcher'
 import { HOME_MESSAGES } from './messages'
@@ -30,24 +38,6 @@ const TYPE_AHEAD_MS = 900
 */
 type Layout = 'list' | 'grid'
 const LAYOUT_STORAGE_KEY = 'bauloc:layout'
-
-/**
- * The language switch's choices: each language by its own name, or by its code on a phone,
- * where the full names would reach under the ruler (which keeps the top centre there). The
- * name stays the button's name either way.
- */
-const LANGUAGE_OPTIONS = LANGUAGES.map((language) => ({
-  value: language.value,
-  label: (
-    <>
-      <span aria-hidden="true" className="sm:hidden">
-        {language.short}
-      </span>
-      <span className="max-sm:sr-only">{language.name}</span>
-    </>
-  ),
-  lang: language.value,
-}))
 
 function readLayout(): Layout {
   try {
@@ -130,6 +120,7 @@ function StripView({ entrance, initialSheet }: { entrance: boolean; initialSheet
     SHEETS,
     FIRST_LINK,
     initialSheet,
+    SITE_HEADER_HEIGHT,
   )
   const links = HOME_LINKS[useLocale()]
 
@@ -192,17 +183,19 @@ function StripView({ entrance, initialSheet }: { entrance: boolean; initialSheet
       {mode === 'fine' && <div aria-hidden="true" style={{ height: track.height }} />}
 
       {/*
-        On a fine pointer the stage clips with `overflow: clip`, not `hidden`. A hidden box is
-        still a scroll container, so focus, find-in-page and text fragments would scroll it
-        behind the camera's back, and the strip would no longer be where the camera thinks.
+        The stage is the window below the site header (`--site-header`, set by HomePage).
+
+        On a fine pointer it clips with `overflow: clip`, not `hidden`. A hidden box is still a
+        scroll container, so focus, find-in-page and text fragments would scroll it behind the
+        camera's back, and the strip would no longer be where the camera thinks.
       */}
       <div
         ref={stage}
         data-scroll-restoration-id={STAGE_ID}
         className={
           mode === 'fine'
-            ? 'fixed inset-0 overflow-clip'
-            : 'fixed inset-0 [scrollbar-width:none] overflow-x-auto overflow-y-hidden overscroll-x-contain [&::-webkit-scrollbar]:hidden'
+            ? 'fixed inset-x-0 top-(--site-header) bottom-0 overflow-clip'
+            : 'fixed inset-x-0 top-(--site-header) bottom-0 [scrollbar-width:none] overflow-x-auto overflow-y-hidden overscroll-x-contain [&::-webkit-scrollbar]:hidden'
         }
       >
         {mode === 'coarse' && (
@@ -290,7 +283,7 @@ function GridView({ onSheetFocus }: { onSheetFocus: (sheet: number) => void }) {
 
   return (
     <>
-      <div className="mx-auto w-full max-w-[1400px] px-6 pt-20 pb-28 sm:px-12">
+      <div className="mx-auto w-full max-w-[1400px] px-6 pt-10 pb-28 sm:px-12">
         <div
           ref={grid}
           onFocus={(event) => {
@@ -310,8 +303,8 @@ function GridView({ onSheetFocus }: { onSheetFocus: (sheet: number) => void }) {
         </div>
       </div>
       {/*
-        The page scrolls under the corner switches; fade it out there so they stay legible —
-        the reference's own bottom fade, for the same reason.
+        The page scrolls under the layout switch in the corner; fade it out there so it stays
+        legible — the reference's own bottom fade, for the same reason.
       */}
       <div
         aria-hidden="true"
@@ -322,13 +315,13 @@ function GridView({ onSheetFocus }: { onSheetFocus: (sheet: number) => void }) {
 }
 
 /**
- * The site root. "List  Grid" bottom left, "Light  Dark" bottom right, the language top
- * right — the reference puts its own links in the corners of a sheet; these sit in the
- * corners of the page. The top left stays empty, and the ruler keeps the top centre.
+ * The site root, under the site header every page shares: its command line carries the
+ * sections, the language and the theme. The page's one control of its own, "List  Grid", sits
+ * bottom left — the reference puts its links in the corners of a sheet, this one is in a
+ * corner of the page — and the ruler keeps the top centre.
  */
 export function HomePage() {
   const t = useMessages(HOME_MESSAGES)
-  const locale = useLocale()
   const [layout, setLayout] = useState<Layout>(readLayout)
   /** Entrance animations belong to the first load only; after a switch the morph is the motion. */
   const [switched, setSwitched] = useState(false)
@@ -356,34 +349,35 @@ export function HomePage() {
   }
 
   return (
-    <main data-page="index" data-layout={layout} className="font-console text-index-ink relative">
-      {layout === 'list' ? (
-        <StripView entrance={!switched} initialSheet={switched ? returnTo : null} />
-      ) : (
-        <GridView
-          onSheetFocus={(sheet) => {
-            gridSheet.current = sheet
-          }}
+    <>
+      {/* In the document's flow, above the strip's scroll track: see useIndexCamera's `inset`. */}
+      <SiteHeader current="home" />
+      <main
+        data-page="index"
+        data-layout={layout}
+        className="font-console text-index-ink relative"
+        style={{ '--site-header': `${String(SITE_HEADER_HEIGHT)}px` } as CSSProperties}
+      >
+        {layout === 'list' ? (
+          <StripView entrance={!switched} initialSheet={switched ? returnTo : null} />
+        ) : (
+          <GridView
+            onSheetFocus={(sheet) => {
+              gridSheet.current = sheet
+            }}
+          />
+        )}
+        <TextSwitch
+          label={t.layout}
+          options={[
+            { value: 'list', label: t.list },
+            { value: 'grid', label: t.grid },
+          ]}
+          value={layout}
+          onSelect={chooseLayout}
+          className="bottom-6 left-6"
         />
-      )}
-      <TextSwitch
-        label={t.layout}
-        options={[
-          { value: 'list', label: t.list },
-          { value: 'grid', label: t.grid },
-        ]}
-        value={layout}
-        onSelect={chooseLayout}
-        className="bottom-6 left-6"
-      />
-      <TextSwitch
-        label={t.language}
-        options={LANGUAGE_OPTIONS}
-        value={locale}
-        onSelect={setLocale}
-        className="top-6 right-6"
-      />
-      <ThemeSwitch />
-    </main>
+      </main>
+    </>
   )
 }

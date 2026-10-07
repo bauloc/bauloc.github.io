@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react'
 
 /**
- * A pair of words in a corner — "Light  Dark", "List  Grid", "English  Tiếng Việt" — set
- * like the reference's own text links: the current choice in ink, the other in label grey.
- * Pressed-state buttons rather than one toggle, so the choice reads without an icon to decode.
+ * A pair of words in a corner — "List  Grid" — set like the reference's own text links: the
+ * current choice in ink, the other in label grey. Pressed-state buttons rather than one
+ * toggle, so the choice reads without an icon to decode.
  */
 export function TextSwitch<T extends string>({
   label,

@@ -88,6 +88,12 @@
     scroll-padding-top: 6.5rem;
   }
 
+  /* The same for the index's grid under its one-row header (41 px), with room for the label
+     that sits above a sheet, outside the link that takes focus. */
+  html:has(main[data-page='index'][data-layout='grid']) {
+    scroll-padding-top: 5rem;
+  }
+
   /* The profile's ground on the root too, so overscroll shows the page's own colour, light
      or dark, rather than the console's off-white. */
   html:has([data-page='profile']),
@@ -145,8 +151,8 @@
 
 /*
   Switching theme is a view transition: the new theme is revealed as a circle growing from
-  the switch (animated in theme-switch.tsx). Turn off the default cross-fade so the old
-  theme stays put underneath while it does.
+  the site header's button (animated in components/theme-toggle.tsx). Turn off the default
+  cross-fade so the old theme stays put underneath while it does.
 */
 ::view-transition-old(root),
 ::view-transition-new(root) {

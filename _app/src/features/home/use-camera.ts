@@ -144,11 +144,16 @@ export interface IndexCamera {
  * @param initialSheet where to open the strip on mount — coming back from the grid, the sheet
  *   that was in front before. `null` on a page load, which opens where the router saved the
  *   position (a reload, Back), or else on the first sheet.
+ * @param inset the px at the top of the window that the site header takes. The stage starts
+ *   below them, so the camera frames the window less that band. The header sits in the
+ *   document's flow above the scroll track, and the track is shorter by as much, so the scroll
+ *   range is still exactly the strip's.
  */
 export function useIndexCamera(
   count: number,
   firstLink: number,
   initialSheet: number | null = null,
+  inset = 0,
 ): IndexCamera {
   const mode: PointerMode = useSyncExternalStore(
     coarsePointer.subscribe,
@@ -165,8 +170,8 @@ export function useIndexCamera(
   )
   const height = useSyncExternalStore(
     subscribeResize,
-    () => window.innerHeight,
-    () => 900,
+    () => window.innerHeight - inset,
+    () => 900 - inset,
   )
 
   const stage = useRef<HTMLDivElement>(null)
