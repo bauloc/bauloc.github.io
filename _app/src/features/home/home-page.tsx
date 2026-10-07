@@ -231,6 +231,16 @@ function StripView({ entrance, initialSheet }: { entrance: boolean; initialSheet
   )
 }
 
+/*
+  A link's cell under the pointer or keyboard focus: the sheet lifts, a little larger and on a
+  soft shadow, while its ground warms to its colour (LinkSheet's tint). Not the statement's
+  cell, which opens nothing. With reduced motion it does not grow. `has-[…]` matches the cell
+  itself, never what is inside or after it: that kind of `:has()` restyles the whole page
+  (styles/overlays.test.ts).
+*/
+const LIFT =
+  'transition-[scale,box-shadow] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] has-[a:hover]:z-10 has-[a:hover]:shadow-index-lift has-[a:focus-visible]:z-10 has-[a:focus-visible]:shadow-index-lift motion-safe:has-[a:hover]:scale-[1.03] motion-safe:has-[a:focus-visible]:scale-[1.03]'
+
 /**
  * One grid cell: room for the sheet's label above, the sheet drawn at the cell's width, and —
  * for a link — its description below, which the strip never shows.
@@ -238,7 +248,7 @@ function StripView({ entrance, initialSheet }: { entrance: boolean; initialSheet
 function Cell({ caption, children }: { caption?: string; children: ReactNode }) {
   return (
     <div className="pt-7">
-      <div data-cell className="relative aspect-[5/3]">
+      <div data-cell className={`relative aspect-[5/3] ${LIFT}`}>
         <div
           className="absolute top-0 left-0 origin-top-left"
           style={{ transform: 'scale(var(--k, 0))' }}

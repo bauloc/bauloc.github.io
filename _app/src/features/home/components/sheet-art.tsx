@@ -383,6 +383,25 @@ function TestCard() {
   )
 }
 
+/*
+  The ground a sheet warms to while it is in front of the camera, hovered or focused: its
+  drawing's own colour, lightly (theme.css). Full class names, so Tailwind sees them. The test
+  card covers its sheet edge to edge, so there is nothing under it to tint.
+*/
+const TINTS: Readonly<Record<SheetArtSpec['kind'], string | null>> = {
+  word: 'bg-index-tint-yellow',
+  monogram: 'bg-index-tint-yellow',
+  badge: 'bg-index-tint-yellow',
+  terminal: 'bg-index-tint-blue',
+  pixelPhone: 'bg-index-tint-blue',
+  contributions: 'bg-index-tint-green',
+  testCard: null,
+}
+
+export function sheetTint(link: HomeLink): string | null {
+  return TINTS[(link.art ?? { kind: 'word' }).kind]
+}
+
 export function SheetArt({ link }: { link: HomeLink }) {
   const art: SheetArtSpec = link.art ?? { kind: 'word' }
   switch (art.kind) {

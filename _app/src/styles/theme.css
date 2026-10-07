@@ -156,6 +156,13 @@
   --index-day-2: color-mix(in oklab, var(--index-green) 52%, var(--index-sheet));
   --index-day-3: color-mix(in oklab, var(--index-green) 76%, var(--index-sheet));
   --index-day-4: var(--index-green);
+  /*
+    A link sheet's ground while it is in front of the camera, hovered or focused: a little of
+    its drawing's colour mixed into the sheet, so the sheet warms to it in either theme.
+  */
+  --index-tint-yellow: color-mix(in oklab, var(--index-yellow) 24%, var(--index-sheet));
+  --index-tint-blue: color-mix(in oklab, var(--index-blue) 8%, var(--index-sheet));
+  --index-tint-green: color-mix(in oklab, var(--index-green) 11%, var(--index-sheet));
 }
 
 /*
@@ -173,6 +180,10 @@
   --index-rule: #5c5c5c;
   --index-blue: #6b7cff;
   --index-focus: #3b9eff;
+  /* Less of each colour on the dark sheet: yellow mixed into a dark grey turns to olive. */
+  --index-tint-yellow: color-mix(in oklab, var(--index-yellow) 9%, var(--index-sheet));
+  --index-tint-blue: color-mix(in oklab, var(--index-blue) 12%, var(--index-sheet));
+  --index-tint-green: color-mix(in oklab, var(--index-green) 12%, var(--index-sheet));
 }
 
 /*
@@ -417,6 +428,9 @@ html.dark:has([data-shell='console']),
   --color-index-day-2: var(--index-day-2);
   --color-index-day-3: var(--index-day-3);
   --color-index-day-4: var(--index-day-4);
+  --color-index-tint-yellow: var(--index-tint-yellow);
+  --color-index-tint-blue: var(--index-tint-blue);
+  --color-index-tint-green: var(--index-tint-green);
 
   /* shadcn roles only the console defines (section f). */
   --color-secondary: var(--secondary);
@@ -493,6 +507,8 @@ html.dark:has([data-shell='console']),
 
   --shadow-card: 0 2px 8px rgb(0 0 0 / 0.08);
   --shadow-lifted: 0 8px 32px rgb(0 0 0 / 0.14);
+  /* A grid cell lifted under the pointer (home-page.tsx): soft, and mostly below it. */
+  --shadow-index-lift: 0 24px 48px -20px rgb(0 0 0 / 0.28), 0 6px 14px -8px rgb(0 0 0 / 0.12);
   /*
     The landing card's hover lift and its ::before sheen. The originals were
     rgba(79,110,247,0.15) and rgba(79,110,247,0.06) — the accent at 15% and 6% alpha.
