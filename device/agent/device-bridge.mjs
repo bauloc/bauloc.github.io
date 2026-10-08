@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Device Lab helper 1.5.0 (bauloc-device-bridge)
+ * Device Lab helper 1.6.0 (bauloc-device-bridge)
  *
  * Device Lab (https://bauloc.github.io/device/) shows identifiers, screenshots and logs for
  * the phones plugged into this Mac. Android works straight from Chrome over WebUSB. macOS
@@ -21,6 +21,8 @@
  *   - Android: shares Google's adb server when one is running. It starts one only when you
  *     click "Start adb server" on the page, and never stops it. It looks for Android TVs and
  *     phones on the Wi-Fi with read-only mDNS questions, and never connects one by itself.
+ *     When adb finds no route to one you asked to connect, one datagram to that address tells
+ *     whether this computer or only the adb server is kept off the network.
  *   - Android, when the page asks: carries the page's own adb commands to a device the adb
  *     server lists (installs, the Apps and Images tabs), one WebSocket per command, so a TV on
  *     the Wi-Fi gets what a phone on a cable gets in Chrome. Only the kinds of command those
@@ -82,33 +84,33 @@
  *   Every change to it https://github.com/bauloc/bauloc.github.io/commits/master/device/agent/device-bridge.mjs
  *
  * Contents (line numbers in this file)
- *     131  Node version guard                   src/guard.ts
- *     153  §1 Constants, limits and allowlists  src/constants.ts
- *     467  §1 Command line                      src/cli.ts
- *     597  §2 Utilities                         src/util.ts
- *     890  §3 Property lists                    src/plist.ts
- *    1014  §4a Running tools                    src/process.ts
- *    1333  §4b Finding tools                    src/tools.ts
- *    2007  §5 usbmuxd client                    src/usbmuxd.ts
- *    2352  §6 Lockdown client                   src/lockdown.ts
- *    2660  §7 iOS lane                          src/ios-lane.ts
- *    4355  §8 Simulator lane                    src/simulator-lane.ts
- *    4771  §9 mDNS browser                      src/mdns.ts
- *    6510  §9 Android lane                      src/android-lane.ts
- *    8567  §10 Device registry                  src/registry.ts
- *    8858  §11 Token, proof and pairing         src/auth.ts
- *    9032  §12 Doctor and preflight             src/preflight.ts
- *    9745  §13a WebSocket frames                src/websocket.ts
- *    9909  §13b adb tunnel                      src/adb-tunnel.ts
- *   10080  §13c GitHub release upload           src/github-upload.ts
- *   10312  §13d IPTV stream probes              src/iptv-probe.ts
- *   11109  §13 HTTP API                         src/http.ts
- *   12091  §14 Local mode                       src/local-mode.ts
- *   12358  §15 LAN sources                      src/lan-net.ts
- *   13076  §16 Every device on this network     src/lan.ts
- *   13819  §17 Bridge lifecycle                 src/bridge.ts
- *   14292  §17 Banner                           src/banner.ts
- *   14374  §17 Startup, signals and exports     src/main.ts
+ *     133  Node version guard                   src/guard.ts
+ *     155  §1 Constants, limits and allowlists  src/constants.ts
+ *     470  §1 Command line                      src/cli.ts
+ *     600  §2 Utilities                         src/util.ts
+ *     893  §3 Property lists                    src/plist.ts
+ *    1017  §4a Running tools                    src/process.ts
+ *    1336  §4b Finding tools                    src/tools.ts
+ *    2010  §5 usbmuxd client                    src/usbmuxd.ts
+ *    2355  §6 Lockdown client                   src/lockdown.ts
+ *    2663  §7 iOS lane                          src/ios-lane.ts
+ *    4358  §8 Simulator lane                    src/simulator-lane.ts
+ *    4774  §9 mDNS browser                      src/mdns.ts
+ *    6513  §9 Android lane                      src/android-lane.ts
+ *    8669  §10 Device registry                  src/registry.ts
+ *    8960  §11 Token, proof and pairing         src/auth.ts
+ *    9134  §12 Doctor and preflight             src/preflight.ts
+ *    9847  §13a WebSocket frames                src/websocket.ts
+ *   10011  §13b adb tunnel                      src/adb-tunnel.ts
+ *   10182  §13c GitHub release upload           src/github-upload.ts
+ *   10414  §13d IPTV stream probes              src/iptv-probe.ts
+ *   11211  §13 HTTP API                         src/http.ts
+ *   12193  §14 Local mode                       src/local-mode.ts
+ *   12460  §15 LAN sources                      src/lan-net.ts
+ *   13180  §16 Every device on this network     src/lan.ts
+ *   13924  §17 Bridge lifecycle                 src/bridge.ts
+ *   14397  §17 Banner                           src/banner.ts
+ *   14479  §17 Startup, signals and exports     src/main.ts
  */
 import path from "node:path";
 import { setMaxListeners } from "node:events";
@@ -154,7 +156,7 @@ if (tooOld) {
 /** What answers on 127.0.0.1: the page checks `health.name` before it trusts anything else. */
 const NAME = "bauloc-device-bridge";
 /** Semver of this file. The page shows it and compares it with the published file. */
-const VERSION = "1.5.0";
+const VERSION = "1.6.0";
 /**
  * The wire protocol's integer major. Within a major only additions are allowed (fields,
  * codes, endpoints, `features`); the page accepts DVC_MIN_AGENT ≤ PROTOCOL ≤ DVC_MAX_AGENT.
@@ -294,6 +296,7 @@ const TIMEOUTS = {
 	tunnelHello: 1e4,
 	adbNetworkConnect: 2e4,
 	adbPair: 15e3,
+	reachCheck: 300,
 	mdnsWindow: 2e3,
 	systemBrowse: 1500,
 	systemResolve: 1500,
@@ -6795,9 +6798,12 @@ const systemLookup = async (name) => (await dns.lookup(name, {
  * that maps `tv.lan` to 127.0.0.1 would otherwise send adb to an emulator's port. Every
  * address the name has must be one parseNetworkHost would take. A name that does not resolve
  * here would not resolve for adb either: `unresolved` at once, nothing sent.
+ *
+ * Returns the name's addresses, all checked (none for an IP address, which is not looked up):
+ * what the helper's own check of a blocked connect may probe (helperReaches).
  */
 async function checkResolvedName(host, lookup, timeoutMs, fail) {
-	if (IPV4$1.test(host) || host.includes(":")) return;
+	if (IPV4$1.test(host) || host.includes(":")) return [];
 	let addresses;
 	const deadline = new AbortController();
 	try {
@@ -6812,6 +6818,7 @@ async function checkResolvedName(host, lookup, timeoutMs, fail) {
 		const bare = address.split("%")[0] ?? "";
 		if (!isLocalIpv4(bare) && !isLocalIpv6(bare)) throw badRequest$1(`${host} points to ${clean(address, 60)}, which is not on your local network. Use the device’s IP address instead.`);
 	}
+	return addresses;
 }
 /** `host:port` as adb writes a network serial: IPv6 in brackets (`[fe80::1%en0]:5555`). */
 function networkSerial(host, port) {
@@ -6876,7 +6883,9 @@ function failureOf$1(text) {
 	 * EHOSTUNREACH to a local address, at once: this computer never sent a packet. A VPN that
 	 * takes all traffic (Cloudflare WARP) answers that way, and so does macOS for a process
 	 * whose app has no local-network access (one started from VS Code). The address can be
-	 * right and the device awake: it is not `unreachable`, and "same network?" misleads.
+	 * right and the device awake: it is not `unreachable`, and "same network?" misleads. The
+	 * process that could not send is the adb server's, though: the lane then checks the
+	 * helper's own (helperReaches), which turns it into `adb-blocked` when only adb is kept off.
 	 */
 	if (/no route to host/i.test(text)) return "blocked";
 	if (/no route|unreachable|host is down|network is down/i.test(text)) return "unreachable";
@@ -6893,10 +6902,18 @@ function failureOf$1(text) {
 function isAuthenticateReply(reply) {
 	return /^failed to authenticate to /i.test(reply.text.trim());
 }
+/**
+ * What keeps the helper itself off the local network, and the way out. A look at the network
+ * says just this (§4.9); a connect, a pairing and a scan say more (NETWORK_HINT.blocked),
+ * since what they reach goes through Google's adb server next.
+ */
+const LOCAL_NETWORK_HINT = "Something on this computer is blocking the local network. If a VPN is on (Cloudflare WARP, a Tailscale exit node, a work VPN), turn it off or allow local network access in it. On a Mac, start the helper from Terminal.app and choose Allow when macOS asks, or allow that app under System Settings → Privacy & Security → Local Network.";
 /** One plain sentence each: what to do about it. */
 const NETWORK_HINT = {
 	refused: "Nothing accepted the connection there. On the device, turn on Network debugging (TV) or Wireless debugging (phone), and check the address and port.",
-	blocked: "Something on this computer is blocking the local network. If a VPN is on (Cloudflare WARP, a Tailscale exit node, a work VPN), turn it off or allow local network access in it. On a Mac, start the helper from Terminal.app and choose Allow when macOS asks, or allow that app under System Settings → Privacy & Security → Local Network.",
+	/** An adb server a blocked helper started stays blocked after the helper's restart. */
+	blocked: `${LOCAL_NETWORK_HINT} Then restart Google's adb server, which keeps the local network access of the app that started it: run adb kill-server, then click Start adb server.`,
+	"adb-blocked": "This computer reaches the local network, but Google's adb server, which makes the connection, can't: it was started by an app that may not use the local network (on a Mac, often VS Code or another editor's terminal). Restart it: run adb kill-server, then click Start adb server on the page (or run adb start-server in Terminal.app), and try again.",
 	unreachable: "That address cannot be reached from this Mac. Check that the device and this Mac are on the same network.",
 	timeout: "The device did not answer in time. Check that it is on, awake and on the same network.",
 	unresolved: "That name was not found on your network. Use the device’s IP address instead.",
@@ -6918,24 +6935,75 @@ function pairFailed(target, reason, said = "") {
 	});
 }
 /**
- * The terminal lines for a failed connect or pairing: `head` alone, except for `blocked`,
- * whose two likely causes each get an indented line with its fix, the way a blocker does.
- * The macOS one only on a Mac.
+ * Whether the helper's own process can send to `address`:`port` (§4.7). adb's "No route to
+ * host" says only that Google's adb server could not: the helper never dials by itself, the
+ * server does. macOS grants local-network access per app, and a server keeps the access of
+ * whatever started it, so one started from VS Code stays off the local network while a
+ * helper started from Terminal.app is on it [V 2026-10-08].
+ *
+ * One presence check tells (lan-net.ts OpenPresence: one 1-byte datagram to the address and
+ * port adb just tried). It rejects at once when the byte can't leave this computer: a VPN,
+ * or the app that started the helper. `refused` is the device's own answer, so the byte left,
+ * on any system. `silent` counts only on a Mac, where a local block is an error on the send
+ * itself. Elsewhere silence can't tell a byte that left from one a VPN's kill switch rejects
+ * a moment later, nor a block from an address nobody claims, which Linux answers "No route to
+ * host" too, once ARP gives up. Windows never hears `refused` (libuv swallows it, §4.9).
+ *
+ * false whenever it can't tell: an address that is not a local IPv4 one (the check is udp4,
+ * and a name is looked up by the caller), a check that rejects, throws, outlasts twice its
+ * window or is aborted. It never throws.
  */
-function networkFailureLines(head, error, platform) {
-	if (error.extra.reason !== "blocked") return [head];
-	return blockedLines(head, "no route to host", platform);
+async function helperReaches(address, port, o) {
+	if (address === void 0 || !isLocalIpv4(address) || o.signal?.aborted) return false;
+	/** Twice the window: the check settles by itself within one, and one that hangs is let go. */
+	const check = linkSignals([o.signal], o.windowMs * 2);
+	try {
+		const answer = await Promise.race([Promise.resolve().then(() => o.open(address, {
+			port,
+			windowMs: o.windowMs,
+			signal: check.signal
+		})), aborted(check.signal).then(() => null)]);
+		/** An aborted check ends `silent`, which says nothing about where its byte went. */
+		if (answer === null || check.signal.aborted) return false;
+		return answer === "refused" || answer === "silent" && o.platform === "darwin";
+	} catch {
+		return false;
+	} finally {
+		/** Closes the check's socket, should it still be open. */
+		check.abort();
+	}
+}
+/**
+ * The terminal lines for a failed connect or pairing: `head` alone, except for the two
+ * blocks. `blocked`: its two likely causes, each on an indented line with its fix, the way a
+ * blocker does, the macOS one only on a Mac. `adb-blocked`: the numbered steps that restart
+ * Google's adb server, and on a Mac why it was kept off. `adb` is the adb command as the
+ * tester types it (adbCommand(): its full path when the PATH does not reach it).
+ */
+function networkFailureLines(head, error, platform, adb = "adb") {
+	if (error.extra.reason === "blocked") return blockedLines(head, "no route to host", platform, adb);
+	if (error.extra.reason !== "adb-blocked") return [head];
+	return [
+		`${head}: Google's adb server can't reach the local network, although the helper can`,
+		`  1. Stop that adb server: ${adb} kill-server`,
+		"  2. Start it from the helper: click Start adb server on the page",
+		`  3. ${error.code === "ANDROID_PAIR_FAILED" ? "Pair" : "Connect"} again`,
+		...platform === "darwin" ? ["  Why: macOS lets an app use the local network only with permission, and an adb server keeps the access of the app that started it (VS Code, for instance)"] : []
+	];
 }
 /**
  * `head`, what the socket said (`cause`), and the two likely culprits with their fixes, each
- * on an indented line: shared by a connect or pairing that was refused at once (§4.7) and a
- * scan whose queries could not leave (§4.8).
+ * on an indented line: shared by a connect or pairing that was refused at once (§4.7), a scan
+ * whose queries could not leave (§4.8) and a look at the network (§4.9). With `adb` (the
+ * command, as networkFailureLines() takes it), what comes next goes through Google's adb
+ * server, so the macOS fix restarts it too: a server started earlier keeps the old app's access.
  */
-function blockedLines(head, cause, platform) {
+function blockedLines(head, cause, platform, adb) {
+	const restart = adb === void 0 ? "" : `; then run ${adb} kill-server and click Start adb server on the page, since an adb server started earlier keeps the old app's access`;
 	return [
 		`${head}: ${cause}, so this computer can't reach the local network`,
 		"  If a VPN is on (Cloudflare WARP, a Tailscale exit node, a work VPN), turn it off or allow local network access in it",
-		...platform === "darwin" ? ["  macOS may not let the app that started the helper (VS Code, some terminals) use the local network: start the helper from Terminal.app and choose Allow when macOS asks, or allow that app under System Settings → Privacy & Security → Local Network"] : []
+		...platform === "darwin" ? [`  macOS may not let the app that started the helper (VS Code, some terminals) use the local network: start the helper from Terminal.app and choose Allow when macOS asks, or allow that app under System Settings → Privacy & Security → Local Network${restart}`] : []
 	];
 }
 /**
@@ -7792,16 +7860,18 @@ function nearbyNoteLine(note, tool) {
 	return clean(`Wi-Fi: looked through ${tool ?? "the system resolver"}; the helper's own mDNS queries could not leave (${note.detail}), so connecting may be refused too`, 300);
 }
 /**
- * The terminal lines for a scan that could not run: `blocked` names its causes and fixes.
+ * The terminal lines for a scan that could not run: `blocked` names its causes and fixes, as
+ * a blocked connect does (the adb server's restart included: connecting is what comes next).
  * `systemDetail` (NearbyScan): why the system resolver could not look either, on its own line.
+ * `adb`: the adb command, as networkFailureLines() takes it.
  */
-function nearbyFailureLines(error, platform, systemDetail) {
+function nearbyFailureLines(error, platform, systemDetail, adb = "adb") {
 	const head = "Wi-Fi: could not look for Android devices on the network";
 	/** What the socket said, without the resolver's words that scanNearby appended. */
 	const tail = systemDetail ? `; ${systemDetail}` : "";
 	const socket = tail && error.detail.endsWith(tail) ? error.detail.slice(0, -tail.length) : error.detail;
 	const resolver = systemDetail ? [clean(`  The system resolver could not look either: ${systemDetail}`, 300)] : [];
-	if (error.reason === "blocked") return [...blockedLines(head, /EPERM|EACCES/.test(socket) ? "not permitted" : "no route to host", platform), ...resolver];
+	if (error.reason === "blocked") return [...blockedLines(head, /EPERM|EACCES/.test(socket) ? "not permitted" : "no route to host", platform, adb), ...resolver];
 	if (error.reason === "no-network") return [`${head}: this computer is not on a network`, ...resolver];
 	return [`${head}: ${socket}`, ...resolver];
 }
@@ -8165,6 +8235,26 @@ function createAndroidLane(ctx, options = {}) {
 		if (running) return;
 		throw new HelperError("ADB_SERVER_STOPPED", 503, "Google's adb server isn't running, and Wi-Fi devices go through it. Start it with Start adb server.");
 	};
+	/** The adb command in the terminal's advice, as the tester types it (§12b: `<adb>`). */
+	const adbCmd = () => adbCommand(toolbox?.adb ?? null, ctx.options.searchPath);
+	/**
+	 * §4.7: adb's "No route to host" (`blocked`) says only that the adb server could not send.
+	 * When the helper's own check of the same address gets out (helperReaches), the server
+	 * alone is off the local network: `adb-blocked`, which `adbBlocked` makes from adb's words.
+	 * A name is checked at an IPv4 address it resolved to, when it has one. Any other error, and
+	 * a check that can't tell, comes back as it was.
+	 */
+	const whoIsBlocked = async (error, to, signal, adbBlocked) => {
+		if (!(error instanceof HelperError) || error.extra.reason !== "blocked") return error;
+		const reaches = await helperReaches(IPV4$1.test(to.host) ? to.host : to.addresses.find((a) => IPV4$1.test(a)), to.port, {
+			open: ctx.options.lanPresence,
+			windowMs: timeouts.reachCheck,
+			platform: ctx.options.platform,
+			signal
+		});
+		const said = error.extra.detail;
+		return reaches ? adbBlocked(typeof said === "string" ? said : "") : error;
+	};
 	/**
 	 * "failed to authenticate to X" on a first connect: a TV with Network debugging is listed
 	 * `unauthorized` and asks "Allow debugging?" — connected, as far as the tester is concerned,
@@ -8213,7 +8303,7 @@ function createAndroidLane(ctx, options = {}) {
 	});
 	/** The scan's lines in the terminal, when they differ from the last ones printed. */
 	const reportScan = (result, scan) => {
-		const lines = result.error ? [...nearbyFailureLines(result.error, ctx.options.platform, scan.systemDetail), ...result.devices.length ? [nearbySummary(result.devices)] : []] : [...result.note ? [nearbyNoteLine(result.note, scan.system)] : [], nearbySummary(result.devices)];
+		const lines = result.error ? [...nearbyFailureLines(result.error, ctx.options.platform, scan.systemDetail, adbCmd()), ...result.devices.length ? [nearbySummary(result.devices)] : []] : [...result.note ? [nearbyNoteLine(result.note, scan.system)] : [], nearbySummary(result.devices)];
 		const key = lines.join("\n");
 		if (key === scanReported) return;
 		scanReported = key;
@@ -8380,9 +8470,10 @@ function createAndroidLane(ctx, options = {}) {
 			return dial(host, async () => {
 				await requireServer();
 				leaving.delete(target);
+				let addresses = [];
 				let outcome;
 				try {
-					await checkResolvedName(host, lookup, pace.lookupMs, (reason) => connectFailed(target, reason));
+					addresses = await checkResolvedName(host, lookup, pace.lookupMs, (reason) => connectFailed(target, reason));
 					const reply = await client.connectNetwork(host, port, {
 						signal,
 						timeoutMs: timeouts.adbNetworkConnect
@@ -8391,10 +8482,15 @@ function createAndroidLane(ctx, options = {}) {
 						return noticeServer(error);
 					});
 					outcome = isAuthenticateReply(reply) ? await awaitingAllow(reply, target) : parseConnectReply(reply, target);
-				} catch (error) {
+				} catch (caught) {
+					const error = await whoIsBlocked(caught, {
+						host,
+						port,
+						addresses
+					}, signal, (said) => connectFailed(target, "adb-blocked", said));
 					if (error instanceof HelperError && error.code === "ANDROID_CONNECT_FAILED") {
 						const head = `Wi-Fi: could not connect to ${target}`;
-						for (const line of networkFailureLines(head, error, ctx.options.platform)) ctx.log(line);
+						for (const line of networkFailureLines(head, error, ctx.options.platform, adbCmd())) ctx.log(line);
 					}
 					throw error;
 				}
@@ -8409,9 +8505,10 @@ function createAndroidLane(ctx, options = {}) {
 			const target = networkSerial(host, port);
 			return dial(host, async () => {
 				await requireServer();
+				let addresses = [];
 				let outcome;
 				try {
-					await checkResolvedName(host, lookup, pace.lookupMs, (reason) => pairFailed(target, reason));
+					addresses = await checkResolvedName(host, lookup, pace.lookupMs, (reason) => pairFailed(target, reason));
 					outcome = parsePairReply(await client.pairNetwork(code, host, port, {
 						signal,
 						timeoutMs: timeouts.adbPair
@@ -8419,11 +8516,16 @@ function createAndroidLane(ctx, options = {}) {
 						if (error instanceof HelperError && error.code === "TOOL_TIMEOUT") throw pairFailed(target, "timeout");
 						return noticeServer(error);
 					}), target);
-				} catch (error) {
+				} catch (caught) {
+					const error = await whoIsBlocked(caught, {
+						host,
+						port,
+						addresses
+					}, signal, (said) => pairFailed(target, "adb-blocked", said));
 					/** Never the code: it is a one-time secret, and the terminal is pasted into bug reports. */
 					if (error instanceof HelperError && error.code === "ANDROID_PAIR_FAILED") {
 						const head = `Wi-Fi: could not pair with ${target}`;
-						for (const line of networkFailureLines(head, error, ctx.options.platform)) ctx.log(line);
+						for (const line of networkFailureLines(head, error, ctx.options.platform, adbCmd())) ctx.log(line);
 					}
 					throw error;
 				}
@@ -8537,7 +8639,7 @@ function createAndroidLane(ctx, options = {}) {
 					system: systemResolver(ctx)
 				});
 				const devices = mergeNearby(scan.found, scan.names, rows);
-				if (scan.error) for (const line of nearbyFailureLines(scan.error, ctx.options.platform, scan.systemDetail)) write(line);
+				if (scan.error) for (const line of nearbyFailureLines(scan.error, ctx.options.platform, scan.systemDetail, adbCmd())) write(line);
 				if (scan.note) write(nearbyNoteLine(scan.note, scan.system));
 				if (!scan.error || devices.length) {
 					write(nearbySummary(devices));
@@ -12368,7 +12470,9 @@ function createLocalMode(opts) {
  *   connected socket. A host that is there answers with ICMP port unreachable, which the
  *   socket reports as ECONNREFUSED: the one sign of life that needs no privilege and no
  *   process, and that phones dropping TCP and ping still give [V 2026-10-04: 15–615 ms on
- *   the owner's network, the dozing Pixel included]. Silence says nothing.
+ *   the owner's network, the dozing Pixel included]. Silence says nothing. The one other user
+ *   is §4.7 (android-lane.ts helperReaches): one datagram to the address and port a connect
+ *   that adb answered "No route to host" just tried, an address the helper already checked.
  * - The neighbour (ARP) table, where the system shares it (macOS 27 shows the helper an empty
  *   one), and the default gateway, through fixed system paths or Linux's /proc files.
  * - SSDP: one M-SEARCH socket, and the UPnP description a device points to in its answer,
@@ -13463,7 +13567,7 @@ function mergeLan(read) {
 }
 /** The page's wording, for a page with none of its own. */
 const LAN_MESSAGE = {
-	blocked: `Could not look for devices on this network. ${NETWORK_HINT.blocked}`,
+	blocked: `Could not look for devices on this network. ${LOCAL_NETWORK_HINT}`,
 	"no-network": "Could not look for devices: this computer is not on a network. Turn on Wi-Fi, or plug in a network cable.",
 	failed: "Could not look for devices on this network."
 };
@@ -13706,7 +13810,8 @@ function lanSummary(result) {
 /**
  * The terminal's lines for a look (§4.9), printed only when they differ from the last ones:
  * the summary, after a note's quiet line; or why it could not look, `blocked` with its causes
- * and fixes (the macOS one only on a Mac), and the summary only when something was found.
+ * and fixes (the macOS one only on a Mac, and without §4.7's adb server restart: a look goes
+ * nowhere through adb), and the summary only when something was found.
  */
 function lanLines(result, platform) {
 	const head = "Network: could not look for devices";
