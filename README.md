@@ -39,89 +39,28 @@ Mọi trang đều có giao diện sáng và tối (một lựa chọn chung cho
 
 - **Builds:** tải lên file `.apk` hoặc `.ipa`. XConsole đọc thông tin bản build (tên, phiên bản, icon, provisioning profile) và đăng một trang cài đặt tại `https://bauloc.github.io/build/<id>/` để gửi cho tester. Trên Android, nút Install tải file APK về; trên iPhone và iPad, nút Install cài qua `itms-services` (mở bằng Safari, IPA phải ký Ad Hoc, Development hoặc Enterprise). Trên máy tính, trang hiện mã QR để quét bằng điện thoại.
 - **Artifacts:** tải lên hoặc dán một file HTML, XConsole đăng tại `https://bauloc.github.io/artifact/<id>.html`. Mặc định trang chạy trong iframe sandbox khác origin, nên không đọc được token GitHub mà XConsole lưu trong trình duyệt.
-- File được commit thẳng vào repo qua GitHub API: mỗi file phải nhỏ hơn 100 MB (giới hạn của GitHub), và bản đã tải lên vẫn nằm trong lịch sử git kể cả khi đã xoá. Site GitHub Pages tối đa khoảng 1 GB, nên hãy xoá các bản build cũ.
+- File được commit thẳng vào repo này qua GitHub API: mỗi file phải nhỏ hơn 100 MB (giới hạn của GitHub), và bản đã tải lên vẫn nằm trong lịch sử git kể cả khi đã xoá. Site GitHub Pages tối đa khoảng 1 GB, nên hãy xoá các bản build cũ.
 - Bản build từ 100 MB trở lên (tối đa dưới 2 GB) được đưa lên GitHub Releases thay vì vào repo, qua helper của Device Lab chạy trên máy Mac (trình duyệt không tự tải file lên GitHub Releases được): `curl -fsSL https://bauloc.github.io/device/agent/device-bridge.mjs -o ~/device-bridge.mjs && node ~/device-bridge.mjs`. Link cài đặt vẫn như cũ; xoá bản build thì release của nó cũng bị xoá.
-- Thử trên máy: chạy `npm run dev` rồi mở http://localhost:7360/xconsole/?mock. Chế độ mock không cần token; mọi thay đổi chỉ nằm trong bộ nhớ của dev server và được phục vụ tại đúng đường dẫn (`/build/<id>/`, `/artifact/<id>.html`).
+
+## Repo này
+
+Repo này chứa đúng những gì GitHub Pages phục vụ, từ thư mục gốc của branch `master`. Mã nguồn của site (React, TypeScript, Vite) nằm ở một repo riêng tư; mỗi thay đổi được merge ở đó, CI build lại và đẩy bản build sang đây.
+
+| Đường dẫn | Ai ghi |
+| --- | --- |
+| `index.html`, `404.html`, `assets/`, `profile/index.html`, `xconsole/index.html`, `device/index.html`, `device/agent/device-bridge.mjs` | CI của repo mã nguồn, mỗi lần deploy |
+| `terms/`, `privacy/`, `build/`, `artifact/`, `data/`, `iptv` | XConsole, qua GitHub API |
+| `README.md`, `_config.yml`, `profile/flutter_service_worker.js` | Viết tay |
+
+> **Lưu ý:** đừng sửa tay các file build, lần deploy sau sẽ ghi đè. Không sửa tay hay đổi URL các trang pháp lý trong `terms/` và `privacy/`, vì chúng đã được khai báo trên App Store và Google Play.
 
 ## Công nghệ
 
 - [React 19](https://react.dev), [TypeScript](https://www.typescriptlang.org), [Vite](https://vite.dev)
 - [TanStack Router](https://tanstack.com/router) và [TanStack Query](https://tanstack.com/query)
 - [Tailwind CSS 4](https://tailwindcss.com) và [shadcn/ui](https://ui.shadcn.com)
-- [Vitest](https://vitest.dev), ESLint, Prettier
 - [ya-webadb](https://github.com/yume-chan/ya-webadb) cho kết nối Android qua WebUSB và qua helper
 - GitHub Pages để host
-
-## Bắt đầu
-
-### Yêu cầu
-
-- Node.js `^20.19.0`, `^22.13.0` hoặc `>=24`
-- npm
-
-### Cài đặt
-
-```bash
-git clone https://github.com/bauloc/bauloc.github.io.git
-cd bauloc.github.io/_app
-npm ci
-npm run dev
-```
-
-Mở http://localhost:7360. Mọi lệnh npm đều chạy trong thư mục `_app/`.
-
-### Lệnh thường dùng
-
-| Lệnh | Mô tả |
-| --- | --- |
-| `npm run dev` | Chạy dev server tại http://localhost:7360 |
-| `npm test` | Chạy test bằng Vitest |
-| `npm run lint` | Kiểm tra code bằng ESLint |
-| `npm run typecheck` | Kiểm tra kiểu TypeScript |
-| `npm run build` | Build vào `_app/dist` |
-| `npm run verify` | Chạy typecheck, lint, test (cả site và helper) rồi build |
-| `npm run publish` | Chép bản build ra thư mục gốc của repo |
-| `npm run deploy` | Chạy `verify` rồi `publish` |
-
-### Biến môi trường
-
-Form liên hệ gửi tin nhắn qua bot Telegram. `VITE_TELEGRAM_BOT_TOKEN` và `VITE_TELEGRAM_CHAT_ID` nằm trong [`_app/.env.production`](_app/.env.production). File này được commit vào repo nên bản build nào cũng có, kể cả khi build trong git worktree. `npm run dev` không đọc file này: nếu `_app/.env` không có hai biến đó, form ở máy dev sẽ mở ứng dụng email của người gửi.
-
-> Giá trị các biến `VITE_*` được nhúng vào JavaScript công khai của site, ai cũng đọc được.
-
-## Cấu trúc thư mục
-
-```text
-.
-├── _app/               # Mã nguồn (Vite + React + TypeScript), không được publish
-│   ├── src/features/   # home, profile, xconsole, device
-│   ├── src/routes/     # Route theo file (TanStack Router)
-│   ├── helper/         # Mã nguồn helper của Device Lab
-│   └── scripts/        # publish, check-live, cv, ...
-├── assets/             # JS, CSS, ảnh đã build
-├── index.html          # Trang chủ (bản build)
-├── 404.html            # Bản sao của index.html: mở deep link, đưa trang không tồn tại về /profile
-├── profile/            # Trang HTML của từng mục (bản build)
-├── xconsole/
-├── device/
-│   └── agent/          # Helper của Device Lab (device-bridge.mjs)
-├── terms/              # Trang Terms of Service do XConsole tạo
-├── privacy/            # Trang Privacy Policy do XConsole tạo
-├── build/              # Trang cài đặt và file APK/IPA do XConsole đăng
-├── artifact/           # Trang HTML do XConsole đăng
-└── data/, iptv         # Dữ liệu do XConsole quản lý
-```
-
-## Triển khai
-
-GitHub Pages phục vụ site trực tiếp từ thư mục gốc của branch `master`, vì vậy bản build được commit cùng mã nguồn:
-
-1. Tạo branch mới từ `master` và sửa code trong `_app/`.
-2. Chạy `npm run deploy` để kiểm tra và chép bản build ra thư mục gốc.
-3. Commit cả mã nguồn lẫn bản build, rồi mở pull request vào `master`.
-4. Sau khi merge, GitHub Pages tự build lại và site được cập nhật sau khoảng một phút.
-
-> **Lưu ý:** `terms/`, `privacy/`, `build/`, `artifact/`, `data/` và `iptv` do XConsole ghi trực tiếp lên `master`; `npm run publish` không bao giờ ghi đè các đường dẫn này. Không sửa tay hay đổi URL các trang pháp lý, vì chúng đã được khai báo trên App Store và Google Play.
 
 ## Liên hệ
 
