@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "updated_at": "2026-10-07T05:23:09.243Z",
+  "entries": [
+    {
+      "id": "hz11qlxx",
+      "platform": "ios",
+      "name": "NhanEX Dev",
+      "bundle_id": "com.nhanex.app.stg",
+      "version": "1.0.5",
+      "build": "19",
+      "file": "nhanex-dev-1.0.5-19.ipa",
+      "size": 19254840,
+      "sha256": "98a14a749838d308bf68318cd51ca0f011d96656530b6d598788fe7b78fb8a79",
+      "icon": "icon.png",
+      "min_os": "15.0",
+      "notes": "",
+      "android": null,
+      "ios": {
+        "devices": [
+          "iphone"
+        ],
+        "profile": {
+          "kind": "ad-hoc",
+          "name": "iOS Team Ad Hoc Provisioning Profile: com.nhanex.app.stg",
+          "team": "Nhan Enterprises",
+          "expires": "2027-09-13T07:36:35Z",
+          "device_count": 2
+        }
+      },
+      "release": null,
+      "uploaded_at": "2026-10-07T05:23:09.243Z",
+      "created_at": "2026-10-07T05:23:09.243Z",
+      "updated_at": "2026-10-07T05:23:09.243Z"
+    }
+  ]
+}

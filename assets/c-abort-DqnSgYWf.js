@@ -1,0 +1,1 @@
+function e(e,t){return t.aborted?Promise.reject(t.reason):new Promise((n,r)=>{let i=()=>{r(t.reason)};t.addEventListener(`abort`,i,{once:!0}),e.then(n,r).finally(()=>{t.removeEventListener(`abort`,i)})})}export{e as t};

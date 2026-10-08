@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="BAULOC — Software Developer, Electrical &amp; Electronic Engineer" />
+    <meta property="og:title" content="bauloc.github.io" />
+    <meta property="og:description" content="BAULOC — Software Developer, Electrical &amp; Electronic Engineer" />
+    <title>bauloc.github.io</title>
+    <script>
+      // Theme and language before first paint, so a dark-mode visitor never sees a light frame
+      // while the bundle loads. A saved choice wins, else the system's and the browser's.
+      // Mirrors src/lib/theme.ts and src/lib/locale.ts.
+      ;(function () {
+        var saved = null
+        var locale = null
+        try {
+          saved = localStorage.getItem('bauloc:theme')
+          locale = localStorage.getItem('bauloc:locale')
+        } catch (e) {}
+        if (saved === 'dark' || (saved !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches))
+          document.documentElement.classList.add('dark')
+        if (locale !== 'en' && locale !== 'vi') {
+          var languages = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || '']
+          locale = 'en'
+          for (var i = 0; i < languages.length; i++) {
+            var primary = String(languages[i]).toLowerCase().split('-')[0]
+            if (primary === 'vi' || primary === 'en') {
+              locale = primary
+              break
+            }
+          }
+        }
+        document.documentElement.lang = locale
+      })()
+    </script>
+    <script type="module" crossorigin src="/assets/index-DquQooS8.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/c-react-SIfiwpqq.js">
+    <link rel="modulepreload" crossorigin href="/assets/c-jsx-runtime-CZyyeElx.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-DM8vGG_L.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

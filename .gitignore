@@ -1,0 +1,17 @@
+.DS_Store
+
+# Secrets never belong in this public repo. XConsole keeps its GitHub token in the browser's
+# localStorage, never in a file.
+.env
+.env.*
+*.pem
+*.key
+
+# The source lives in the private repo bauloc/bauloc.github.io_source now. What a checkout of
+# this repo may still hold from the years when the source lived here too — dependencies, local
+# tool settings, the pre-2026 archive — is local state, and must never be published.
+_app/
+_deprecated/
+node_modules/
+.claude/
+.vscode/

@@ -1,0 +1,1 @@
+import{et as e,nt as t,tt as n}from"./index-DquQooS8.js";function r(r){let i=t({warn:r?.router===void 0}),a=r?.router||i;return n(a.stores.__store,e(r,a))}export{r as t};
