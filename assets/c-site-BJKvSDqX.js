@@ -1,0 +1,1 @@
+var e=`https://bauloc.github.io`;function t(t){return t?window.location.origin:e}export{t as n,e as t};
