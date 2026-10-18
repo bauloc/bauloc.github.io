@@ -1,0 +1,1 @@
+import{t as e}from"./c-term-privacy-page-D60kmMYd.js";var t=e;export{t as component};
