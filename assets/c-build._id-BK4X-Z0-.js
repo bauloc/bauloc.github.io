@@ -1,0 +1,1 @@
+import{t as e}from"./c-jsx-runtime-DSUQuDuZ.js";import{t}from"./c-pending-page-BE7UAE0_.js";var n=e(),r=()=>(0,n.jsx)(t,{kind:`build`});export{r as component};
